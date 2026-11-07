@@ -336,6 +336,23 @@ input:focus-visible {
   color: var(--ink-500);
 }
 
+.ecg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.explain {
+  margin-top: 6px;
+  padding: 4px 6px;
+  background: var(--cream-200);
+  border: 2px dashed var(--ink-700);
+}
+
+.explain p {
+  font-size: 16px;
+}
+
 .second {
   margin: 6px 0;
   font-size: 16px;
@@ -435,7 +452,7 @@ input:focus-visible {
 
 .strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin: 4px;
 }

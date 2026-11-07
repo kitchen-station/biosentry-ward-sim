@@ -90,6 +90,7 @@ export function createReplaySource(file: ReplayFile): VitalsSource {
           spo2Scale: 1, // eICU records no scale; Scale 1 is the default for everyone without a decision
           patch: true,
           signalLostMin: 0,
+          irregular: false, // eICU has no waveform here, so no strip is drawn
         };
       }),
 

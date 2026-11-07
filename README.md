@@ -1,6 +1,6 @@
 # BioSentry ward simulation
 
-An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
+An interactive demo of how BioSentry Intelligence would behave on a live ward. Twenty patients sit on ward W4, covered by one staff nurse, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
 
 It runs on two sources: synthetic patients wearing chest patches, or real de-identified ICU stays replayed on the same simulated ward.
 
@@ -28,7 +28,7 @@ CI runs the tests and the build on every push and pull request. Dependabot propo
 
 - Switch between synthetic patients and the eICU replay.
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
-- Click a bed or a ranked row to open a chart with the five vitals: heart rate, respiratory rate, SpO2, temperature and blood pressure.
+- Click a bed or a ranked row to open a chart with the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
 - Start a deterioration (synthetic only), detach a patch, apply a patch, or record a blood pressure.
 - Open Pipeline for stage counts and Log for ward events.
 
@@ -46,13 +46,19 @@ CI runs the tests and the build on every push and pull request. Dependabot propo
 | Isometric renderer and sprites | `src/render/` |
 | Panels | `src/panels.tsx` |
 
-The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. The Pipeline tab marks each stage built, planned or demo rule. Anomaly detection, conformal abstention, the explainer agent and the patch's ECG are not simulated.
+The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. The Pipeline tab marks each stage built, planned, not built or demo rule, and lists the planned stages (anomaly detection, conformal abstention, the explainer agent) without simulating them.
+
+Kitchen also shapes three other things:
+
+- **Ward size:** Kitchen says one nurse has 20 to 50 patients, against a DOH standard of 12. The demo takes the low end: 20 patients, one staff nurse. Eight of the synthetic patients (p-013 to p-020) are demo patients added to the BioSentry fixture's twelve, kept low risk.
+- **ECG:** the patch sends ECG. The chart draws an illustrative strip from the heart rate, irregular for the AF patient. It is not data and nothing analyses it. The eICU demo has no waveforms, so the replay shows none.
+- **Explainer agent:** planned in the product. The chart shows a fixed template in its place, built from the NEWS2 breakdown and the RCP responses. It is not an AI agent and it does not rank.
 
 The sim is plain data with no React or canvas, so it runs headless in tests. At minute 0 it reproduces the BioSentry fixture: all ten NEWS2 totals, the rank order, the reason strings and the NOT RANKED text. `src/sim/sim.test.ts` checks this against `src/sim/synthetic.json`.
 
 ### The eICU replay
 
-The replay uses 12 stays from the [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/), which is open under ODbL v1.0. The data is not in this repository. To add it locally, put these four files in a folder outside the repo: `patient.csv.gz`, `vitalPeriodic.csv.gz`, `vitalAperiodic.csv.gz` and `nurseCharting.csv.gz`. Then run:
+The replay uses 20 stays from the [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/), which is open under ODbL v1.0. The data is not in this repository. To add it locally, put these four files in a folder outside the repo: `patient.csv.gz`, `vitalPeriodic.csv.gz`, `vitalAperiodic.csv.gz` and `nurseCharting.csv.gz`. Then run:
 
 ```bash
 npm run extract -- /path/to/that/folder
@@ -60,9 +66,9 @@ npm run extract -- /path/to/that/folder
 
 On the author's machine the files live in `~/Documents/datasets/eicu-crd-demo-2.0.1`, with PhysioNet's `SHA256SUMS.txt` beside them.
 
-That writes `public/replay/eicu-12.json`, which git ignores, and turns on the eICU replay button. If you share an extract, ODbL requires attribution and keeps it under the same licence.
+That writes `public/replay/eicu-20.json`, which git ignores, and turns on the eICU replay button. If you share an extract, ODbL requires attribution and keeps it under the same licence.
 
-This is real ICU data on a simulated ward. It is not ward data, and it is not from a chest patch. The stays are US ICU stays, the monitor stands in for the patch, and NEWS2 scores run high because these patients are sicker than a ward population. The 12 stays were hand-picked from 39 cardiac, awake, unventilated stays discharged alive, for a spread of NEWS2 paths. They are not a representative sample.
+This is real ICU data on a simulated ward. It is not ward data, and it is not from a chest patch. The stays are US ICU stays, the monitor stands in for the patch, and NEWS2 scores run high because these patients are sicker than a ward population. The 20 stays were hand-picked from 39 cardiac, awake, unventilated stays discharged alive: 12 for a spread of NEWS2 paths and 8 lower, steadier ones. Every stay has all inputs at the start. They are not a representative sample.
 
 | Input | Replay source | Rule |
 |---|---|---|
@@ -73,7 +79,7 @@ This is real ICU data on a simulated ward. It is not ward data, and it is not fr
 | Consciousness | GCS from nurse charting | GCS 15 is Alert, lower is new confusion |
 | SpO2 scale | Not recorded | Scale 1 for everyone |
 
-Scores change about 24 times an hour across the ward, against about 2 in the synthetic ward. That is left visible, because smoothing it would change how the arbiter behaves.
+Scores change about 37 times an hour across the 20 replay patients, about 1.8 per patient each hour, against about 0.3 in the synthetic ward. That is left visible, because smoothing it would change how the arbiter behaves.
 
 ### Adding another dataset
 

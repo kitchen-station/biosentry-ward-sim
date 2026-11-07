@@ -62,6 +62,7 @@ export interface Patient {
   ackLevel: number;
   lastAssessed: number;
   injected: boolean;
+  irregular: boolean;
 }
 
 export type TaskKind = "assess" | "apply_patch" | "record_bp";
@@ -114,7 +115,6 @@ export interface Sim {
 
 const STAFF: [string, string, string, Staff["role"]][] = [
   ["rn-delacruz", "Dela Cruz", "Staff nurse", "rn"],
-  ["rn-reyes", "Reyes", "Staff nurse", "rn"],
   ["rn-manalo", "Manalo", "Charge nurse", "charge_rn"],
   ["md-santos", "Dr. Santos", "Attending", "md"],
   ["md-aquino", "Dr. Aquino", "Attending", "md"],
@@ -530,6 +530,7 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
     ackLevel: 0,
     lastAssessed: -999,
     injected: false,
+    irregular: seed.irregular,
   };
   // Warm-up, so the gate starts full. p-011's patch stops before the start.
   for (let minute = 1 - rules.warmupMin; minute <= 0; minute += 1) {

@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Sparkline } from "./chart";
+import { EcgStrip } from "./ecg";
+import { explain } from "./explain";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS } from "./render/draw";
 import {
@@ -302,6 +304,27 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           data={p.bpHistory}
         />
       </div>
+      <div className="vital">
+        <div className="vhead">
+          <span>ECG, lead II</span>
+          <span className="pill">illustrative</span>
+        </div>
+        {src.synthetic ? (
+          <>
+            <EcgStrip
+              hr={p.patch && vitalQuality(p, "heart_rate", minute) !== "missing" ? p.held.heart_rate : null}
+              clockS={s.clockS}
+              irregular={p.irregular}
+            />
+            <div className="prov">
+              Drawn from the heart rate{p.irregular ? ", irregular for AF" : ""}. The patch sends ECG; BioSentry
+              stores waveforms in Object Storage Service. Nothing here analyses it.
+            </div>
+          </>
+        ) : (
+          <div className="prov">The eICU demo has no waveforms, so no strip is drawn.</div>
+        )}
+      </div>
       <p className="second mono">
         ACVPU {p.consciousness}
         {src.synthetic ? "" : " (from GCS)"} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
@@ -318,6 +341,14 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           {d.reason}. {d.instruction}.
         </p>
       )}
+      <div className="explain">
+        <div className="vhead">
+          <span>Why this patient</span>
+          <span className="pill">planned: explainer agent</span>
+        </div>
+        <p>{explain(p)}</p>
+        <div className="prov">A fixed template stands in for the planned agent. It does not rank.</div>
+      </div>
       <div className="actions">
         {src.inject && (
           <button disabled={p.injected} onClick={() => injectDeterioration(s, src, id)}>
@@ -359,9 +390,12 @@ function PipelineTab({ s, src }: { s: Sim; src: VitalsSource }) {
         : "Stands in for the planned signal-quality model: 2 of 3 readings, temperature holds 8 hours.",
       `${s.counts.rejected} rejected`,
     ],
+    ["Anomaly detection", "Planned", "Learns each patient's normal and flags a change from it. Not simulated.", "--"],
+    ["Conformal abstention", "Not built", "Stays quiet when the system is not sure. Not simulated.", "--"],
     ["NEWS2", "Built", "Runs on the ward edge server. Any missing input abstains. Nothing is imputed.", `${s.counts.abstained} abstained`],
     ["Escalation arbiter", "Built", "Runs on the ward edge server. The only step that changes priority.", `${ranked} ranked, ${s.patients.length - ranked} not`],
     ["Clinician list", "Built", "One ranked list per clinician. A human decides.", `${s.tasks.length} queued`],
+    ["Alert explainer agent", "Planned", "Plain words for each ranked alert. The chart shows a fixed template in its place.", "--"],
     ["Huawei Cloud", "Planned", "Keeps a synced copy. The edge server stays primary and works offline.", "every 15 min"],
   ];
   return (
@@ -379,8 +413,8 @@ function PipelineTab({ s, src }: { s: Sim; src: VitalsSource }) {
         ))}
       </ol>
       <p className="story">
-        Not simulated yet: anomaly detection against a personal baseline, conformal abstention and the
-        alert explainer agent. The patch, gateway and cloud are planned hardware and services.
+        Stages marked planned or not built are shown so the flow matches the Kitchen page. They do not
+        affect the ranking here. The patch, gateway and cloud are planned hardware and services.
       </p>
       <ul className="key">
         <li><i style={{ background: "#4ECDC4" }} /> Sample scored and ranked</li>

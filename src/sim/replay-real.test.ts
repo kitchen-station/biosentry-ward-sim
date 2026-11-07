@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createReplaySource, type ReplayFile } from "./replay";
 import { createSim, minuteOf, step, type Patient } from "./sim";
 
-const found = import.meta.glob<ReplayFile>("/public/replay/eicu-12.json", {
+const found = import.meta.glob<ReplayFile>("/public/replay/eicu-20.json", {
   eager: true,
   import: "default",
 });
@@ -11,8 +11,8 @@ const file = Object.values(found)[0];
 
 const total = (p: Patient) => (p.decision.kind === "ranked" ? p.decision.news2.total : null);
 
-describe.skipIf(!file)("the real 12-stay extract", () => {
-  it("ranks all twelve at the start", () => {
+describe.skipIf(!file)("the real 20-stay extract", () => {
+  it("ranks all twenty at the start", () => {
     const s = createSim(createReplaySource(file));
     expect(s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? "ok" : p.decision.reason])).toEqual(
       s.patients.map((p) => [p.id, "ok"]),

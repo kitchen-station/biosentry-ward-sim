@@ -1,14 +1,16 @@
-// Builds public/replay/eicu-12.json from the eICU-CRD Demo. The output stays out of git.
+// Builds public/replay/eicu-20.json from the eICU-CRD Demo. The output stays out of git.
 // Usage: npm run extract -- <folder holding the four .csv.gz files>
 
 import { createReadStream, mkdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createGunzip } from "node:zlib";
 
-// Cardiac, awake, unventilated stays, discharged alive, chosen for a spread of NEWS2 paths.
+// Cardiac, awake, unventilated stays, discharged alive. The first twelve give a spread of NEWS2
+// paths; the last eight are lower and steadier, so the ward of twenty looks like a ward.
 const STAYS = [
   "967281", "1695183", "1724218", "1076979", "1176675", "2511125",
   "1728151", "2316703", "1626712", "1794908", "2325386", "263850",
+  "2560585", "1063742", "242895", "965083", "1061585", "2032312", "518155", "976505",
 ];
 const GRID = 5;
 const WARMUP = 480;
@@ -128,7 +130,7 @@ const stays = STAYS.map((id) => {
 
 mkdirSync("public/replay", { recursive: true });
 writeFileSync(
-  "public/replay/eicu-12.json",
+  "public/replay/eicu-20.json",
   JSON.stringify({ dataset: "eICU-CRD Demo 2.0.1", licence: "ODbL v1.0", stays }),
 );
 console.log(stays.map((s) => `${s.id}: ${s.hr.length} HR, ${s.temp.length} temp, ${s.bp.length} BP, ${s.durationMin} min`).join("\n"));

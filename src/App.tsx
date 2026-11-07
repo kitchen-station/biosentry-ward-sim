@@ -28,7 +28,7 @@ export function App() {
 
   useEffect(() => {
     // The extract is local only. Without it the dev server answers with HTML, so json() fails.
-    fetch("/replay/eicu-12.json")
+    fetch("/replay/eicu-20.json")
       .then((response) => response.json())
       .then(setReplay)
       .catch(() => setReplay(null));

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { explain } from "../explain";
 import { arbitrate, rankWard, type Ranked } from "./arbiter";
 import { BEDS, findPath, HOMES, nurseStand, physicianStand, STATIONS } from "./map";
 import { roundHalfUp, scoreNews2, type News2Inputs } from "./news2";
@@ -70,7 +71,8 @@ describe("NEWS2", () => {
 
 describe("parity with the BioSentry fixture at minute 0", () => {
   const { s } = start();
-  const ranked = s.patients.filter((p) => p.decision.kind === "ranked");
+  const inFixture = (id: string) => id in fx.labels; // the ward also holds 8 demo patients
+  const ranked = s.patients.filter((p) => p.decision.kind === "ranked" && inFixture(p.id));
 
   it("scores all ten ranked patients exactly", () => {
     expect(ranked).toHaveLength(10);
@@ -87,7 +89,9 @@ describe("parity with the BioSentry fixture at minute 0", () => {
   });
 
   it("ranks in fixture order, level before total", () => {
-    const order = rankWard(s.patients.map((p) => p.decision)).ranked.map((d) => d.patientId);
+    const order = rankWard(s.patients.map((p) => p.decision))
+      .ranked.map((d) => d.patientId)
+      .filter(inFixture);
     expect(order).toEqual(fx.ranked.map((r) => r.id));
     expect(patientById(s, "p-008").rank).toBeLessThan(patientById(s, "p-007").rank!);
   });
@@ -318,5 +322,19 @@ describe("replay", () => {
 
   it("offers no deterioration button", () => {
     expect(createReplaySource(file).inject).toBeUndefined();
+  });
+});
+
+describe("explainer template", () => {
+  it("puts the NEWS2 drivers and the RCP response in plain words", () => {
+    const { s } = start();
+    expect(explain(patientById(s, "p-001"))).toBe(
+      "Rank 1. Breathing is fast (23/min), oxygen saturation is low (93%), systolic blood pressure is low (88) and heart rate is fast (118/min). NEWS2 7 or more: urgent review by the medical team, at least registrar level.",
+    );
+    expect(explain(patientById(s, "p-012"))).toContain("Every observation is in the normal range. NEWS2 0: routine monitoring.");
+    expect(explain(patientById(s, "p-009"))).toContain("NEWS2 1 to 4: ward-based response by the registered nurse.");
+    expect(explain(patientById(s, "p-005"))).toBe(
+      "Not on the ranked list: No device data. Apply the patch and verify the signal.",
+    );
   });
 });

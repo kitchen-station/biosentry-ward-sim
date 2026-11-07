@@ -97,7 +97,6 @@ export const physicianStand = (bed: Bed): Tile => {
 
 export const HOMES: Record<string, Tile> = {
   "rn-delacruz": [13, 7],
-  "rn-reyes": [15, 7],
   "rn-manalo": [14, 5],
   "md-santos": [24, 10],
   "md-aquino": [28, 10],

@@ -1,6 +1,7 @@
 // The vitals source: the one seam a real dataset replaces. Everything below VitalsSource is the
 // synthetic implementation, a live version of BioSentry's removed batch generator.
 
+import { BEDS } from "./map";
 import type { Acvpu } from "./news2";
 import fixture from "./synthetic.json";
 
@@ -41,6 +42,7 @@ export interface PatientSeed {
   spo2Scale: 1 | 2;
   patch: boolean;
   signalLostMin: number;
+  irregular: boolean; // atrial fibrillation: the illustrative ECG drops the P wave
 }
 
 /** Nurse-charted state at a minute. Each value holds until the next entry. */
@@ -180,15 +182,71 @@ const DEMO_PHYSICIAN: Record<string, string> = { "p-004": "md-santos", "p-005": 
 const assignee = (id: string, role: string) =>
   Object.entries(fx.clinicians).find(([, c]) => c.role === role && c.patients.includes(id))?.[0];
 
-/** The twelve occupied beds and who covers them, in fixture order. */
-export const SEATS = [...fx.ranked, ...fx.unscored].map((row) => ({
-  bed: row.bed,
-  rn: assignee(row.id, "rn") ?? "rn-delacruz",
-  md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
-}));
+// Kitchen: "One nurse has 20 to 50 patients. The DOH standard is 12." The demo takes the low end:
+// twenty patients and one staff nurse, with the charge nurse watching the list.
+export const WARD_SIZE = 20;
+const STAFF_NURSE = "rn-delacruz";
+
+// Demo patients beyond the fixture's twelve. Values sit inside the NEWS2 zero bands, away from
+// the edges, so they stay low risk and quiet: a typical ward, not a crisis.
+const EXTRA: [string, string, number, string, string, string, Record<Vital, number>, Cuff][] = [
+  ["p-013", "Ramos, Teresa", 71, "F", "Heart failure, stable on oral diuretics", "stable, discharge planned for tomorrow", { heart_rate: 76, respiratory_rate: 16, spo2: 97, temperature: 36.7 }, { systolic: 126, diastolic: 74 }],
+  ["p-014", "Navarro, Eduardo", 64, "M", "Unstable angina, now pain-free", "stable on medical therapy, awaiting angiography", { heart_rate: 68, respiratory_rate: 15, spo2: 98, temperature: 36.6 }, { systolic: 134, diastolic: 80 }],
+  ["p-015", "Castillo, Rosario", 58, "F", "Hypertension, medication review", "stable, blood pressure now controlled", { heart_rate: 72, respiratory_rate: 16, spo2: 98, temperature: 36.8 }, { systolic: 142, diastolic: 86 }],
+  ["p-016", "Domingo, Felipe", 77, "M", "Syncope, telemetry for rhythm", "stable, no events overnight", { heart_rate: 64, respiratory_rate: 15, spo2: 97, temperature: 36.5 }, { systolic: 128, diastolic: 70 }],
+  ["p-017", "Salazar, Gloria", 69, "F", "NSTEMI, day 3", "stable, mobilising", { heart_rate: 80, respiratory_rate: 17, spo2: 97, temperature: 36.9 }, { systolic: 122, diastolic: 72 }],
+  ["p-018", "Pascual, Ricardo", 55, "M", "Atypical chest pain, troponin negative", "stable, for discharge after review", { heart_rate: 70, respiratory_rate: 14, spo2: 99, temperature: 36.6 }, { systolic: 130, diastolic: 78 }],
+  ["p-019", "Aguilar, Corazon", 82, "F", "Heart failure with preserved EF", "stable, mild ankle swelling", { heart_rate: 78, respiratory_rate: 17, spo2: 96, temperature: 36.7 }, { systolic: 138, diastolic: 76 }],
+  ["p-020", "Fernandez, Manuel", 60, "M", "Post-PCI, day 1", "stable, groin site clean", { heart_rate: 66, respiratory_rate: 15, spo2: 98, temperature: 36.8 }, { systolic: 124, diastolic: 74 }],
+];
+
+const fixtureBeds = new Set([...fx.ranked, ...fx.unscored].map((row) => row.bed));
+const spareBeds = BEDS.map((b) => b.label).filter((label) => !fixtureBeds.has(label));
+
+/** The twenty occupied beds and who covers them: fixture patients first, then spare beds. */
+export const SEATS = [
+  ...[...fx.ranked, ...fx.unscored].map((row) => ({
+    bed: row.bed,
+    rn: STAFF_NURSE,
+    md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
+  })),
+  ...spareBeds.slice(0, WARD_SIZE - fixtureBeds.size).map((bed, i) => ({
+    bed,
+    rn: STAFF_NURSE,
+    md: i % 2 === 0 ? "md-santos" : "md-aquino",
+  })),
+];
+
+const quiet = (value: number) => Array<number | null>(12).fill(value);
+
+function extraSeeds(): PatientSeed[] {
+  return EXTRA.map(([id, name, age, sex, context, story, vitals, bp], i) => ({
+    id,
+    name,
+    age,
+    sex,
+    context,
+    story: `At 15:00: ${story} (demo patient, not in the BioSentry fixture)`,
+    ...SEATS[fixtureBeds.size + i],
+    trend: "stable",
+    history: {
+      heart_rate: quiet(vitals.heart_rate),
+      respiratory_rate: quiet(vitals.respiratory_rate),
+      spo2: quiet(vitals.spo2),
+      temperature: quiet(vitals.temperature),
+    },
+    bp,
+    consciousness: "A",
+    onOxygen: false,
+    spo2Scale: 1,
+    patch: true,
+    signalLostMin: 0,
+    irregular: false,
+  }));
+}
 
 function fixtureSeeds(): PatientSeed[] {
-  return [...fx.ranked, ...fx.unscored].map((row, i) => ({
+  const seeds = [...fx.ranked, ...fx.unscored].map((row, i): PatientSeed => ({
     id: row.id,
     name: row.name,
     age: row.age,
@@ -204,7 +262,9 @@ function fixtureSeeds(): PatientSeed[] {
     spo2Scale: presentValue<1 | 2>(row.vitals.spo2_scale) ?? 1,
     patch: !NO_PATCH.has(row.id),
     signalLostMin: SIGNAL_LOST_MIN[row.id] ?? 0,
+    irregular: AF_PATIENTS.has(row.id),
   }));
+  return [...seeds, ...extraSeeds()];
 }
 
 function presentValue<T>(m: Measured | undefined): T | null {
@@ -222,6 +282,7 @@ function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; c
     const cuff = presentValue<Cuff>(row.vitals.blood_pressure) ?? DEMO_CUFF[row.id];
     out[row.id] = { vitals, cuff };
   }
+  for (const [id, , , , , , vitals, cuff] of EXTRA) out[id] = { vitals: { ...vitals }, cuff };
   return out;
 }
 
