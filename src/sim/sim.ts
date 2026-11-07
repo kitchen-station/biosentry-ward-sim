@@ -6,17 +6,21 @@
 import { arbitrate, LEVEL, rankWard, type Decision } from "./arbiter";
 import { bedByLabel, findPath, HOMES, nurseStand, physicianStand, type Tile } from "./map";
 import { scoreNews2, type Acvpu } from "./news2";
-import { CLAMPS, VITALS, type Cuff, type Vital, type VitalsSource } from "./source";
-import fixture from "./synthetic.json";
+import {
+  CLAMPS,
+  VITALS,
+  type Cuff,
+  type GateRules,
+  type PatientSeed,
+  type Vital,
+  type VitalsSource,
+} from "./source";
 
 export type Speed = 0 | 1 | 10 | 60;
 export type Quality = "ok" | "degraded" | "missing";
 export type Trend = "rising" | "falling" | "stable" | "insufficient";
 
 const WINDOW_MINUTES = 15;
-const MIN_VALID = 8; // BioSentry MIN_VALID_PER_BIN
-const DEGRADED_AFTER = 15; // BioSentry STALE_AFTER_S, in minutes
-const NOT_RANKED_AFTER = 30; // demo value
 const REASSESS_AFTER = 60; // demo value
 const ACTOR_SPEED_CAP = 6; // staff would cross the ward in a quarter second at 60x
 const WALK_TILES_PER_S = 1;
@@ -28,18 +32,19 @@ const DONE_S = 2;
 export interface Patient {
   id: string;
   name: string;
-  age: number;
+  age: number | string;
   sex: string;
   bed: string;
   context: string;
   story: string;
   rn: string;
   md: string;
+  rules: GateRules;
   offsetS: number;
   nextMinute: number;
   patch: boolean;
   window: Record<Vital, (number | null)[]>;
-  signal: number[]; // last 60 minutes, 1 = usable
+  signal: number[]; // last 60 minutes of samples, 1 = usable
   held: Record<Vital, number | null>;
   heldAt: Record<Vital, number | null>;
   history: Record<Vital, (number | null)[]>; // 15-minute medians, oldest first
@@ -104,34 +109,8 @@ export interface Sim {
   packets: { patient: string; outcome: PacketOutcome }[]; // drained by the renderer
   log: { minute: number; text: string }[];
   counts: { received: number; rejected: number; abstained: number };
+  ended: boolean;
 }
-
-interface FixturePatient {
-  id: string;
-  name: string;
-  age: number;
-  sex: string;
-  bed: string;
-  admitting_context: string;
-  trend: Trend;
-  vitals: Record<string, { data: { present: boolean; value?: unknown } }>;
-  vital_trends: Record<Vital, (number | null)[]>;
-}
-
-const fx = fixture as unknown as {
-  ranked: FixturePatient[];
-  unscored: FixturePatient[];
-  labels: Record<string, { story: string }>;
-  clinicians: Record<string, { role: string; patients: string[] }>;
-  seed: number;
-};
-
-export const FIXTURE_SEED = fx.seed;
-
-const SIGNAL_LOST_MIN: Record<string, number> = { "p-011": 20 };
-const NO_PATCH = new Set(["p-005"]);
-// Demo values: the fixture assigns these two patients no physician.
-const DEMO_PHYSICIAN: Record<string, string> = { "p-004": "md-santos", "p-005": "md-aquino" };
 
 const STAFF: [string, string, string, Staff["role"]][] = [
   ["rn-delacruz", "Dela Cruz", "Staff nurse", "rn"],
@@ -150,16 +129,6 @@ const median = (values: number[]) => {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
-const present = <T,>(m: { data: { present: boolean; value?: unknown } } | undefined) =>
-  m?.data.present ? (m.data.value as T) : null;
-
-const assignee = (id: string, role: string) => {
-  const hit = Object.entries(fx.clinicians).find(
-    ([, c]) => c.role === role && c.patients.includes(id),
-  );
-  return hit?.[0];
-};
-
 export const minuteOf = (s: Sim) => Math.floor(s.clockS / 60);
 export const staffById = (s: Sim, id: string) => s.staff.find((m) => m.id === id)!;
 export const patientById = (s: Sim, id: string) => s.patients.find((p) => p.id === id)!;
@@ -170,29 +139,35 @@ function say(s: Sim, text: string) {
 }
 
 function gate(p: Patient, reading: Record<Vital, number | null> | null, minute: number) {
+  const { sampleEveryMin, minValid, charted } = p.rules;
   let usable = reading !== null;
   for (const v of VITALS) {
     const value = reading?.[v] ?? null;
     const inRange = value !== null && value >= CLAMPS[v][0] && value <= CLAMPS[v][1];
-    if (reading && !inRange) usable = false;
+    if (reading && !inRange && !(value === null && charted.includes(v))) usable = false;
     const buffer = p.window[v];
     buffer.push(inRange ? value : null);
-    if (buffer.length > WINDOW_MINUTES) buffer.shift();
+    if (buffer.length > WINDOW_MINUTES / sampleEveryMin) buffer.shift();
     const got = buffer.filter((x): x is number => x !== null);
-    if (inRange && got.length >= MIN_VALID) {
+    if (inRange && got.length >= minValid[v]) {
       p.held[v] = median(got);
       p.heldAt[v] = minute;
     }
   }
   p.signal.push(usable ? 1 : 0);
-  if (p.signal.length > 60) p.signal.shift();
+  if (p.signal.length > 60 / sampleEveryMin) p.signal.shift();
   return usable;
 }
 
 export function vitalQuality(p: Patient, v: Vital, minute: number): Quality {
   const at = p.heldAt[v];
-  if (at === null || minute - at > NOT_RANKED_AFTER) return "missing";
-  return minute - at > DEGRADED_AFTER ? "degraded" : "ok";
+  if (at === null || minute - at > p.rules.notRankedAfter[v]) return "missing";
+  return minute - at > p.rules.degradedAfter[v] ? "degraded" : "ok";
+}
+
+function applyCharted(src: VitalsSource, p: Patient, minute: number) {
+  const chart = src.charted?.(p.id, minute);
+  if (chart) Object.assign(p, chart);
 }
 
 function decide(p: Patient, minute: number) {
@@ -254,6 +229,7 @@ function sample(s: Sim, src: VitalsSource, p: Patient, minute: number) {
   const reading = src.read(p.id, minute); // the body continues whether or not the patch does
   const delivered = p.patch ? reading : null;
   const usable = gate(p, delivered, minute);
+  applyCharted(src, p, minute);
   const before = p.decision;
   decide(p, minute);
   rerank(s);
@@ -429,12 +405,17 @@ function stepPhysician(s: Sim, m: Staff, dt: number) {
 }
 
 export function step(s: Sim, src: VitalsSource) {
-  if (s.speed === 0) return;
+  if (s.speed === 0 || s.ended) return;
   s.clockS += s.speed / 60;
+  if (src.durationMin !== undefined && minuteOf(s) >= src.durationMin) {
+    s.ended = true;
+    say(s, "Replay ended");
+    return;
+  }
   for (const p of s.patients) {
     while (p.nextMinute * 60 + p.offsetS <= s.clockS) {
       sample(s, src, p, p.nextMinute);
-      p.nextMinute += 1;
+      p.nextMinute += p.rules.sampleEveryMin;
     }
   }
   const dt = Math.min(s.speed, ACTOR_SPEED_CAP) / 60;
@@ -513,54 +494,57 @@ export function staffStatus(s: Sim, m: Staff): { chip: Chip; text: string } {
   }
 }
 
+function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
+  const { rules } = src;
+  const p: Patient = {
+    id: seed.id,
+    name: seed.name,
+    age: seed.age,
+    sex: seed.sex,
+    bed: seed.bed,
+    context: seed.context,
+    story: seed.story,
+    rn: seed.rn,
+    md: seed.md,
+    rules,
+    offsetS: i * 5,
+    nextMinute: rules.sampleEveryMin,
+    patch: seed.patch,
+    window: blank(() => []),
+    signal: [],
+    held: blank(() => null),
+    heldAt: blank(() => null),
+    history: seed.history,
+    bp: seed.bp,
+    bpAt: seed.bp ? -20 : null,
+    bpHistory: Array(12).fill(seed.bp?.systolic ?? null),
+    nurseAt: -20,
+    consciousness: seed.consciousness,
+    onOxygen: seed.onOxygen,
+    spo2Scale: seed.spo2Scale,
+    decision: { kind: "not_ranked", patientId: seed.id, reason: "", instruction: "" },
+    rank: null,
+    trend: seed.trend,
+    totals: Array(13).fill(null),
+    ackLevel: 0,
+    lastAssessed: -999,
+    injected: false,
+  };
+  // Warm-up, so the gate starts full. p-011's patch stops before the start.
+  for (let minute = 1 - rules.warmupMin; minute <= 0; minute += 1) {
+    if (minute % rules.sampleEveryMin !== 0) continue;
+    const reading = src.read(seed.id, minute);
+    gate(p, p.patch && minute <= -seed.signalLostMin ? reading : null, minute);
+  }
+  if (seed.signalLostMin > 0) p.patch = false;
+  applyCharted(src, p, 0);
+  decide(p, 0);
+  p.totals[12] = p.decision.kind === "ranked" ? p.decision.news2.total : null;
+  return p;
+}
+
 export function createSim(src: VitalsSource): Sim {
-  const rows = [...fx.ranked, ...fx.unscored];
-  const patients: Patient[] = rows.map((row, i) => {
-    const nurseId = assignee(row.id, "rn");
-    const p: Patient = {
-      id: row.id,
-      name: row.name,
-      age: row.age,
-      sex: row.sex,
-      bed: row.bed,
-      context: row.admitting_context,
-      story: fx.labels[row.id].story,
-      rn: nurseId ?? "rn-delacruz",
-      md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
-      offsetS: i * 5,
-      nextMinute: 1,
-      patch: !NO_PATCH.has(row.id),
-      window: blank(() => []),
-      signal: [],
-      held: blank(() => null),
-      heldAt: blank(() => null),
-      history: { ...row.vital_trends },
-      bp: present<Cuff>(row.vitals.blood_pressure),
-      bpAt: present<Cuff>(row.vitals.blood_pressure) ? -20 : null,
-      bpHistory: Array(12).fill(present<Cuff>(row.vitals.blood_pressure)?.systolic ?? null),
-      nurseAt: -20,
-      consciousness: present<Acvpu>(row.vitals.consciousness) ?? "A",
-      onOxygen: present<boolean>(row.vitals.supplemental_o2) ?? false,
-      spo2Scale: present<1 | 2>(row.vitals.spo2_scale) ?? 1,
-      decision: { kind: "not_ranked", patientId: row.id, reason: "", instruction: "" },
-      rank: null,
-      trend: row.trend,
-      totals: Array(13).fill(null),
-      ackLevel: 0,
-      lastAssessed: -999,
-      injected: false,
-    };
-    // Warm-up: the hour before as_of, so the gate starts full. p-011's patch stops 20 minutes in.
-    const lost = SIGNAL_LOST_MIN[row.id] ?? 0;
-    for (let minute = -59; minute <= 0; minute += 1) {
-      const reading = src.read(row.id, minute);
-      gate(p, p.patch && minute <= -lost ? reading : null, minute);
-    }
-    if (lost > 0) p.patch = false;
-    decide(p, 0);
-    p.totals[12] = p.decision.kind === "ranked" ? p.decision.news2.total : null;
-    return p;
-  });
+  const patients = src.seeds().map((seed, i) => seat(src, seed, i));
 
   const staff: Staff[] = STAFF.map(([id, name, title, role]) => ({
     id,
@@ -587,6 +571,7 @@ export function createSim(src: VitalsSource): Sim {
     packets: [],
     log: [],
     counts: { received: 0, rejected: 0, abstained: 0 },
+    ended: false,
   };
   rerank(s);
   for (const p of patients) maybeQueueAssessment(s, p, 0);

@@ -1,8 +1,10 @@
 # BioSentry ward simulation
 
-An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve synthetic patients wear chest patches on ward W4. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
+An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
 
-Advisory only. BioSentry does not replace a monitor alarm. Every patient, name and number here is synthetic.
+It runs on two sources: synthetic patients wearing chest patches, or real de-identified ICU stays replayed on the same simulated ward.
+
+Advisory only. BioSentry does not replace a monitor alarm. This demo makes no clinical claim.
 
 ## Run it
 
@@ -22,9 +24,10 @@ npm test
 
 ## What you can do
 
+- Switch between synthetic patients and the eICU replay.
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
 - Click a bed or a ranked row to open a chart with the five vitals: heart rate, respiratory rate, SpO2, temperature and blood pressure.
-- Start a deterioration, detach a patch, apply a patch, or record a blood pressure.
+- Start a deterioration (synthetic only), detach a patch, apply a patch, or record a blood pressure.
 - Open Pipeline for stage counts and Log for ward events.
 
 ## How it works
@@ -32,6 +35,8 @@ npm test
 | Stage | Where |
 |---|---|
 | Vitals source, the seam for a real dataset | `src/sim/source.ts` |
+| eICU replay source | `src/sim/replay.ts` |
+| eICU extract | `scripts/extract-eicu.mjs` |
 | Quality gate, staff loop, commands | `src/sim/sim.ts` |
 | NEWS2, ported from BioSentry | `src/sim/news2.ts` |
 | Arbiter and ranking, ported from BioSentry | `src/sim/arbiter.ts` |
@@ -41,20 +46,32 @@ npm test
 
 The sim is plain data with no React or canvas, so it runs headless in tests. At minute 0 it reproduces the BioSentry fixture: all ten NEWS2 totals, the rank order, the reason strings and the NOT RANKED text. `src/sim/sim.test.ts` checks this against `src/sim/synthetic.json`.
 
-### Plugging in a dataset
+### The eICU replay
 
-Implement `VitalsSource` and pass it to `createSim`:
+The replay uses 12 stays from the [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/), which is open under ODbL v1.0. The data is not in this repository. To add it locally, put these four files in a folder outside the repo: `patient.csv.gz`, `vitalPeriodic.csv.gz`, `vitalAperiodic.csv.gz` and `nurseCharting.csv.gz`. Then run:
 
-```ts
-interface VitalsSource {
-  readonly synthetic: boolean;
-  read(patientId: string, minute: number): DeviceReading | null;
-  cuff(patientId: string, minute: number): { systolic: number; diastolic: number } | null;
-  inject?(patientId: string, minute: number): void;
-}
+```bash
+npm run extract -- /path/to/that/folder
 ```
 
-Set `synthetic` to `false` and the badge goes away. Leave out `inject` and the deterioration button goes away. A null reading follows the same path as lost signal, so a dataset with no temperature or blood pressure would leave most patients NOT RANKED. Check channel coverage first.
+That writes `public/replay/eicu-12.json`, which git ignores, and turns on the eICU replay button. If you share an extract, ODbL requires attribution and keeps it under the same licence.
+
+This is real ICU data on a simulated ward. It is not ward data, and it is not from a chest patch. The stays are US ICU stays, the monitor stands in for the patch, and NEWS2 scores run high because these patients are sicker than a ward population. The 12 stays were hand-picked from 39 cardiac, awake, unventilated stays discharged alive, for a spread of NEWS2 paths. They are not a representative sample.
+
+| Input | Replay source | Rule |
+|---|---|---|
+| HR, RR, SpO2 | Monitor, every 5 minutes | Median of 2 of 3 readings in 15 minutes, NOT RANKED after 30 minutes |
+| Temperature | Nurse charting | Holds 8 hours |
+| Blood pressure | Non-invasive cuff | Holds until the next reading |
+| Oxygen | Nurse charting | Holds until the next entry; any flow except 0 or 21 counts as on oxygen |
+| Consciousness | GCS from nurse charting | GCS 15 is Alert, lower is new confusion |
+| SpO2 scale | Not recorded | Scale 1 for everyone |
+
+Scores change about 24 times an hour across the ward, against about 2 in the synthetic ward. That is left visible, because smoothing it would change how the arbiter behaves.
+
+### Adding another dataset
+
+Implement `VitalsSource` in `src/sim/source.ts` and pass it to `createSim`. `src/sim/replay.ts` is the working example. A source supplies the patients, its gate rules, device samples and, if it has them, charted values. Leave out `inject` and the deterioration button goes away.
 
 ## What is demo design, not product
 
@@ -62,7 +79,7 @@ BioSentry only ranks and displays. A human decides. These parts were invented fo
 
 - **Staff response loop:** the product has no alert or acknowledgement flow. Messages, walks, assessments and physician calls are demo design.
 - **Reassessment:** medium and high risk patients are seen at least every 60 sim-minutes.
-- **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes.
+- **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes. The replay uses its own rules, listed above.
 - **NOT RANKED cutoff:** 30 stale minutes.
 - **Filled fixture gaps:** a cuff reading of 128/76 for p-004, a baseline for p-005, and physicians for both.
 - **Hardware:** the patch, gateway and edge server are the described design. None of it is built.

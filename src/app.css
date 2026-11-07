@@ -127,6 +127,9 @@ input:focus-visible {
 .speeds {
   display: flex;
   gap: 4px;
+}
+
+.speeds.right {
   margin-left: auto;
 }
 

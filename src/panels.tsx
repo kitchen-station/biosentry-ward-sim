@@ -24,12 +24,13 @@ const SPEEDS: Speed[] = [0, 1, 10, 60];
 const SYSTOLIC_BOUNDS = { min: 20, max: 300 };
 const DIASTOLIC_BOUNDS = { min: 10, max: 200 };
 
-/** as_of is 15:00 in Manila; the sim counts minutes from there. */
-export function clockText(minute: number) {
-  const total = (15 * 60 + minute) % (24 * 60);
-  const hh = String(Math.floor(total / 60)).padStart(2, "0");
-  const mm = String(total % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
+const hhmm = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+/** Synthetic runs from 15:00 in Manila. Replay dates are de-identified, so it shows elapsed time. */
+export function clockText(src: VitalsSource, minute: number) {
+  if (src.synthetic) return hhmm((15 * 60 + minute) % (24 * 60));
+  return `${minute < 0 ? "-" : "+"}${hhmm(Math.abs(minute))}`;
 }
 
 const dayOf = (minute: number) => 3 + Math.floor((15 * 60 + minute) / (24 * 60));
@@ -43,11 +44,15 @@ const bpText = (p: Patient) => (p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "-
 
 export function TopBar({
   s,
-  synthetic,
+  src,
+  replayReady,
+  onSource,
   onReset,
 }: {
   s: Sim;
-  synthetic: boolean;
+  src: VitalsSource;
+  replayReady: boolean;
+  onSource: (replay: boolean) => void;
   onReset: () => void;
 }) {
   const minute = minuteOf(s);
@@ -56,10 +61,26 @@ export function TopBar({
       <h1>BioSentry ward sim</h1>
       <span className="pill">W4</span>
       <span className="clock">
-        {dayOf(minute)} Sep 2026, {clockText(minute)} Manila
+        {src.synthetic
+          ? `${dayOf(minute)} Sep 2026, ${clockText(src, minute)} Manila`
+          : `Replay ${clockText(src, minute)} of 24:00`}
       </span>
-      {synthetic && <span className="pill solid">Synthetic</span>}
-      <div className="speeds" role="group" aria-label="Simulation speed">
+      <div className="speeds" role="group" aria-label="Data source">
+        <button className={src.synthetic ? "on" : ""} aria-pressed={src.synthetic} onClick={() => onSource(false)}>
+          Synthetic
+        </button>
+        <button
+          className={src.synthetic ? "" : "on"}
+          aria-pressed={!src.synthetic}
+          disabled={!replayReady}
+          title={replayReady ? undefined : "Run npm run extract first. See the README."}
+          onClick={() => onSource(true)}
+        >
+          eICU replay
+        </button>
+      </div>
+      {s.ended && <span className="pill solid">Replay ended</span>}
+      <div className="speeds right" role="group" aria-label="Simulation speed">
         {SPEEDS.map((speed) => (
           <button
             key={speed}
@@ -166,7 +187,7 @@ function VitalCard({
   value: string;
   unit: string;
   source: string;
-  at: number | null;
+  at: string;
   quality: string;
   data: (number | null)[];
 }) {
@@ -184,7 +205,7 @@ function VitalCard({
         <Sparkline data={data} />
       </div>
       <div className="prov">
-        {source} · synthetic · {at === null ? "no reading" : clockText(at)}
+        {source} · {at}
       </div>
     </div>
   );
@@ -236,13 +257,15 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
   const p = patientById(s, id);
   const minute = minuteOf(s);
   const d = p.decision;
+  const origin = src.synthetic ? "synthetic" : "eICU";
+  const when = (at: number | null) => (at === null ? "no reading" : clockText(src, at));
   const device = (v: Vital, label: string, unit: string, digits = 0) => (
     <VitalCard
       label={label}
       value={vitalText(p, v, minute, digits)}
       unit={unit}
-      source="device"
-      at={p.heldAt[v]}
+      source={`${src.rules.charted.includes(v) ? "charted" : src.synthetic ? "device" : "monitor"} · ${origin}`}
+      at={when(p.heldAt[v])}
       quality={vitalQuality(p, v, minute)}
       data={p.history[v]}
     />
@@ -263,7 +286,7 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           <small>NEWS2</small>
         </div>
       </div>
-      <p className="story">{p.context}. At 15:00: {p.story}.</p>
+      <p className="story">{p.context}. {p.story}.</p>
       <div className="vitals">
         {device("heart_rate", "Heart rate", "/min")}
         {device("respiratory_rate", "Respiratory rate", "/min")}
@@ -273,14 +296,15 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           label="Blood pressure"
           value={bpText(p)}
           unit="mmHg"
-          source="nurse"
-          at={p.bpAt}
+          source={`${src.synthetic ? "nurse" : "cuff"} · ${origin}`}
+          at={when(p.bpAt)}
           quality={p.bp ? "ok" : "missing"}
           data={p.bpHistory}
         />
       </div>
       <p className="second mono">
-        ACVPU {p.consciousness} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
+        ACVPU {p.consciousness}
+        {src.synthetic ? "" : " (from GCS)"} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
         {Math.round((100 * p.signal.reduce((a, b) => a + b, 0)) / Math.max(1, p.signal.length))}%
       </p>
       {d.kind === "ranked" ? (
@@ -313,13 +337,25 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
   );
 }
 
-function PipelineTab({ s }: { s: Sim }) {
+function PipelineTab({ s, src }: { s: Sim; src: VitalsSource }) {
   const patched = s.patients.filter((p) => p.patch).length;
   const ranked = s.patients.filter((p) => p.rank !== null).length;
   const stages: [string, string, string][] = [
-    ["Chest patch", "HR, RR, SpO2 and temperature. One sample a minute here.", `${patched} of ${s.patients.length} on`],
+    [
+      src.synthetic ? "Chest patch" : "Bedside monitor",
+      src.synthetic
+        ? "HR, RR, SpO2 and temperature. One sample a minute here."
+        : "Stands in for the patch. HR, RR and SpO2 every 5 minutes. Temperature is charted.",
+      `${patched} of ${s.patients.length} on`,
+    ],
     ["Ward gateway", "BLE from the patch, then the edge server.", `${s.counts.received} received`],
-    ["Quality gate", "Demo rule: 15-minute median of 8 or more usable readings.", `${s.counts.rejected} rejected`],
+    [
+      "Quality gate",
+      src.synthetic
+        ? "Demo rule: 15-minute median of 8 or more usable readings."
+        : "Demo rule: 15-minute median of 2 of 3 readings. Temperature holds 8 hours.",
+      `${s.counts.rejected} rejected`,
+    ],
     ["NEWS2", "Tier A. Any missing input abstains. Nothing is imputed.", `${s.counts.abstained} abstained`],
     ["Arbiter", "The only stage that changes priority.", `${ranked} ranked, ${s.patients.length - ranked} not`],
     ["Ward list", "Ranks and displays. A human decides.", `${s.tasks.length} queued`],
@@ -351,14 +387,14 @@ function PipelineTab({ s }: { s: Sim }) {
   );
 }
 
-function LogTab({ s }: { s: Sim }) {
+function LogTab({ s, src }: { s: Sim; src: VitalsSource }) {
   return (
     <div className="scroll">
       {s.log.length === 0 && <p className="empty">Nothing yet.</p>}
       <ol className="log">
         {[...s.log].reverse().map((line, i) => (
           <li key={s.log.length - i}>
-            <span className="mono">{clockText(line.minute)}</span> {line.text}
+            <span className="mono">{clockText(src, line.minute)}</span> {line.text}
           </li>
         ))}
       </ol>
@@ -406,8 +442,8 @@ export function CommandCenter({
       </div>
       {tab === "ranked" && <RankedTab s={s} selected={selected} onSelect={onSelect} />}
       {tab === "chart" && <ChartTab s={s} src={src} id={selected} />}
-      {tab === "pipeline" && <PipelineTab s={s} />}
-      {tab === "log" && <LogTab s={s} />}
+      {tab === "pipeline" && <PipelineTab s={s} src={src} />}
+      {tab === "log" && <LogTab s={s} src={src} />}
     </aside>
   );
 }

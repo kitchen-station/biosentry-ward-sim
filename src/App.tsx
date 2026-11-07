@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { CommandCenter, StaffStrip, TopBar, type Tab } from "./panels";
 import { createRenderer } from "./render/draw";
-import { createSim, FIXTURE_SEED, step, type Sim } from "./sim/sim";
-import { createSyntheticSource, type VitalsSource } from "./sim/source";
+import { createSim, step, type Sim } from "./sim/sim";
+import { createReplaySource, type ReplayFile } from "./sim/replay";
+import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./sim/source";
 
 const TICK = 1 / 60;
 
-function newWorld(): { s: Sim; src: VitalsSource } {
-  const src = createSyntheticSource(FIXTURE_SEED);
+function newWorld(replay: ReplayFile | null = null): { s: Sim; src: VitalsSource } {
+  const src = replay ? createReplaySource(replay) : createSyntheticSource(FIXTURE_SEED);
   return { s: createSim(src), src };
 }
 
 export function App() {
-  const [world, setWorld] = useState(newWorld);
+  const [world, setWorld] = useState(() => newWorld());
+  const [replay, setReplay] = useState<ReplayFile | null>(null);
   const worldRef = useRef(world);
   worldRef.current = world;
   const [tab, setTab] = useState<Tab>("ranked");
@@ -23,6 +25,14 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ReturnType<typeof createRenderer>>(null);
   const hoveredRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // The extract is local only. Without it the dev server answers with HTML, so json() fails.
+    fetch("/replay/eicu-12.json")
+      .then((response) => response.json())
+      .then(setReplay)
+      .catch(() => setReplay(null));
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -63,10 +73,10 @@ export function App() {
     setTab("chart");
   };
 
-  const reset = () => {
+  const restart = (useReplay: boolean) => {
     rendererRef.current?.reset();
     setSelected(null);
-    setWorld(newWorld());
+    setWorld(newWorld(useReplay ? replay : null));
   };
 
   const bedAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -78,7 +88,13 @@ export function App() {
 
   return (
     <div className="app">
-      <TopBar s={world.s} synthetic={world.src.synthetic} onReset={reset} />
+      <TopBar
+        s={world.s}
+        src={world.src}
+        replayReady={replay !== null}
+        onSource={restart}
+        onReset={() => restart(!world.src.synthetic)}
+      />
       <main className="main">
         <div className="floor">
           <canvas
@@ -106,6 +122,9 @@ export function App() {
       <StaffStrip s={world.s} />
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
+        {!world.src.synthetic && (
+          <span>Real ICU data replayed on a simulated ward. eICU-CRD Demo 2.0.1, ODbL.</span>
+        )}
         <span>Staff loop: demo design, not a product feature.</span>
       </footer>
     </div>

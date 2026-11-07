@@ -1,6 +1,7 @@
 // The vitals source: the one seam a real dataset replaces. Everything below VitalsSource is the
 // synthetic implementation, a live version of BioSentry's removed batch generator.
 
+import type { Acvpu } from "./news2";
 import fixture from "./synthetic.json";
 
 export const VITALS = ["heart_rate", "respiratory_rate", "spo2", "temperature"] as const;
@@ -11,15 +12,73 @@ export interface Cuff {
   diastolic: number;
 }
 
+/** How the quality gate treats this source. Times are minutes, minValid is samples per 15 minutes. */
+export interface GateRules {
+  sampleEveryMin: number;
+  warmupMin: number;
+  minValid: Record<Vital, number>;
+  degradedAfter: Record<Vital, number>;
+  notRankedAfter: Record<Vital, number>;
+  charted: Vital[]; // arrives irregularly, so an empty sample is not a rejection
+}
+
+/** Everything the sim needs to put one patient in a bed. */
+export interface PatientSeed {
+  id: string;
+  name: string;
+  age: number | string;
+  sex: string;
+  bed: string;
+  context: string;
+  story: string;
+  rn: string;
+  md: string;
+  trend: "rising" | "falling" | "stable" | "insufficient";
+  history: Record<Vital, (number | null)[]>;
+  bp: Cuff | null;
+  consciousness: Acvpu;
+  onOxygen: boolean;
+  spo2Scale: 1 | 2;
+  patch: boolean;
+  signalLostMin: number;
+}
+
+/** Nurse-charted state at a minute. Each value holds until the next entry. */
+export interface Charted {
+  bp: Cuff | null;
+  bpAt: number | null;
+  onOxygen: boolean;
+  consciousness: Acvpu;
+}
+
 export interface VitalsSource {
   readonly synthetic: boolean;
-  /** One patch sample. Minute 0 is as_of, negatives are warm-up. Called once per minute, in order. */
+  readonly rules: GateRules;
+  /** Replay length in minutes. Synthetic runs forever. */
+  readonly durationMin?: number;
+  seeds(): PatientSeed[];
+  /** One sample. Minute 0 is the start, negatives are warm-up. Called in order, every sampleEveryMin. */
   read(patientId: string, minute: number): DeviceReading | null;
   /** What a blood pressure cuff would read now. */
   cuff(patientId: string, minute: number): Cuff | null;
+  /** Replay only: what the chart says now. */
+  charted?(patientId: string, minute: number): Charted;
   /** Synthetic only: start a deterioration. A replay source leaves this out. */
   inject?(patientId: string, minute: number): void;
 }
+
+const perVital = <T,>(value: T) =>
+  Object.fromEntries(VITALS.map((v) => [v, value])) as Record<Vital, T>;
+
+// MIN_VALID_PER_BIN and STALE_AFTER_S from BioSentry. The 30-minute cutoff is a demo value.
+const SYNTHETIC_RULES: GateRules = {
+  sampleEveryMin: 1,
+  warmupMin: 60,
+  minValid: perVital(8),
+  degradedAfter: perVital(15),
+  notRankedAfter: perVital(30),
+  charted: [],
+};
 
 // Generator constants, unchanged from BioSentry.
 export const CLAMPS: Record<Vital, [number, number]> = {
@@ -93,7 +152,59 @@ interface Measured {
 }
 interface FixtureRow {
   id: string;
+  name: string;
+  age: number;
+  sex: string;
+  bed: string;
+  admitting_context: string;
+  trend: PatientSeed["trend"];
   vitals: Record<string, Measured>;
+  vital_trends: Record<Vital, (number | null)[]>;
+}
+
+const fx = fixture as unknown as {
+  ranked: FixtureRow[];
+  unscored: FixtureRow[];
+  labels: Record<string, { story: string }>;
+  clinicians: Record<string, { role: string; patients: string[] }>;
+  seed: number;
+};
+
+export const FIXTURE_SEED = fx.seed;
+
+const SIGNAL_LOST_MIN: Record<string, number> = { "p-011": 20 };
+const NO_PATCH = new Set(["p-005"]);
+// Demo values: the fixture assigns these two patients no physician.
+const DEMO_PHYSICIAN: Record<string, string> = { "p-004": "md-santos", "p-005": "md-aquino" };
+
+const assignee = (id: string, role: string) =>
+  Object.entries(fx.clinicians).find(([, c]) => c.role === role && c.patients.includes(id))?.[0];
+
+/** The twelve occupied beds and who covers them, in fixture order. */
+export const SEATS = [...fx.ranked, ...fx.unscored].map((row) => ({
+  bed: row.bed,
+  rn: assignee(row.id, "rn") ?? "rn-delacruz",
+  md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
+}));
+
+function fixtureSeeds(): PatientSeed[] {
+  return [...fx.ranked, ...fx.unscored].map((row, i) => ({
+    id: row.id,
+    name: row.name,
+    age: row.age,
+    sex: row.sex,
+    context: row.admitting_context,
+    story: `At 15:00: ${fx.labels[row.id].story}`,
+    ...SEATS[i],
+    trend: row.trend,
+    history: structuredClone(row.vital_trends), // the sim appends to these; the fixture stays put
+    bp: presentValue<Cuff>(row.vitals.blood_pressure),
+    consciousness: presentValue<Acvpu>(row.vitals.consciousness) ?? "A",
+    onOxygen: presentValue<boolean>(row.vitals.supplemental_o2) ?? false,
+    spo2Scale: presentValue<1 | 2>(row.vitals.spo2_scale) ?? 1,
+    patch: !NO_PATCH.has(row.id),
+    signalLostMin: SIGNAL_LOST_MIN[row.id] ?? 0,
+  }));
 }
 
 function presentValue<T>(m: Measured | undefined): T | null {
@@ -101,7 +212,7 @@ function presentValue<T>(m: Measured | undefined): T | null {
 }
 
 function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; cuff: Cuff }> {
-  const rows = [...fixture.ranked, ...fixture.unscored] as unknown as FixtureRow[];
+  const rows = [...fx.ranked, ...fx.unscored];
   const out: Record<string, { vitals: Record<Vital, number>; cuff: Cuff }> = {};
   for (const row of rows) {
     const vitals = {} as Record<Vital, number>;
@@ -156,6 +267,8 @@ export function createSyntheticSource(seed: number): VitalsSource {
 
   return {
     synthetic: true,
+    rules: SYNTHETIC_RULES,
+    seeds: fixtureSeeds,
 
     read(id, minute) {
       const anchor = anchors[id].vitals;
