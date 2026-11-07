@@ -20,6 +20,8 @@ npm run dev
 npm test
 ```
 
+CI runs the tests and the build on every push and pull request. Dependabot proposes dependency updates weekly.
+
 `npm install` needs the committed `package-lock.json`. Without it, npm 10 fails while resolving Vitest's optional peers.
 
 ## What you can do
@@ -55,6 +57,8 @@ The replay uses 12 stays from the [eICU-CRD Demo 2.0.1](https://physionet.org/co
 ```bash
 npm run extract -- /path/to/that/folder
 ```
+
+On the author's machine the files live in `~/Documents/datasets/eicu-crd-demo-2.0.1`, with PhysioNet's `SHA256SUMS.txt` beside them.
 
 That writes `public/replay/eicu-12.json`, which git ignores, and turns on the eICU replay button. If you share an extract, ODbL requires attribution and keeps it under the same licence.
 

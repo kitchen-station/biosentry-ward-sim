@@ -38,6 +38,7 @@ export function App() {
     const canvas = canvasRef.current!;
     const renderer = createRenderer(canvas, worldRef.current.s);
     rendererRef.current = renderer;
+    if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
     const observer = new ResizeObserver(() =>
       renderer.resize(holder.clientWidth, holder.clientHeight, window.devicePixelRatio || 1),

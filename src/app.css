@@ -162,7 +162,6 @@ input:focus-visible {
 
 .floor canvas {
   position: absolute;
-  inset: 0;
   display: block;
 }
 

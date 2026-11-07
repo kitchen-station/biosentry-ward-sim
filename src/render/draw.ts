@@ -354,10 +354,8 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   const envelope = sprite(ENVELOPE, ENVELOPE_PALETTE);
   let flights: Flight[] = [];
   let lastSync = 0;
-  let scale = 1;
-  let offX = 0;
-  let offY = 0;
-  let dpr = 1;
+  let scale = 1; // CSS pixels per logical pixel
+  let backing = 1; // device pixels per logical pixel, always a whole number
 
   function tag(text: string, cx: number, bottom: number, dot?: string, inverted = false) {
     ctx.font = FONT;
@@ -535,16 +533,16 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   }
 
   return {
+    /** Draws at a whole-number scale so every art pixel is the same size, then lets CSS fit it. */
     resize(width: number, height: number, ratio: number) {
-      dpr = ratio;
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      // ponytail: fractional fit leaves slightly uneven pixels; snap to integers if that shows
       scale = Math.min(width / LOGICAL_W, height / LOGICAL_H);
-      offX = (width - LOGICAL_W * scale) / 2;
-      offY = (height - LOGICAL_H * scale) / 2;
+      backing = Math.max(1, Math.ceil(scale * ratio));
+      canvas.width = LOGICAL_W * backing;
+      canvas.height = LOGICAL_H * backing;
+      canvas.style.width = `${LOGICAL_W * scale}px`;
+      canvas.style.height = `${LOGICAL_H * scale}px`;
+      canvas.style.left = `${(width - LOGICAL_W * scale) / 2}px`;
+      canvas.style.top = `${(height - LOGICAL_H * scale) / 2}px`;
     },
 
     reset() {
@@ -556,7 +554,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#2A2036";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.setTransform(scale * dpr, 0, 0, scale * dpr, offX * dpr, offY * dpr);
+      ctx.setTransform(backing, 0, 0, backing, 0, 0);
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(floor, 0, 0);
 
@@ -614,8 +612,8 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
 
     /** The patient under a canvas CSS pixel, if any. */
     hit(s: Sim, cssX: number, cssY: number): string | null {
-      const x = (cssX - offX) / scale;
-      const y = (cssY - offY) / scale;
+      const x = cssX / scale;
+      const y = cssY / scale;
       for (const p of s.patients) {
         const bed = bedByLabel(p.bed);
         const y0 = Math.min(bed.head[1], bed.foot[1]);
