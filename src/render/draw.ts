@@ -1,7 +1,7 @@
 // Isometric ward renderer: one Canvas 2D, sprites nearest-neighbour, text at full resolution.
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
-import { BEDS, CLOSET, MAP, MAP_H, MAP_W, OFFICE, ROOMS, STATIONS, bedByLabel, type Tile } from "../sim/map";
+import { BEDS, CORRIDOR, MAP, MAP_H, MAP_W, ROOMS, STATIONS, bedByLabel, roomAt, type Floor, type Tile } from "../sim/map";
 import { minuteOf, patientById, staffById, staffStatus, vitalQuality, type PacketOutcome, type Patient, type Sim } from "../sim/sim";
 import { VITALS } from "../sim/source";
 import {
@@ -141,28 +141,36 @@ const hex = (colour: string): [number, number, number] => [
   parseInt(colour.slice(5, 7), 16),
 ];
 
-function inRoom(x: number, y: number, r: { x0: number; x1: number; y0: number; y1: number }) {
-  return x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1;
-}
+// [grout, light, dark] per room type; each room reads as its own space.
+const FLOORS: Record<Floor, [string, string, string]> = {
+  bay: ["#97B09F", "#BBD0C1", "#AEC5B6"],
+  hdu: ["#93AFC0", "#C3D8E4", "#B5CDDB"],
+  side: ["#B8A48F", "#E8D5C2", "#DECAB5"],
+  station: ["#C9B98F", "#F4E9C7", "#EADDB5"],
+  office: ["#8F6843", "#C79A6B", "#BD9062"],
+  utility: ["#B9C2C7", "#EEF1F2", "#E2E7EA"],
+  family: ["#B3A7C2", "#DDD3E6", "#D2C7DD"],
+  comms: ["#4B566A", "#6B7A8F", "#637286"],
+};
 
 function floorColour(tx: number, ty: number, u: number, v: number): [number, number, number] {
-  const fu = u - tx;
-  const fv = v - ty;
-  const grout = fu < 0.05 || fv < 0.05;
+  const grout = u - tx < 0.05 || v - ty < 0.05;
   const checker = (tx + ty) % 2 === 0;
   const ch = MAP[ty]?.[tx];
   if (ch === "+") return hex(grout ? "#8F8571" : "#B5A98D");
-  if (inRoom(tx, ty, CLOSET)) return hex(grout ? "#4B566A" : checker ? "#6B7A8F" : "#637286");
-  if (inRoom(tx, ty, OFFICE)) {
-    const plank = Math.floor(v * 3);
-    if (Math.floor(v * 3 + 0.08) !== plank) return hex("#8F6843");
-    return hex(plank % 2 === 0 ? "#C79A6B" : "#BD9062");
-  }
-  if (ty >= 5 && ty <= 7) {
-    if (v > 7.72 && v < 7.86) return hex("#4ECDC4"); // wayfinding stripe
+  if (ty >= CORRIDOR.y0 && ty <= CORRIDOR.y1) {
+    if (v > 9.4 && v < 9.54) return hex("#4ECDC4"); // wayfinding stripe
     return hex(grout ? "#CBBE9F" : checker ? "#EFE5CB" : "#E6DABC");
   }
-  return hex(grout ? "#97B09F" : checker ? "#BBD0C1" : "#AEC5B6");
+  const room = roomAt(tx, ty);
+  if (!room) return hex("#B8AE98"); // under the walls
+  const [g, light, dark] = FLOORS[room.floor];
+  if (room.floor === "office") {
+    const plank = Math.floor(v * 3);
+    if (Math.floor(v * 3 + 0.08) !== plank) return hex(g);
+    return hex(plank % 2 === 0 ? light : dark);
+  }
+  return hex(grout ? g : checker ? light : dark);
 }
 
 function bakeFloor(): HTMLCanvasElement {
@@ -193,14 +201,16 @@ function bakeFloor(): HTMLCanvasElement {
 const WALL: [string, string, string] = ["#FFF8E7", "#C9D6CE", "#A9BAB0"];
 const WALL_EDGE: [string, string, string] = ["#E8D9A0", "#B9A98A", "#A3947A"];
 
-const isWall = (x: number, y: number) => MAP[y]?.[x] === "#" || MAP[y]?.[x] === "+";
+const isWall = (x: number, y: number) => ["#", "+", "g"].includes(MAP[y]?.[x] ?? "");
+const GLASS: [string, string, string] = ["rgba(216,240,245,.85)", "rgba(168,220,230,.55)", "rgba(143,202,214,.55)"];
 
 /** Walls are drawn thin inside their tile, so rooms read as rooms and the floor stays visible. */
 function wallItem(x: number, y: number): Item {
   const rimBack = y === 0 || x === 0;
   const rimFront = y === MAP_H - 1 || x === MAP_W - 1;
-  const h = rimFront ? 3 : rimBack ? 20 : 8;
-  const colours = rimFront ? WALL_EDGE : WALL;
+  const glass = MAP[y][x] === "g"; // the high-dependency bay is glazed toward the station
+  const h = rimFront ? 3 : rimBack ? 20 : glass ? 11 : 8;
+  const colours = rimFront ? WALL_EDGE : glass ? GLASS : WALL;
   const T = 0.3;
   const across = isWall(x - 1, y) || isWall(x + 1, y);
   const along = isWall(x, y - 1) || isWall(x, y + 1);
@@ -215,7 +225,7 @@ function wallItem(x: number, y: number): Item {
     }
     if (y === 0 && x > 0 && x < MAP_W - 1) {
       leftFaceBand(ctx, x, 1, 1, 0, 5, "#8FA99B");
-      if (x % 2 === 0 && x < 23) leftFaceBand(ctx, x, 1, 1, 8, 16, "#BFE6F2", 3);
+      if (x % 2 === 0 && x < 31) leftFaceBand(ctx, x, 1, 1, 8, 16, "#BFE6F2", 3);
     }
     if (x === 0 && y > 0 && y < MAP_H - 1) rightFaceBand(ctx, 1, y, 1, 0, 5, "#7F978A");
   });
@@ -265,11 +275,18 @@ function tileItem(ch: string, x: number, y: number): Item | null {
         leftFaceBand(ctx, x + 0.25, y + 0.45, 0.5, 8, 13, "#A8E6E0", 1);
       });
     case "L":
-      return bake(depth, x, y, 1, 1, 24, (ctx) => {
-        box(ctx, x, y, 1, 1, 20, ["#8F6843", "#6E4F31", "#5D4229"]);
-        ["#FF6B6B", "#FFD93D", "#6C8EF5", "#6BCF7F"].forEach((c, i) =>
-          leftFaceBand(ctx, x + 0.1 + i * 0.2, y + 1, 0.16, 3, 17, c),
-        );
+      // A bookshelf in the doctors' office, a supply cabinet everywhere else.
+      if (roomAt(x, y)?.floor === "office") {
+        return bake(depth, x, y, 1, 1, 20, (ctx) => {
+          box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 16, ["#8F6843", "#6E4F31", "#5D4229"]);
+          ["#FF6B6B", "#FFD93D", "#6C8EF5", "#6BCF7F"].forEach((c, i) =>
+            leftFaceBand(ctx, x + 0.15 + i * 0.18, y + 0.9, 0.14, 3, 14, c),
+          );
+        });
+      }
+      return bake(depth, x, y, 1, 1, 16, (ctx) => {
+        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 12, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
+        leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, 6, 7, "#A9B4BA", 1);
       });
     case "K":
       return bake(depth, x, y, 1, 1, 24, (ctx) => {
@@ -280,6 +297,24 @@ function tileItem(ch: string, x: number, y: number): Item | null {
       return bake(depth, x, y, 1, 1, 14, (ctx) => {
         box(ctx, x + 0.15, y + 0.15, 0.7, 0.7, 7, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
         box(ctx, x + 0.3, y + 0.3, 0.4, 0.4, 1, ["#A8E6E0", "#A8E6E0", "#A8E6E0"], 7);
+      });
+    case "W":
+      return bake(depth, x, y, 1, 1, 14, (ctx) => {
+        box(ctx, x + 0.3, y + 0.25, 0.4, 0.5, 4, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
+        box(ctx, x + 0.65, y + 0.25, 0.2, 0.5, 9, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
+      });
+    case "T":
+      return bake(depth, x, y, 1, 1, 10, (ctx) => {
+        box(ctx, x + 0.15, y + 0.15, 0.7, 0.7, 5, ["#C79A6B", "#8F6843", "#7A5838"]);
+      });
+    case "H":
+      return bake(depth, x, y, 1, 1, 12, (ctx) => {
+        box(ctx, x + 0.1, y + 0.15, 0.8, 0.7, 4, ["#B197FC", "#8E72E0", "#7459C4"]);
+        box(ctx, x + 0.1, y + 0.15, 0.8, 0.2, 8, ["#B197FC", "#8E72E0", "#7459C4"]);
+      });
+    case "U":
+      return bake(depth, x, y, 1, 1, 12, (ctx) => {
+        box(ctx, x + 0.05, y + 0.1, 0.9, 0.8, 7, ["#E2E7EA", "#A9B4BA", "#97A3AA"]);
       });
     case "P":
       return bake(depth, x, y, 1, 1, 18, (ctx) => {
@@ -304,7 +339,7 @@ function buildItems(s: Sim): Item[] {
   for (let y = 0; y < MAP_H; y += 1) {
     for (let x = 0; x < MAP_W; x += 1) {
       const ch = MAP[y][x];
-      if (ch === "#") items.push(wallItem(x, y));
+      if (ch === "#" || ch === "g") items.push(wallItem(x, y));
       else {
         const item = tileItem(ch, x, y);
         if (item) items.push(item);
@@ -332,7 +367,8 @@ const stationPoint = (tile: Tile, lift = 18): [number, number] => {
 
 export function bedAnchor(p: Patient): [number, number] {
   const bed = bedByLabel(p.bed);
-  const [x, y] = iso(bed.foot[0] + 0.5, bed.north ? 1.9 : 11.1);
+  const y0 = Math.min(bed.head[1], bed.foot[1]);
+  const [x, y] = iso(bed.foot[0] + 0.5, y0 + (bed.north ? 0.9 : 1.1));
   return [x, y - 8];
 }
 
@@ -460,7 +496,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   function drawBedOverlays(s: Sim, selected: string | null, hovered: string | null, now: number) {
     for (const p of s.patients) {
       const bed = bedByLabel(p.bed);
-      const [lx, ly] = iso(bed.head[0] + 0.9, bed.north ? 1.15 : 11.85);
+      const [lx, ly] = iso(bed.head[0] + 0.9, bed.head[1] + (bed.north ? 0.15 : 0.85));
       const risk = p.decision.kind === "ranked" ? p.decision.news2.risk : null;
       const blink = risk === "high" && Math.floor(now * 3) % 2 === 0;
       ctx.fillStyle = INK;
@@ -559,9 +595,13 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
       ctx.drawImage(floor, 0, 0);
 
       for (const room of ROOMS) {
-        const [x, y] = iso((room.x0 + room.x1 + 1) / 2, room.y0 === 1 ? 3.5 : 9.5);
-        label(`ROOM ${room.label}`, x, y, "rgba(26,19,32,.5)");
+        const [x, y] = iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
+        label(room.label, x, y, room.floor === "comms" ? "#E8D9A0" : "rgba(26,19,32,.55)");
       }
+      const [wx, wy] = iso(3, 8.6);
+      label("WARD W4 · CARDIOLOGY", wx, wy, "rgba(26,19,32,.6)", FONT);
+      const [ex, ey] = iso(34.2, 9);
+      label("ENTRANCE", ex, ey, "rgba(26,19,32,.6)");
       const actors = s.staff
         .map((m) => ({ id: m.id, depth: m.x + m.y + 0.01 }))
         .sort((a, b) => a.depth - b.depth);
@@ -588,15 +628,9 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
         ctx.fillRect(x - 1, y - 11, 3, 2);
         tag(names[i], x, y - (i % 2 === 0 ? 19 : 31));
       });
-      const [wx, wy] = iso(14.5, 5.3);
-      label("WARD W4", wx - 90, wy + 3, "rgba(26,19,32,.55)", FONT);
-      const [cx, cy] = iso(26.5, 2.8);
-      label("EDGE SERVER", cx, cy, "#E8D9A0");
-      const [fx, fy] = iso(26.5, 9.6);
-      label("PHYSICIANS", fx, fy, "#3D2E4A");
 
       if (s.speed > 0) launchPackets(s);
-      const [cloudX, cloudY] = [LOGICAL_W - 70, 120]; // the empty sky above the closet
+      const [cloudX, cloudY] = [LOGICAL_W - 95, 140]; // the empty sky above the edge server room
       tag("HUAWEI CLOUD", cloudX, cloudY);
       const minute = minuteOf(s);
       if (minute >= lastSync + 15 && s.speed > 0) {

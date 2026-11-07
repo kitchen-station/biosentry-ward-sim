@@ -46,6 +46,19 @@ CI runs the tests and the build on every push and pull request. Dependabot propo
 | Isometric renderer and sprites | `src/render/` |
 | Panels | `src/panels.tsx` |
 
+### The floor plan
+
+Ward W4 is laid out like a real cardiology ward. One corridor runs from the entrance past every room:
+
+- **High-dependency bay** (H1 to H4): glazed toward the nurse station. The four sickest patients at the start go here.
+- **Female bay and male bay** (A1 to A6, B1 to B6): six-bed, single-sex bays.
+- **Side rooms** (S1 to S4): single rooms with their own toilet.
+- **Nurse station:** a counter on the corridor facing the high-dependency bay, with the medication room and clean utility behind it.
+- **Doctors' office:** desks for both physicians.
+- **Support rooms:** the sluice, the relatives' room, and the edge server room for the BioSentry pipeline.
+
+Patients keep their bed for the whole run; they do not move as their scores change. Bed labels are this demo's own, not the fixture's. In the replay, the first four stays take high dependency and the rest are placed by sex.
+
 The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. The Pipeline tab marks each stage built, planned, not built or demo rule, and lists the planned stages (anomaly detection, conformal abstention, the explainer agent) without simulating them.
 
 Kitchen also shapes three other things:

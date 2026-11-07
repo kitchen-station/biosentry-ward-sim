@@ -200,34 +200,47 @@ const EXTRA: [string, string, number, string, string, string, Record<Vital, numb
   ["p-020", "Fernandez, Manuel", 60, "M", "Post-PCI, day 1", "stable, groin site clean", { heart_rate: 66, respiratory_rate: 15, spo2: 98, temperature: 36.8 }, { systolic: 124, diastolic: 74 }],
 ];
 
-const fixtureBeds = new Set([...fx.ranked, ...fx.unscored].map((row) => row.bed));
-const spareBeds = BEDS.map((b) => b.label).filter((label) => !fixtureBeds.has(label));
+// Patients are grouped the way a ward places them: the sickest at admission in the
+// high-dependency bay opposite the station, the rest in single-sex bays, a few in side rooms.
+const BED_OF: Record<string, string> = {
+  "p-001": "H1", "p-002": "H2", "p-003": "H3", "p-006": "H4",
+  "p-008": "A1", "p-009": "A2", "p-011": "A3", "p-013": "A4", "p-015": "A5", "p-017": "A6",
+  "p-007": "B1", "p-010": "B2", "p-012": "B3", "p-014": "B4", "p-016": "B5", "p-018": "B6",
+  "p-004": "S1", "p-005": "S2", "p-019": "S3", "p-020": "S4",
+};
 
-/** The twenty occupied beds and who covers them: fixture patients first, then spare beds. */
-export const SEATS = [
-  ...[...fx.ranked, ...fx.unscored].map((row) => ({
-    bed: row.bed,
-    rn: STAFF_NURSE,
-    md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
-  })),
-  ...spareBeds.slice(0, WARD_SIZE - fixtureBeds.size).map((bed, i) => ({
-    bed,
-    rn: STAFF_NURSE,
-    md: i % 2 === 0 ? "md-santos" : "md-aquino",
-  })),
-];
+const ORDER = [...[...fx.ranked, ...fx.unscored].map((row) => row.id), ...EXTRA.map(([id]) => id)];
+
+/** The twenty occupied beds and who covers them, in seed order: fixture patients, then demo ones. */
+export const SEATS = ORDER.map((id, i) => ({
+  bed: BED_OF[id],
+  rn: STAFF_NURSE,
+  md: assignee(id, "md") ?? DEMO_PHYSICIAN[id] ?? (i % 2 === 0 ? "md-santos" : "md-aquino"),
+}));
+
+/** Beds for patients with no fixed bed: the first four to high dependency, then by sex. */
+export function allocateBeds(sexes: string[]): { bed: string; rn: string; md: string }[] {
+  const free = (prefix: string) => BEDS.filter((b) => b.label.startsWith(prefix)).map((b) => b.label);
+  const pools: Record<string, string[]> = { H: free("H"), F: free("A"), M: free("B"), S: free("S") };
+  const any = () => pools.S.shift() ?? pools.F.shift() ?? pools.M.shift() ?? pools.H.shift();
+  return sexes.map((sex, i) => {
+    const bed = (i < 4 ? pools.H.shift() : pools[sex]?.shift()) ?? any();
+    if (!bed) throw new Error(`No free bed for patient ${i + 1}; the ward has ${BEDS.length}`);
+    return { bed, rn: STAFF_NURSE, md: i % 2 === 0 ? "md-santos" : "md-aquino" };
+  });
+}
 
 const quiet = (value: number) => Array<number | null>(12).fill(value);
 
 function extraSeeds(): PatientSeed[] {
-  return EXTRA.map(([id, name, age, sex, context, story, vitals, bp], i) => ({
+  return EXTRA.map(([id, name, age, sex, context, story, vitals, bp]) => ({
     id,
     name,
     age,
     sex,
     context,
     story: `At 15:00: ${story} (demo patient, not in the BioSentry fixture)`,
-    ...SEATS[fixtureBeds.size + i],
+    ...SEATS[ORDER.indexOf(id)],
     trend: "stable",
     history: {
       heart_rate: quiet(vitals.heart_rate),

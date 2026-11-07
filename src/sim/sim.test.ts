@@ -128,10 +128,11 @@ describe("map", () => {
     }
   });
 
-  it("puts every fixture bed on the map", () => {
+  it("puts every patient in a bed on the map", () => {
     const { s } = start();
     for (const p of s.patients) expect(BEDS.some((b) => b.label === p.bed), p.bed).toBe(true);
-    expect(STATIONS.screen).toEqual([14, 6]);
+    expect(STATIONS.screen).toEqual([14, 10]);
+    expect(new Set(s.patients.map((p) => p.bed)).size).toBe(20); // one patient per bed
   });
 });
 

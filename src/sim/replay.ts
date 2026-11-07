@@ -1,7 +1,7 @@
 // Replays real ICU stays through the sim. The data file is built by scripts/extract-eicu.mjs.
 // All minutes are relative to the replay start, on a 5-minute grid.
 
-import { SEATS, type Charted, type Cuff, type GateRules, type PatientSeed, type VitalsSource } from "./source";
+import { allocateBeds, type Charted, type Cuff, type GateRules, type PatientSeed, type VitalsSource } from "./source";
 
 type Point = [number, number];
 
@@ -66,8 +66,9 @@ export function createReplaySource(file: ReplayFile): VitalsSource {
     rules: REPLAY_RULES,
     durationMin: Math.min(...file.stays.map((s) => s.durationMin)),
 
-    seeds: (): PatientSeed[] =>
-      file.stays.map((s, i) => {
+    seeds: (): PatientSeed[] => {
+      const seats = allocateBeds(file.stays.map((s) => s.sex));
+      return file.stays.map((s, i) => {
         const chart = charted(s.id, 0);
         return {
           id: s.id,
@@ -76,7 +77,7 @@ export function createReplaySource(file: ReplayFile): VitalsSource {
           sex: s.sex,
           context: s.dx,
           story: `${s.unit}, later discharged to ${s.to}`,
-          ...SEATS[i],
+          ...seats[i],
           trend: "insufficient",
           history: {
             heart_rate: Array(12).fill(null),
@@ -92,7 +93,8 @@ export function createReplaySource(file: ReplayFile): VitalsSource {
           signalLostMin: 0,
           irregular: false, // eICU has no waveform here, so no strip is drawn
         };
-      }),
+      });
+    },
 
     read(id, minute) {
       const s = stay(id);
