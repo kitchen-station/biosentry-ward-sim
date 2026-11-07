@@ -331,7 +331,8 @@ function finishTask(s: Sim, src: VitalsSource, m: Staff) {
   p.lastAssessed = minute;
   p.ackLevel = levelOf(p);
   say(s, `${m.name} assessed ${p.name}, BP ${cuff?.systolic}/${cuff?.diastolic}`);
-  if (levelOf(p) === LEVEL.high && task.kind === "assess") {
+  // NEWS2 5+: the nurse must immediately inform the medical team (RCP 2017, and Kitchen).
+  if (levelOf(p) >= LEVEL.medium && task.kind === "assess") {
     s.mdCalls.push({ patient: p.id, md: p.md, nurse: m.id });
     say(s, `${m.name} called ${staffById(s, p.md).name} to ${p.bed}`);
     m.stage = "wait_md";

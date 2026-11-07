@@ -340,34 +340,38 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
 function PipelineTab({ s, src }: { s: Sim; src: VitalsSource }) {
   const patched = s.patients.filter((p) => p.patch).length;
   const ranked = s.patients.filter((p) => p.rank !== null).length;
-  const stages: [string, string, string][] = [
+  // Stages and build status as the Kitchen BioSentry page states them.
+  const stages: [string, string, string, string][] = [
     [
       src.synthetic ? "Chest patch" : "Bedside monitor",
+      "Planned",
       src.synthetic
-        ? "HR, RR, SpO2 and temperature. One sample a minute here."
-        : "Stands in for the patch. HR, RR and SpO2 every 5 minutes. Temperature is charted.",
+        ? "Sends ECG and vital signs over BLE. This demo shows the vitals only, one sample a minute."
+        : "Real ICU monitor data stands in for the patch. HR, RR and SpO2 every 5 minutes.",
       `${patched} of ${s.patients.length} on`,
     ],
-    ["Ward gateway", "BLE from the patch, then the edge server.", `${s.counts.received} received`],
+    ["Ward gateway", "Planned", "Receives BLE from each patch and sends it on through IoT Device Access.", `${s.counts.received} received`],
     [
       "Quality gate",
+      "Demo rule",
       src.synthetic
-        ? "Demo rule: 15-minute median of 8 or more usable readings."
-        : "Demo rule: 15-minute median of 2 of 3 readings. Temperature holds 8 hours.",
+        ? "Stands in for the planned signal-quality model: 15-minute median of 8 or more usable readings."
+        : "Stands in for the planned signal-quality model: 2 of 3 readings, temperature holds 8 hours.",
       `${s.counts.rejected} rejected`,
     ],
-    ["NEWS2", "Tier A. Any missing input abstains. Nothing is imputed.", `${s.counts.abstained} abstained`],
-    ["Arbiter", "The only stage that changes priority.", `${ranked} ranked, ${s.patients.length - ranked} not`],
-    ["Ward list", "Ranks and displays. A human decides.", `${s.tasks.length} queued`],
+    ["NEWS2", "Built", "Runs on the ward edge server. Any missing input abstains. Nothing is imputed.", `${s.counts.abstained} abstained`],
+    ["Escalation arbiter", "Built", "Runs on the ward edge server. The only step that changes priority.", `${ranked} ranked, ${s.patients.length - ranked} not`],
+    ["Clinician list", "Built", "One ranked list per clinician. A human decides.", `${s.tasks.length} queued`],
+    ["Huawei Cloud", "Planned", "Keeps a synced copy. The edge server stays primary and works offline.", "every 15 min"],
   ];
   return (
     <div className="scroll">
       <ol className="stages">
-        {stages.map(([name, text, count], i) => (
+        {stages.map(([name, status, text, count], i) => (
           <li key={name}>
             <span className="rank">{i + 1}</span>
             <div>
-              <b>{name}</b>
+              <b>{name}</b> <span className="pill">{status}</span>
               <p>{text}</p>
             </div>
             <span className="mono">{count}</span>
@@ -375,13 +379,14 @@ function PipelineTab({ s, src }: { s: Sim; src: VitalsSource }) {
         ))}
       </ol>
       <p className="story">
-        The patch, gateway and edge server are the described design. None of that hardware is built
-        yet. NEWS2 and the arbiter here are ported from BioSentry.
+        Not simulated yet: anomaly detection against a personal baseline, conformal abstention and the
+        alert explainer agent. The patch, gateway and cloud are planned hardware and services.
       </p>
       <ul className="key">
         <li><i style={{ background: "#4ECDC4" }} /> Sample scored and ranked</li>
         <li><i style={{ background: "#FF6B6B" }} /> Sample rejected at the gate</li>
         <li><i style={{ background: "#A899B5" }} /> NEWS2 abstained</li>
+        <li><i style={{ background: "#B197FC" }} /> Sync to Huawei Cloud</li>
       </ul>
     </div>
   );

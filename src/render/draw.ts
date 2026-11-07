@@ -20,7 +20,7 @@ const HALF_W = 12;
 const HALF_H = 6;
 const MARGIN = 4;
 const OX = MAP_H * HALF_W + MARGIN;
-const OY = 40;
+const OY = 48;
 export const LOGICAL_W = (MAP_W + MAP_H) * HALF_W + MARGIN * 2;
 export const LOGICAL_H = OY + (MAP_W + MAP_H) * HALF_H + 10;
 
@@ -353,6 +353,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   }
   const envelope = sprite(ENVELOPE, ENVELOPE_PALETTE);
   let flights: Flight[] = [];
+  let lastSync = 0;
   let scale = 1;
   let offX = 0;
   let offY = 0;
@@ -548,6 +549,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
 
     reset() {
       flights = [];
+      lastSync = 0;
     },
 
     frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number) {
@@ -596,6 +598,13 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
       label("PHYSICIANS", fx, fy, "#3D2E4A");
 
       if (s.speed > 0) launchPackets(s);
+      const [cloudX, cloudY] = [LOGICAL_W - 70, 120]; // the empty sky above the closet
+      tag("HUAWEI CLOUD", cloudX, cloudY);
+      const minute = minuteOf(s);
+      if (minute >= lastSync + 15 && s.speed > 0) {
+        lastSync = minute - (minute % 15);
+        flights.push({ route: [stationPoint(STATIONS.arbiter), [cloudX, cloudY - 4]], leg: 0, t: 0, colour: "#B197FC" });
+      }
       drawFlights(s.speed > 0 ? dt : 0);
       drawEnvelopes(s);
       drawBedOverlays(s, selected, hovered, now);

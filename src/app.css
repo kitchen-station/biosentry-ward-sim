@@ -403,6 +403,11 @@ input:focus-visible {
   font-weight: 400;
 }
 
+.stages .pill {
+  font-size: 12px;
+  border-width: 1px;
+}
+
 .stages .mono {
   font-size: 15px;
   text-align: right;
@@ -507,7 +512,7 @@ input:focus-visible {
   }
 
   .floor {
-    aspect-ratio: 536 / 324;
+    aspect-ratio: 536 / 322;
   }
 
   .command {

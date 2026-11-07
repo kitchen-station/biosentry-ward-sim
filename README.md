@@ -44,6 +44,8 @@ npm test
 | Isometric renderer and sprites | `src/render/` |
 | Panels | `src/panels.tsx` |
 
+The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. The Pipeline tab marks each stage built, planned or demo rule. Anomaly detection, conformal abstention, the explainer agent and the patch's ECG are not simulated.
+
 The sim is plain data with no React or canvas, so it runs headless in tests. At minute 0 it reproduces the BioSentry fixture: all ten NEWS2 totals, the rank order, the reason strings and the NOT RANKED text. `src/sim/sim.test.ts` checks this against `src/sim/synthetic.json`.
 
 ### The eICU replay
@@ -79,6 +81,7 @@ BioSentry only ranks and displays. A human decides. These parts were invented fo
 
 - **Staff response loop:** the product has no alert or acknowledgement flow. Messages, walks, assessments and physician calls are demo design.
 - **Reassessment:** medium and high risk patients are seen at least every 60 sim-minutes.
+- **Physician calls:** at NEWS2 5 or more the nurse calls the patient's physician, following the Kitchen page and RCP 2017 ("immediately inform the medical team"). Below 5, including a single parameter at 3, the nurse handles it.
 - **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes. The replay uses its own rules, listed above.
 - **NOT RANKED cutoff:** 30 stale minutes.
 - **Filled fixture gaps:** a cuff reading of 128/76 for p-004, a baseline for p-005, and physicians for both.

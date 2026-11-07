@@ -201,6 +201,17 @@ describe("simulation", () => {
     expect(reviewed).toBe(true);
   });
 
+  it("calls the physician at NEWS2 5 or more, not below", () => {
+    const { s, src } = start();
+    const calledFor = new Set<string>();
+    while (minuteOf(s) < 30) {
+      step(s, src);
+      for (const m of s.staff) if (m.role === "md" && m.task) calledFor.add(m.task.patient);
+    }
+    expect(calledFor.has("p-003")).toBe(true); // NEWS2 5, medium
+    expect(calledFor.has("p-008")).toBe(false); // NEWS2 3 with a single 3
+  });
+
   it("keeps score changes from churning the ward", () => {
     const rates = [1, 2, 3, 4].map((seed) => {
       const { s, src } = start(seed);
