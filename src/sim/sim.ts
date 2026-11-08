@@ -38,7 +38,8 @@ export interface Patient {
   context: string;
   story: string;
   rn: string;
-  md: string;
+  md: string; // who is called to the bedside
+  listMd: string | null; // whose list the patient is on: the fixture's physician, if it has one
   rules: GateRules;
   offsetS: number;
   nextMinute: number;
@@ -100,6 +101,38 @@ export interface MdCall {
 
 export type PacketOutcome = "ok" | "rejected" | "abstained";
 
+/** What the database API is sent, queued by the sim as it runs. Set only by src/sim/sync.ts. */
+export interface Obs {
+  patient_id: string;
+  code: string;
+  minute: number;
+  num?: number;
+  num2?: number;
+  txt?: string;
+  absent_reason?: string;
+  source: "device" | "nurse";
+  quality: Quality;
+}
+export interface Bin {
+  patient_id: string;
+  vital: Vital;
+  minute: number;
+  value: number | null;
+}
+export interface LogEvent {
+  minute: number;
+  kind: "log";
+  patient_id: null;
+  staff_id: null;
+  text: string;
+}
+export interface Outbox {
+  observations: Obs[];
+  bins: Bin[];
+  events: LogEvent[];
+  sent: Map<string, string>; // patient/code to the value and quality last queued
+}
+
 export interface Sim {
   clockS: number;
   speed: Speed;
@@ -111,10 +144,12 @@ export interface Sim {
   log: { minute: number; text: string }[];
   counts: { received: number; rejected: number; abstained: number };
   ended: boolean;
+  outbox?: Outbox;
 }
 
 const STAFF: [string, string, string, Staff["role"]][] = [
   ["rn-delacruz", "Dela Cruz", "Staff nurse", "rn"],
+  ["rn-reyes", "Reyes", "Staff nurse", "rn"],
   ["rn-manalo", "Manalo", "Charge nurse", "charge_rn"],
   ["md-santos", "Dr. Santos", "Attending", "md"],
   ["md-aquino", "Dr. Aquino", "Attending", "md"],
@@ -136,6 +171,40 @@ export const patientById = (s: Sim, id: string) => s.patients.find((p) => p.id =
 function say(s: Sim, text: string) {
   s.log.push({ minute: minuteOf(s), text });
   if (s.log.length > 200) s.log.shift();
+  s.outbox?.events.push({ minute: minuteOf(s), kind: "log", patient_id: null, staff_id: null, text: text.slice(0, 500) });
+}
+
+/** Queues every input decide() used that changed since it was last queued, so the server scores the same. */
+export function record(s: Sim, p: Patient, minute: number) {
+  const out = s.outbox;
+  if (!out) return;
+  const put = (code: string, source: Obs["source"], quality: Quality, signature: unknown, value: Partial<Obs>) => {
+    const key = `${p.id}/${code}`;
+    const sig = JSON.stringify(signature);
+    if (out.sent.get(key) === sig) return;
+    out.sent.set(key, sig);
+    const rows = out.observations;
+    const row: Obs = { patient_id: p.id, code, minute, source, quality, ...value };
+    const same = (o: Obs) => o.patient_id === p.id && o.code === code && o.minute === minute;
+    let at = rows.length - 1;
+    while (at >= 0 && rows[at].minute >= minute && !same(rows[at])) at--;
+    if (at >= 0 && same(rows[at])) rows[at] = row; // the server keeps one row per minute
+    else rows.push(row);
+  };
+  for (const v of VITALS) {
+    const quality = vitalQuality(p, v, minute);
+    const heldAt = p.heldAt[v];
+    const held = quality === "missing" ? null : p.held[v];
+    // Wording as in src/bridge/snapshot.ts.
+    const reason = heldAt === null ? "No usable reading yet" : `No usable reading for ${minute - heldAt} min`;
+    if (held === null) put(v, "device", "missing", null, { absent_reason: reason });
+    else put(v, "device", quality, [held, quality], { num: held });
+  }
+  if (p.bp) put("blood_pressure", "nurse", "ok", p.bp, { num: p.bp.systolic, num2: p.bp.diastolic });
+  else put("blood_pressure", "nurse", "missing", null, { absent_reason: "No blood pressure recorded" });
+  put("consciousness", "nurse", "ok", p.consciousness, { txt: p.consciousness });
+  put("supplemental_o2", "nurse", "ok", p.onOxygen, { num: p.onOxygen ? 1 : 0 });
+  put("spo2_scale", "nurse", "ok", p.spo2Scale, { num: p.spo2Scale });
 }
 
 function gate(p: Patient, reading: Record<Vital, number | null> | null, minute: number) {
@@ -235,11 +304,14 @@ function sample(s: Sim, src: VitalsSource, p: Patient, minute: number) {
   rerank(s);
   logDecisionChange(s, p, before);
   maybeQueueAssessment(s, p, minute);
+  record(s, p, minute);
 
   if (minute % WINDOW_MINUTES === 0) {
     for (const v of VITALS) {
-      p.history[v].push(vitalQuality(p, v, minute) === "ok" ? p.held[v] : null);
+      const value = vitalQuality(p, v, minute) === "ok" ? p.held[v] : null;
+      p.history[v].push(value);
       p.history[v].shift();
+      s.outbox?.bins.push({ patient_id: p.id, vital: v, minute, value });
     }
     p.bpHistory.push(p.bp?.systolic ?? null);
     p.bpHistory.shift();
@@ -326,6 +398,7 @@ function finishTask(s: Sim, src: VitalsSource, m: Staff) {
   p.nurseAt = minute;
   const before = p.decision;
   decide(p, minute);
+  record(s, p, minute);
   rerank(s);
   logDecisionChange(s, p, before);
   p.lastAssessed = minute;
@@ -507,6 +580,7 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
     story: seed.story,
     rn: seed.rn,
     md: seed.md,
+    listMd: seed.listMd,
     rules,
     offsetS: i * 5,
     nextMinute: rules.sampleEveryMin,
