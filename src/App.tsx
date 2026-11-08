@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CommandCenter, StaffStrip, TopBar, type Tab } from "./panels";
+import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
 import { createSim, step, type Sim } from "./sim/sim";
 import { createReplaySource, type ReplayFile } from "./sim/replay";
@@ -62,9 +63,17 @@ export function App() {
     };
     raf = requestAnimationFrame(loop);
     const panels = setInterval(() => refresh((n) => n + 1), 250);
+    // The dashboard reads this ward from /api (vite.config.ts). A static host has no /api: ignore.
+    const publish = setInterval(() => {
+      const { s, src } = worldRef.current;
+      fetch("/api/snapshot", { method: "POST", body: JSON.stringify(wardSnapshot(s, src.synthetic)) }).catch(
+        () => {},
+      );
+    }, 2000);
     return () => {
       cancelAnimationFrame(raf);
       clearInterval(panels);
+      clearInterval(publish);
       observer.disconnect();
     };
   }, []);

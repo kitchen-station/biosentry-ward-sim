@@ -24,6 +24,28 @@ CI runs the tests and the build on every push and pull request. Dependabot propo
 
 `npm install` needs the committed `package-lock.json`. Without it, npm 10 fails while resolving Vitest's optional peers.
 
+## Feed the BioSentry dashboard
+
+The sim is the ward. The [BioSentry dashboard](https://github.com/garcieee/BioSentry-Intelligence) is the clinician's view of it. While the sim page is open, its dev server answers the dashboard's API at `/api`, using the dashboard's own data shapes:
+
+```bash
+npm run dev -- --port 5180
+```
+
+Then, in the dashboard's `frontend` folder:
+
+```bash
+VITE_API_URL=http://localhost:5180/api npm run dev
+```
+
+Sign in as a clinician on the sim's staff (Nurse de la Cruz, Charge Nurse Manalo, Dr. Santos or Dr. Aquino). Each one sees only their own patients, live: same ranks, NEWS2 totals and NOT RANKED rows as the sim's ranked list.
+
+- The sim page sends its ward to `POST /api/snapshot` every 2 seconds (`src/bridge/snapshot.ts`). Keep the tab open, or the dashboard stops updating.
+- `src/bridge/api.ts` answers `POST /session`, `GET /wards/W4/rows`, `GET /patients`, `GET /patients/{id}` and its notes. Scoping is on the server and each view is logged as `[audit]` in the dev server's terminal.
+- It is read-only. Notes, admissions, labs and vitals entry answer 501, because the sim owns the ward.
+- Labs, Tier B and Tier C are not simulated, so they arrive empty, never made up.
+- Identity is a stub: any staff id gets a token. The API exists only on the local dev server; never expose it on a network.
+
 ## What you can do
 
 - Switch between synthetic patients and the eICU replay.
