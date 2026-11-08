@@ -1,5 +1,7 @@
 # BioSentry ward simulation
 
+**Live demo:** <https://biosentry-ward-sim.pages.dev> (synthetic patients; deploys from `main`)
+
 An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
 
 It runs on two sources: synthetic patients wearing chest patches, or real de-identified ICU stays replayed on the same simulated ward.
