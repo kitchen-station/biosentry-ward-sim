@@ -96,6 +96,13 @@ export const BEDS: Bed[] = [
   ...bedsAt("S", [27], 16, 15, 4),
 ];
 
+// The twelve occupied tiles carry the BioSentry dashboard's bed labels; the other eight stay empty.
+const DASHBOARD_LABEL: Record<string, string> = {
+  H1: "4A", H2: "2B", H3: "1C", H4: "3A", A1: "6A", A2: "7B", A3: "9A",
+  B1: "5B", B2: "8A", B3: "10B", S1: "4B", S2: "3B",
+};
+for (const bed of BEDS) bed.label = DASHBOARD_LABEL[bed.label] ?? bed.label;
+
 export const bedByLabel = (label: string) => {
   const bed = BEDS.find((b) => b.label === label);
   if (!bed) throw new Error(`No bed ${label}`);
@@ -113,6 +120,7 @@ export const physicianStand = (bed: Bed): Tile => {
 
 export const HOMES: Record<string, Tile> = {
   "rn-delacruz": [12, 11],
+  "rn-reyes": [16, 11],
   "rn-manalo": [14, 11],
   "md-santos": [21, 13],
   "md-aquino": [23, 13],

@@ -5,6 +5,7 @@ import { createRenderer } from "./render/draw";
 import { createSim, step, type Sim } from "./sim/sim";
 import { createReplaySource, type ReplayFile } from "./sim/replay";
 import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./sim/source";
+import { createSync } from "./sim/sync";
 
 const TICK = 1 / 60;
 
@@ -29,11 +30,21 @@ export function App() {
 
   useEffect(() => {
     // The extract is local only. Without it the dev server answers with HTML, so json() fails.
-    fetch("/replay/eicu-20.json")
+    fetch("/replay/eicu-12.json")
       .then((response) => response.json())
       .then(setReplay)
       .catch(() => setReplay(null));
   }, []);
+
+  // Writes each world to the database API, when one is configured.
+  useEffect(() => {
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (!apiUrl) return;
+    const sync = createSync({ apiUrl, key: import.meta.env.VITE_INGEST_KEY ?? "", fetch: window.fetch.bind(window) });
+    void sync.start(world.s, world.src);
+    const timer = setInterval(() => void sync.flush(), 1000);
+    return () => clearInterval(timer);
+  }, [world]);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
