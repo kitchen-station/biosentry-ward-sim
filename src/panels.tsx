@@ -3,7 +3,7 @@ import { Sparkline } from "./chart";
 import { EcgStrip } from "./ecg";
 import { explain } from "./explain";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
-import { CHIP_COLOURS } from "./render/draw";
+import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
 import {
   applyPatch,
   detachPatch,
@@ -17,10 +17,9 @@ import {
   type Patient,
   type Sim,
   type Speed,
+  type Staff,
 } from "./sim/sim";
 import type { Vital, VitalsSource } from "./sim/source";
-
-export type Tab = "ranked" | "chart" | "pipeline" | "log";
 
 const SPEEDS: Speed[] = [0, 1, 10, 60];
 const SYSTOLIC_BOUNDS = { min: 20, max: 300 };
@@ -133,7 +132,7 @@ function RankedRow({
   );
 }
 
-function RankedTab({
+function RankedList({
   s,
   selected,
   onSelect,
@@ -148,7 +147,7 @@ function RankedTab({
     .sort((a, b) => a.rank! - b.rank!);
   const notRanked = s.patients.filter((p) => p.rank === null);
   return (
-    <div className="scroll">
+    <>
       <ol className="list">
         {ranked.map((p) => (
           <RankedRow key={p.id} p={p} minute={minute} onSelect={onSelect} selected={p.id === selected} />
@@ -172,7 +171,7 @@ function RankedTab({
           </li>
         ))}
       </ul>
-    </div>
+    </>
   );
 }
 
@@ -194,24 +193,54 @@ function VitalCard({
   data: (number | null)[];
 }) {
   return (
-    <div className="vital">
+    <div className="vital" title={source}>
       <div className="vhead">
         <span>{label}</span>
         {quality !== "ok" && <span className="pill">{quality}</span>}
       </div>
-      <div className="vbody">
-        <span className="vnum">
-          {value}
-          <small>{unit}</small>
-        </span>
-        <Sparkline data={data} />
-      </div>
-      <div className="prov">
-        {source} · {at}
-      </div>
+      <span className="vnum">
+        {value}
+        <small>{unit}</small>
+      </span>
+      <Sparkline data={data} height={22} />
+      <div className="prov">{at}</div>
     </div>
   );
 }
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="vital">
+      <div className="vhead">{label}</div>
+      <span className="vnum">{value}</span>
+    </div>
+  );
+}
+
+/** Only the log lines that name this person. */
+function Activity({ s, src, name }: { s: Sim; src: VitalsSource; name: string }) {
+  const lines = s.log.filter((line) => line.text.includes(name)).slice(-5).reverse();
+  if (lines.length === 0) return null;
+  return (
+    <>
+      <h3>Recent activity</h3>
+      <ol className="log">
+        {lines.map((line, i) => (
+          <li key={i}>
+            <span className="mono">{clockText(src, line.minute)}</span> {line.text}
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+const RISK_WORDS: Record<string, string> = {
+  low: "Low risk",
+  low_medium: "Low-medium risk",
+  medium: "Medium risk",
+  high: "High risk",
+};
 
 function BpForm({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
   const cuff = src.cuff(p.id, minuteOf(s));
@@ -254,10 +283,8 @@ function BpForm({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
   );
 }
 
-function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null }) {
-  if (!id) return <p className="empty">Click a bed or a ranked row to open a chart.</p>;
-  const p = s.patients.find((x) => x.id === id);
-  if (!p) return <p className="empty">This patient has left the ward.</p>;
+function PatientPanel({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
+  const id = p.id;
   const minute = minuteOf(s);
   const d = p.decision;
   const origin = src.synthetic ? "synthetic" : "eICU";
@@ -276,12 +303,16 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
   const patchRequested = s.tasks.some((t) => t.patient === id && t.kind === "apply_patch") ||
     s.staff.some((m) => m.task?.patient === id && m.task.kind === "apply_patch");
   return (
-    <div className="scroll">
+    <>
       <div className="chead">
         <div>
           <h2>{p.name}</h2>
           <p className="mono">
-            Bed {p.bed} · {p.age} {p.sex} · {p.rank ? `Rank ${p.rank}` : "NOT RANKED"}
+            Bed {p.bed} · {p.age} {p.sex}
+          </p>
+          <p className="mono">
+            {d.kind === "ranked" ? `${RISK_WORDS[d.news2.risk]} · Rank ${p.rank}` : "Not ranked"}
+            {p.trend === "insufficient" ? "" : ` · ${p.trend}`}
           </p>
         </div>
         <div className="big">
@@ -289,10 +320,13 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           <small>NEWS2</small>
         </div>
       </div>
+      <div className="explain">
+        <p>{explain(p)}</p>
+      </div>
       <p className="story">{p.context}. {p.story}.</p>
       <div className="vitals">
         {device("heart_rate", "Heart rate", "/min")}
-        {device("respiratory_rate", "Respiratory rate", "/min")}
+        {device("respiratory_rate", "Resp. rate", "/min")}
         {device("spo2", "SpO2", "%")}
         {device("temperature", "Temperature", "°C", 1)}
         <VitalCard
@@ -304,53 +338,6 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           quality={p.bp ? "ok" : "missing"}
           data={p.bpHistory}
         />
-      </div>
-      <div className="vital">
-        <div className="vhead">
-          <span>ECG, lead II</span>
-          <span className="pill">illustrative</span>
-        </div>
-        {src.synthetic ? (
-          <>
-            <EcgStrip
-              hr={p.patch && vitalQuality(p, "heart_rate", minute) !== "missing" ? p.held.heart_rate : null}
-              clockS={s.clockS}
-              irregular={p.irregular}
-              ectopyPerHour={p.ectopyPerHour}
-            />
-            <div className="prov">
-              Waveform drawn from the heart rate{p.irregular ? ", AF" : ""}; beat timing fitted to real labelled
-              ECGs. The patch sends ECG; BioSentry
-              stores waveforms in Object Storage Service. Nothing here analyses it.
-            </div>
-          </>
-        ) : (
-          <div className="prov">The eICU demo has no waveforms, so no strip is drawn.</div>
-        )}
-      </div>
-      <p className="second mono">
-        ACVPU {p.consciousness}
-        {src.synthetic ? "" : " (from GCS)"} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
-        {Math.round((100 * p.signal.reduce((a, b) => a + b, 0)) / Math.max(1, p.signal.length))}%
-      </p>
-      {d.kind === "ranked" ? (
-        <ul className="reasons">
-          {d.news2.reasons.map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="story">
-          {d.reason}. {d.instruction}.
-        </p>
-      )}
-      <div className="explain">
-        <div className="vhead">
-          <span>Why this patient</span>
-          <span className="pill">planned: explainer agent</span>
-        </div>
-        <p>{explain(p)}</p>
-        <div className="prov">A fixed template stands in for the planned agent. It does not rank.</div>
       </div>
       <div className="actions">
         {src.inject && (
@@ -372,126 +359,123 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
         )}
       </div>
       {p.bp === null && <BpForm key={id} s={s} src={src} p={p} />}
-    </div>
+      <Activity s={s} src={src} name={p.name} />
+      <details>
+        <summary>ECG and score details</summary>
+        <div className="vital">
+          <div className="vhead">
+            <span>ECG, lead II</span>
+            <span className="pill">illustrative</span>
+          </div>
+          {src.synthetic ? (
+            <>
+              <EcgStrip
+                hr={p.patch && vitalQuality(p, "heart_rate", minute) !== "missing" ? p.held.heart_rate : null}
+                clockS={s.clockS}
+                irregular={p.irregular}
+                ectopyPerHour={p.ectopyPerHour}
+              />
+              <div className="prov">
+                Waveform drawn from the heart rate{p.irregular ? ", AF" : ""}; beat timing fitted to real labelled
+                ECGs. Nothing here analyses it.
+              </div>
+            </>
+          ) : (
+            <div className="prov">The eICU demo has no waveforms, so no strip is drawn.</div>
+          )}
+        </div>
+        <p className="second mono">
+          ACVPU {p.consciousness}
+          {src.synthetic ? "" : " (from GCS)"} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
+          {Math.round((100 * p.signal.reduce((a, b) => a + b, 0)) / Math.max(1, p.signal.length))}%
+        </p>
+        {d.kind === "ranked" && (
+          <ul className="reasons">
+            {d.news2.reasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        )}
+        <div className="prov">The summary at the top is a fixed template standing in for the planned explainer agent. It does not rank.</div>
+      </details>
+    </>
   );
 }
 
-function PipelineTab({ s, src }: { s: Sim; src: VitalsSource }) {
-  const patched = s.patients.filter((p) => p.patch).length;
-  const ranked = s.patients.filter((p) => p.rank !== null).length;
-  // Stages and build status as the Kitchen BioSentry page states them.
-  const stages: [string, string, string, string][] = [
-    [
-      src.synthetic ? "Chest patch" : "Bedside monitor",
-      "Planned",
-      src.synthetic
-        ? "Sends ECG and vital signs over BLE. This demo shows the vitals only, one sample a minute."
-        : "Real ICU monitor data stands in for the patch. HR, RR and SpO2 every 5 minutes.",
-      `${patched} of ${s.patients.length} on`,
-    ],
-    ["Ward gateway", "Planned", "Receives BLE from each patch and sends it on through IoT Device Access.", `${s.counts.received} received`],
-    [
-      "Quality gate",
-      "Demo rule",
-      src.synthetic
-        ? "Stands in for the planned signal-quality model: 15-minute median of 8 or more usable readings."
-        : "Stands in for the planned signal-quality model: 2 of 3 readings, temperature holds 8 hours.",
-      `${s.counts.rejected} rejected`,
-    ],
-    ["Anomaly detection", "Planned", "Learns each patient's normal and flags a change from it. Not simulated.", "--"],
-    ["Conformal abstention", "Not built", "Stays quiet when the system is not sure. Not simulated.", "--"],
-    ["NEWS2", "Built", "Runs on the ward edge server. Any missing input abstains. Nothing is imputed.", `${s.counts.abstained} abstained`],
-    ["Escalation arbiter", "Built", "Runs on the ward edge server. The only step that changes priority.", `${ranked} ranked, ${s.patients.length - ranked} not`],
-    ["Clinician list", "Built", "One ranked list per clinician. A human decides.", `${s.tasks.length} queued`],
-    ["Alert explainer agent", "Planned", "Plain words for each ranked alert. The chart shows a fixed template in its place.", "--"],
-    ["Huawei Cloud", "Planned", "Keeps a synced copy. The edge server stays primary and works offline.", "every 15 min"],
-  ];
-  return (
-    <div className="scroll">
-      <ol className="stages">
-        {stages.map(([name, status, text, count], i) => (
-          <li key={name}>
-            <span className="rank">{i + 1}</span>
-            <div>
-              <b>{name}</b> <span className="pill">{status}</span>
-              <p>{text}</p>
-            </div>
-            <span className="mono">{count}</span>
-          </li>
-        ))}
-      </ol>
-      <p className="story">
-        Stages marked planned or not built are shown so the flow matches the Kitchen page. They do not
-        affect the ranking here. The patch, gateway and cloud are planned hardware and services.
-      </p>
-      <ul className="key">
-        <li><i style={{ background: "#4ECDC4" }} /> Sample scored and ranked</li>
-        <li><i style={{ background: "#FF6B6B" }} /> Sample rejected at the gate</li>
-        <li><i style={{ background: "#A899B5" }} /> NEWS2 abstained</li>
-        <li><i style={{ background: "#B197FC" }} /> Sync to Huawei Cloud</li>
-      </ul>
-    </div>
-  );
-}
+export const MACHINE_NAMES: Record<string, string> = {
+  gateway: "Ward gateway",
+  gate: "Quality gate",
+  news2: "NEWS2",
+  arbiter: "Escalation arbiter",
+  screen: "Ward list",
+};
 
-function LogTab({ s, src }: { s: Sim; src: VitalsSource }) {
-  return (
-    <div className="scroll">
-      {s.log.length === 0 && <p className="empty">Nothing yet.</p>}
-      <ol className="log">
-        {[...s.log].reverse().map((line, i) => (
-          <li key={s.log.length - i}>
-            <span className="mono">{clockText(src, line.minute)}</span> {line.text}
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-const TABS: [Tab, string][] = [
-  ["ranked", "Ranked"],
-  ["chart", "Chart"],
-  ["pipeline", "Pipeline"],
-  ["log", "Log"],
-];
-
-export function CommandCenter({
+function MachinePanel({
   s,
   src,
-  tab,
-  setTab,
+  id,
   selected,
   onSelect,
 }: {
   s: Sim;
   src: VitalsSource;
-  tab: Tab;
-  setTab: (tab: Tab) => void;
+  id: string;
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { received, rejected, abstained } = s.counts;
+  const patched = s.patients.filter((p) => p.patch).length;
+  const ranked = s.patients.filter((p) => p.rank !== null).length;
+  // Build status as the Kitchen BioSentry page states it.
+  const info: Record<string, { status: string; text: string; stats: [string, string | number][] }> = {
+    gateway: {
+      status: "Planned",
+      text: "Receives BLE from each patch and sends it on through IoT Device Access.",
+      stats: [["Samples received", received], ["Patches on", `${patched} of ${s.patients.length}`]],
+    },
+    gate: {
+      status: "Demo rule",
+      text: src.synthetic
+        ? "Stands in for the planned signal-quality model: 15-minute median of 8 or more usable readings."
+        : "Stands in for the planned signal-quality model: 2 of 3 readings, temperature holds 8 hours.",
+      stats: [["Rejected", rejected], ["Passed", `${Math.round((100 * (received - rejected)) / Math.max(1, received))}%`]],
+    },
+    news2: {
+      status: "Built",
+      text: "Runs on the ward edge server. Any missing input abstains. Nothing is imputed.",
+      stats: [["Scored", received - rejected - abstained], ["Abstained", abstained]],
+    },
+    arbiter: {
+      status: "Built",
+      text: "Runs on the ward edge server. The only step that changes priority.",
+      stats: [["Ranked", ranked], ["Not ranked", s.patients.length - ranked]],
+    },
+    screen: {
+      status: "Built",
+      text: "One ranked list per clinician. A human decides. Click a row to go to that patient.",
+      stats: [["Ranked", ranked], ["Tasks queued", s.tasks.length]],
+    },
+  };
+  const { status, text, stats } = info[id];
   return (
-    <aside className="panel command">
-      <h2 className="ptitle">Command center</h2>
-      <div className="tabs" role="tablist">
-        {TABS.map(([id, label]) => (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={tab === id}
-            className={tab === id ? "on" : ""}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
+    <>
+      <div className="chead">
+        <h2>{MACHINE_NAMES[id]}</h2>
+        <span className="pill">{status}</span>
+      </div>
+      <p className="story">{text}</p>
+      <div className="vitals">
+        {stats.map(([label, value]) => (
+          <Stat key={label} label={label} value={value} />
         ))}
       </div>
-      {tab === "ranked" && <RankedTab s={s} selected={selected} onSelect={onSelect} />}
-      {tab === "chart" && <ChartTab s={s} src={src} id={selected} />}
-      {tab === "pipeline" && <PipelineTab s={s} src={src} />}
-      {tab === "log" && <LogTab s={s} src={src} />}
-    </aside>
+      {id === "screen" && (
+        <>
+          <h3>Ranked patients</h3>
+          <RankedList s={s} selected={selected} onSelect={onSelect} />
+        </>
+      )}
+    </>
   );
 }
 
@@ -502,32 +486,96 @@ function portrait(id: string) {
   return portraits.get(id)!;
 }
 
-export function StaffStrip({ s }: { s: Sim }) {
+function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
+  const { chip, text } = staffStatus(s, m);
+  const queued = s.tasks.filter((t) => t.rn === m.id).length;
   return (
-    <section className="strip" aria-label="Staff">
-      {s.staff.map((m) => {
-        const { chip, text } = staffStatus(s, m);
-        const queued = s.tasks.filter((t) => t.rn === m.id).length;
-        return (
-          <article key={m.id} className="card">
-            <img src={portrait(m.id)} alt="" />
-            <div>
-              <div className="cname">
-                <b>{m.name}</b>
-                <span className="chip">
-                  <i style={{ background: CHIP_COLOURS[chip] }} />
-                  {chip}
-                </span>
-              </div>
-              <p className="mono">
-                {m.title}
-                {queued > 0 ? ` · ${queued} queued` : ""}
-              </p>
-              <p className="task">{text}</p>
-            </div>
-          </article>
-        );
-      })}
-    </section>
+    <>
+      <div className="chead staff">
+        <img src={portrait(m.id)} alt="" />
+        <div>
+          <h2>{m.name}</h2>
+          <p className="mono">{m.title}</p>
+          <span className="chip">
+            <i style={{ background: CHIP_COLOURS[chip] }} />
+            {chip}
+          </span>
+        </div>
+      </div>
+      <div className="explain">
+        <p>{text}</p>
+      </div>
+      <div className="vitals">
+        <Stat label="Tasks queued" value={queued} />
+      </div>
+      <Activity s={s} src={src} name={m.name} />
+    </>
+  );
+}
+
+export function Inspector({
+  s,
+  src,
+  selected,
+  onSelect,
+}: {
+  s: Sim;
+  src: VitalsSource;
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  if (selected === null) {
+    return (
+      <aside className="panel command">
+        <h2 className="ptitle">Click anything on the ward</h2>
+        <p className="story">A bed, a person or a machine. It zooms in and its details show here.</p>
+        <ul className="key">
+          {Object.entries(RISK_WORDS).map(([risk, word]) => (
+            <li key={risk}>
+              <i style={{ background: RISK_LIGHT[risk] }} /> {word}
+            </li>
+          ))}
+          <li>
+            <i style={{ background: "#A899B5" }} /> Not ranked (NR)
+          </li>
+        </ul>
+      </aside>
+    );
+  }
+  const patient = s.patients.find((p) => p.id === selected);
+  const staff = s.staff.find((m) => m.id === selected);
+  return (
+    <aside className="panel command">
+      <button onClick={() => onSelect(null)}>Back to full ward</button>
+      <div className="scroll">
+        {patient ? (
+          <PatientPanel s={s} src={src} p={patient} />
+        ) : staff ? (
+          <StaffPanel s={s} src={src} m={staff} />
+        ) : selected in MACHINE_NAMES ? (
+          <MachinePanel s={s} src={src} id={selected} selected={selected} onSelect={onSelect} />
+        ) : (
+          <p className="empty">This patient has left the ward.</p>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/** The canvas cannot take focus per item, so keyboard users pick from these. Hidden until focused. */
+export function SelectList({ s, onSelect }: { s: Sim; onSelect: (id: string) => void }) {
+  const targets: [string, string][] = [
+    ...s.patients.map((p): [string, string] => [p.id, `${p.name}, bed ${p.bed}`]),
+    ...s.staff.map((m): [string, string] => [m.id, m.name]),
+    ...Object.entries(MACHINE_NAMES),
+  ];
+  return (
+    <ul className="sr" aria-label="Select on the ward">
+      {targets.map(([id, name]) => (
+        <li key={id}>
+          <button onClick={() => onSelect(id)}>{name}</button>
+        </li>
+      ))}
+    </ul>
   );
 }
