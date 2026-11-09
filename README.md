@@ -76,7 +76,7 @@ The eICU replay is stored too, flagged as `eicu_demo` and not synthetic. It is r
 - Click a bed, a staff member or a machine to zoom in on it and see only its details. A patient shows the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
 - Start a deterioration or an AF episode (synthetic only), detach a patch, apply a patch, or record a blood pressure.
 - Click the WARD LIST screen at the nurse station for the ranked list.
-- Click ENTRANCE for who came and went, length of stay and the bed timeline, or to skip a day. Click an empty bed or a past stay for its history. Stays live in memory, so a reload starts over.
+- Click ENTRANCE for who came and went, length of stay and the bed timeline, or to skip a day. Click an empty bed or a past stay for its history. Without the database API, stays live in memory, so a reload starts over.
 
 ## How it works
 
@@ -188,7 +188,7 @@ MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it 
 
 ### Patient flow
 
-The synthetic ward in the app admits and discharges patients. Tests of the fixture turn this off with `createSyntheticSource(seed)`; the app passes `true` as the second argument. The 12 starting patients leave over the first days and new patients take their place, using all 20 beds. When `VITE_API_URL` is set, flow is off and the ward keeps its 12 patients, because the database API registers a fixed roster when a run starts.
+The synthetic ward in the app admits and discharges patients. Tests of the fixture turn this off with `createSyntheticSource(seed)`; the app passes `true` as the second argument. The 12 starting patients leave over the first days and new patients take their place, using all 20 beds. When `VITE_API_URL` is set, admissions and departures go to the database API with the other rows, and the dashboard's Station page shows them under Patient flow. Skip 1 day is hidden then, because a day at once would overflow the queue.
 
 | Part | Value | Source |
 |---|---|---|

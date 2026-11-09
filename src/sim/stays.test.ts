@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { duration } from "../panels";
 import { createSim, flowStats, skipDay, step } from "./sim";
+import { createSync } from "./sync";
 import { createSyntheticSource, FIXTURE_SEED } from "./source";
 
 const ward = () => {
@@ -43,6 +44,33 @@ describe("patient stays", () => {
     step(s, src);
     expect(s.stays).toHaveLength(s.patients.length);
   });
+
+  it("sends each move to the database once, and keeps it until it is accepted", async () => {
+    const { s, src } = ward();
+    const batches: { admissions: { id: string; minute: number; bins: unknown[] }[]; departures: { patient_id: string; outcome: string }[] }[] = [];
+    let up = false;
+    const fake = (async (url: string, init: { body: string }) => {
+      if (!up) return new Response("", { status: 503 });
+      if (url.endsWith("/sim/runs")) return Response.json({ run_id: 1 });
+      batches.push(JSON.parse(init.body));
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const sync = createSync({ apiUrl: "http://api", key: "k", fetch: fake });
+    await sync.start(s, src);
+    for (let day = 0; day < 8; day += 1) skipDay(s, src);
+    await sync.flush(); // refused: nothing lost
+    expect(batches).toHaveLength(0);
+    up = true;
+    await sync.flush();
+    const admitted = batches.flatMap((b) => b.admissions);
+    const departed = batches.flatMap((b) => b.departures);
+    expect(admitted.map((a) => a.id).sort()).toEqual(s.stays.filter((x) => x.inMin > 0).map((x) => x.id).sort());
+    expect(departed.map((d) => d.patient_id).sort()).toEqual(s.stays.filter((x) => x.outMin !== null).map((x) => x.id).sort());
+    expect(admitted.length).toBeGreaterThan(0);
+    expect(admitted[0].bins.length).toBeGreaterThan(0);
+    await sync.flush();
+    expect(batches.flatMap((b) => b.admissions)).toHaveLength(admitted.length);
+  }, 120_000);
 
   it("writes durations plainly", () => {
     expect(duration(12)).toBe("12m");

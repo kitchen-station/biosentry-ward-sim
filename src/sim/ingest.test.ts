@@ -10,6 +10,7 @@ import fixture from "./synthetic.json";
 
 const API = process.env.BIOSENTRY_API;
 const KEY = process.env.BIOSENTRY_INGEST_KEY ?? "dev-local";
+const PASSPHRASE = process.env.BIOSENTRY_PASSPHRASE ?? "dev-passphrase-local"; // the seeded local one
 const real = import.meta.glob<ReplayFile>("/public/replay/eicu-12.json", { eager: true, import: "default" });
 const realReplay = Object.values(real)[0];
 
@@ -48,7 +49,7 @@ describe("the outbox", () => {
     const a = start();
     const b = start();
     expect(a.s.outbox).toBeUndefined();
-    b.s.outbox = { observations: [], bins: [], events: [], sent: new Map() };
+    b.s.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
     run(a.s, a.src, 180);
     run(b.s, b.src, 180);
     const view = (s: Sim) => s.patients.map((p) => [p.id, p.decision, p.rank, p.trend, p.held, p.bp]);
@@ -66,7 +67,7 @@ describe("sync, with a fake fetch", () => {
     expect(calls).toHaveLength(1);
     const { path, key, body } = calls[0];
     expect([path, key]).toEqual(["/sim/runs", "k"]);
-    expect(Object.keys(body).sort()).toEqual(["origin", "patients", "seed", "source"]);
+    expect(Object.keys(body).sort()).toEqual(["client_id", "origin", "patients", "seed", "source"]);
     expect([body.source, body.seed]).toEqual(["synthetic", FIXTURE_SEED]);
     expect(Date.parse(body.origin)).not.toBeNaN();
     expect(body.origin).toMatch(/Z$/);
@@ -99,7 +100,7 @@ describe("sync, with a fake fetch", () => {
     await sync.flush();
     const { path, body } = calls[1];
     expect(path).toBe("/sim/runs/7/batch");
-    expect(Object.keys(body).sort()).toEqual(["bins", "counts", "ended", "events", "minute", "observations", "patients"]);
+    expect(Object.keys(body).sort()).toEqual(["admissions", "bins", "counts", "departures", "ended", "events", "minute", "observations", "patients"]);
     expect([body.minute, body.ended]).toEqual([40, false]);
     expect(body.patients).toHaveLength(12);
     expect(Object.keys(body.patients[0]).sort()).toEqual(["id", "last_sample_minute", "signal_quality", "trend"]);
@@ -209,7 +210,7 @@ async function rows(who: string) {
   const login = await fetch(`${API}/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clinician_id: who }),
+    body: JSON.stringify({ clinician_id: who, passphrase: PASSPHRASE }),
   });
   const { token } = (await login.json()) as { token: string };
   const res = await fetch(`${API}/wards/W4/rows`, { headers: { Authorization: `Bearer ${token}` } });

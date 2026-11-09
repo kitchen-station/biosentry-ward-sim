@@ -642,7 +642,8 @@ function EntrancePanel({
       </div>
       <div className="actions">
         <button onClick={onTimeline}>Bed timeline</button>
-        {src.admit && <button onClick={() => skipDay(s, src)}>Skip 1 day</button>}
+        {/* A day at once would overflow the queue to the database. */}
+        {src.admit && !s.outbox && <button onClick={() => skipDay(s, src)}>Skip 1 day</button>}
       </div>
       <h3>Who came and went</h3>
       {recent.length === 0 ? (
