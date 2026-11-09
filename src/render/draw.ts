@@ -2,8 +2,7 @@
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
 import { BEDS, CORRIDOR, MAP, MAP_H, MAP_W, ROOMS, STATIONS, bedByLabel, roomAt, type Floor, type Tile } from "../sim/map";
-import { minuteOf, staffById, staffStatus, vitalQuality, type PacketOutcome, type Patient, type Sim } from "../sim/sim";
-import { VITALS } from "../sim/source";
+import { staffById, staffStatus, type Patient, type Sim } from "../sim/sim";
 import {
   ENVELOPE,
   ENVELOPE_PALETTE,
@@ -37,17 +36,11 @@ export const CHIP_COLOURS = {
   success: "#6BCF7F",
 };
 
-const RISK_LIGHT: Record<string, string> = {
+export const RISK_LIGHT: Record<string, string> = {
   low: "#6BCF7F",
   low_medium: "#FFD93D",
   medium: "#FFA07A",
   high: "#FF6B6B",
-};
-
-const PACKET_COLOURS: Record<PacketOutcome, string> = {
-  ok: "#4ECDC4",
-  rejected: "#FF6B6B",
-  abstained: "#A899B5",
 };
 
 const iso = (x: number, y: number): [number, number] => [
@@ -353,17 +346,21 @@ function buildItems(s: Sim): Item[] {
   return items.sort((a, b) => a.depth - b.depth);
 }
 
-interface Flight {
-  route: [number, number][];
-  leg: number;
-  t: number;
-  colour: string;
-}
-
 const stationPoint = (tile: Tile, lift = 18): [number, number] => {
   const [x, y] = iso(tile[0] + 0.5, tile[1] + 0.5);
   return [x, y - lift];
 };
+
+const ZOOM = 2.4;
+
+// id, tile, tag text, tag height above the machine (staggered so neighbours do not overlap)
+const MACHINES: [string, Tile, string, number][] = [
+  ["gateway", STATIONS.gateway, "GATEWAY", 19],
+  ["gate", STATIONS.gate, "GATE", 31],
+  ["news2", STATIONS.news2, "NEWS2", 19],
+  ["arbiter", STATIONS.arbiter, "ARBITER", 31],
+  ["screen", STATIONS.screen, "WARD LIST", 19],
+];
 
 export function bedAnchor(p: Patient): [number, number] {
   const bed = bedByLabel(p.bed);
@@ -388,8 +385,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
     };
   }
   const envelope = sprite(ENVELOPE, ENVELOPE_PALETTE);
-  let flights: Flight[] = [];
-  let lastSync = 0;
+  const cam = { zoom: 1, x: LOGICAL_W / 2, y: LOGICAL_H / 2 }; // logical point at the view centre
   let scale = 1; // CSS pixels per logical pixel
   let backing = 1; // device pixels per logical pixel, always a whole number
 
@@ -434,42 +430,6 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
     const set = people[id];
     const key = !walking || phase % 2 === 1 ? m.facing : `${m.facing}Step${phase === 0 ? "L" : "R"}`;
     ctx.drawImage(set[key], sx - 6, sy - 20);
-  }
-
-  function drawFlights(dt: number) {
-    flights = flights.filter((f) => f.leg < f.route.length - 1);
-    for (const f of flights) {
-      const a = f.route[f.leg];
-      const b = f.route[f.leg + 1];
-      const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-      f.t += (dt * 170) / length;
-      if (f.t >= 1) {
-        f.leg += 1;
-        f.t = 0;
-        if (f.leg >= f.route.length - 1) continue;
-      }
-      const arc = Math.sin(f.t * Math.PI) * Math.min(26, length * 0.16);
-      const x = a[0] + (b[0] - a[0]) * f.t;
-      const y = a[1] + (b[1] - a[1]) * f.t - arc;
-      ctx.fillStyle = INK;
-      ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 5, 5);
-      ctx.fillStyle = f.colour;
-      ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 3, 3);
-    }
-  }
-
-  function launchPackets(s: Sim) {
-    for (const packet of s.packets.splice(0)) {
-      if (flights.length > 70) continue;
-      const p = s.patients.find((x) => x.id === packet.patient);
-      if (!p) continue; // left the ward while this was queued
-      const route: [number, number][] = [bedAnchor(p), stationPoint(STATIONS.gateway), stationPoint(STATIONS.gate)];
-      if (packet.outcome !== "rejected") route.push(stationPoint(STATIONS.news2));
-      if (packet.outcome === "ok") {
-        route.push(stationPoint(STATIONS.arbiter), stationPoint(STATIONS.screen, 20));
-      }
-      flights.push({ route, leg: 0, t: 0, colour: PACKET_COLOURS[packet.outcome] });
-    }
   }
 
   function drawEnvelopes(s: Sim) {
@@ -525,49 +485,38 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
     }
   }
 
-  function drawStaffTags(s: Sim) {
+  function drawStaffTags(s: Sim, selected: string | null, hovered: string | null) {
     for (const m of s.staff) {
+      if (m.id !== selected && m.id !== hovered) continue;
       const [sx, sy] = iso(m.x + 0.5, m.y + 0.5);
       const { chip } = staffStatus(s, m);
       tag(m.name, sx, sy - 22, CHIP_COLOURS[chip]);
     }
   }
 
-  function drawCard(s: Sim, selected: string) {
-    const p = s.patients.find((x) => x.id === selected);
-    if (!p) return; // discharged while selected
-    const minute = minuteOf(s);
-    const value = (v: (typeof VITALS)[number], digits = 0) =>
-      vitalQuality(p, v, minute) === "missing" || p.held[v] === null ? "--" : p.held[v]!.toFixed(digits);
-    const lines = [
-      `HR   ${value("heart_rate")} /min`,
-      `RR   ${value("respiratory_rate")} /min`,
-      `SpO2 ${value("spo2")} %`,
-      `Temp ${value("temperature", 1)} C`,
-      `BP   ${p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "--"} mmHg`,
-    ];
-    const score = p.decision.kind === "ranked" ? `NEWS2 ${p.decision.news2.total}` : "NOT RANKED";
-    const w = 76;
-    const h = 11 + lines.length * 8 + 11;
-    const [ax, ay] = bedAnchor(p);
-    const x = Math.max(2, Math.min(LOGICAL_W - w - 2, ax + 12));
-    const y = Math.max(2, Math.min(LOGICAL_H - h - 2, ay - h / 2));
-    ctx.fillStyle = INK;
-    ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
-    ctx.fillStyle = "#E8D9A0";
-    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
-    ctx.fillStyle = CREAM;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = INK;
-    ctx.fillRect(x, y, w, 10);
-    ctx.font = FONT;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = CREAM;
-    ctx.fillText(`${p.bed} ${p.name.split(",")[0]}`, x + 3, y + 5.5);
-    ctx.fillStyle = INK;
-    lines.forEach((line, i) => ctx.fillText(line, x + 3, y + 15 + i * 8));
-    ctx.fillText(score, x + 3, y + h - 6);
+  function focusPoint(s: Sim, id: string): [number, number] | null {
+    const p = s.patients.find((x) => x.id === id);
+    if (p) return bedAnchor(p);
+    const m = s.staff.find((x) => x.id === id);
+    if (m) {
+      const [x, y] = iso(m.x + 0.5, m.y + 0.5);
+      return [x, y - 10];
+    }
+    const machine = MACHINES.find(([key]) => key === id);
+    return machine ? stationPoint(machine[1]) : null;
+  }
+
+  /** Eases the camera toward the selection, or back to the whole ward. Stays inside the map. */
+  function moveCamera(s: Sim, selected: string | null, dt: number) {
+    const focus = selected ? focusPoint(s, selected) : null;
+    const ease = 1 - Math.exp(-dt * 6);
+    cam.zoom += ((focus ? ZOOM : 1) - cam.zoom) * ease;
+    cam.x += ((focus ? focus[0] : LOGICAL_W / 2) - cam.x) * ease;
+    cam.y += ((focus ? focus[1] : LOGICAL_H / 2) - cam.y) * ease;
+    const halfW = LOGICAL_W / 2 / cam.zoom;
+    const halfH = LOGICAL_H / 2 / cam.zoom;
+    cam.x = Math.max(halfW, Math.min(LOGICAL_W - halfW, cam.x));
+    cam.y = Math.max(halfH, Math.min(LOGICAL_H - halfH, cam.y));
   }
 
   return {
@@ -584,15 +533,16 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
     },
 
     reset() {
-      flights = [];
-      lastSync = 0;
+      Object.assign(cam, { zoom: 1, x: LOGICAL_W / 2, y: LOGICAL_H / 2 });
     },
 
     frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#2A2036";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.setTransform(backing, 0, 0, backing, 0, 0);
+      moveCamera(s, selected, dt);
+      const pixels = backing * cam.zoom;
+      ctx.setTransform(pixels, 0, 0, pixels, backing * (LOGICAL_W / 2 - cam.x * cam.zoom), backing * (LOGICAL_H / 2 - cam.y * cam.zoom));
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(floor, 0, 0);
 
@@ -620,36 +570,39 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
         next += 1;
       }
 
-      const lights = [STATIONS.gateway, STATIONS.gate, STATIONS.news2, STATIONS.arbiter];
-      const names = ["GATEWAY", "GATE", "NEWS2", "ARBITER"];
-      lights.forEach((tile, i) => {
+      MACHINES.forEach(([id, tile, name, lift], i) => {
         const [x, y] = iso(tile[0] + 0.5, tile[1] + 0.5);
-        ctx.fillStyle = Math.floor(now * 4 + i) % 3 === 0 ? "#FFD93D" : "#4ECDC4";
-        ctx.fillRect(x - 6, y - 11, 3, 2);
-        ctx.fillStyle = "#6BCF7F";
-        ctx.fillRect(x - 1, y - 11, 3, 2);
-        tag(names[i], x, y - (i % 2 === 0 ? 19 : 31));
+        if (id !== "screen") {
+          ctx.fillStyle = Math.floor(now * 4 + i) % 3 === 0 ? "#FFD93D" : "#4ECDC4";
+          ctx.fillRect(x - 6, y - 11, 3, 2);
+          ctx.fillStyle = "#6BCF7F";
+          ctx.fillRect(x - 1, y - 11, 3, 2);
+        }
+        tag(name, x, y - lift, undefined, id === selected || id === hovered);
       });
 
-      if (s.speed > 0) launchPackets(s);
-      const [cloudX, cloudY] = [LOGICAL_W - 95, 140]; // the empty sky above the edge server room
-      tag("HUAWEI CLOUD", cloudX, cloudY);
-      const minute = minuteOf(s);
-      if (minute >= lastSync + 15 && s.speed > 0) {
-        lastSync = minute - (minute % 15);
-        flights.push({ route: [stationPoint(STATIONS.arbiter), [cloudX, cloudY - 4]], leg: 0, t: 0, colour: "#B197FC" });
-      }
-      drawFlights(s.speed > 0 ? dt : 0);
       drawEnvelopes(s);
       drawBedOverlays(s, selected, hovered, now);
-      drawStaffTags(s);
-      if (selected) drawCard(s, selected);
+      drawStaffTags(s, selected, hovered);
     },
 
-    /** The patient under a canvas CSS pixel, if any. */
+    /** The patient, staff member or machine under a canvas CSS pixel, if any. */
     hit(s: Sim, cssX: number, cssY: number): string | null {
-      const x = cssX / scale;
-      const y = cssY / scale;
+      const x = cam.x + (cssX / scale - LOGICAL_W / 2) / cam.zoom;
+      const y = cam.y + (cssY / scale - LOGICAL_H / 2) / cam.zoom;
+      for (const m of s.staff) {
+        const [sx, sy] = iso(m.x + 0.5, m.y + 0.5);
+        if (Math.hypot(x - sx, y - (sy - 10)) <= 9) return m.id;
+      }
+      // Tags first: a staggered tag can sit over the machine behind it.
+      for (const [id, tile, , lift] of MACHINES) {
+        const [mx, my] = iso(tile[0] + 0.5, tile[1] + 0.5);
+        if (Math.abs(x - mx) <= 18 && Math.abs(y - (my - lift - 7)) <= 6) return id;
+      }
+      for (const [id, tile] of MACHINES) {
+        const [mx, my] = iso(tile[0] + 0.5, tile[1] + 0.5);
+        if (Math.hypot(x - mx, y - (my - 6)) <= 12) return id;
+      }
       for (const p of s.patients) {
         const bed = bedByLabel(p.bed);
         const y0 = Math.min(bed.head[1], bed.foot[1]);

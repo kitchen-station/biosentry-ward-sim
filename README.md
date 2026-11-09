@@ -73,9 +73,9 @@ The eICU replay is stored too, flagged as `eicu_demo` and not synthetic. It is r
 
 - Switch between synthetic patients and the eICU replay.
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
-- Click a bed or a ranked row to open a chart with the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
+- Click a bed, a staff member or a machine to zoom in on it and see only its details. A patient shows the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
 - Start a deterioration or an AF episode (synthetic only), detach a patch, apply a patch, or record a blood pressure.
-- Open Pipeline for stage counts and Log for ward events.
+- Click the WARD LIST screen at the nurse station for the ranked list.
 
 ## How it works
 
@@ -106,7 +106,7 @@ Ward W4 is laid out like a real cardiology ward. One corridor runs from the entr
 
 The ward has 20 beds. The 12 occupied ones carry the BioSentry dashboard's bed labels (1C, 2B, 3A and so on); the other 8 are empty. Patients keep their bed for the whole run; they do not move as their scores change. The replay uses the same 12 beds: the first four stays take the high-dependency beds and the rest take a bed of their sex.
 
-The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. The Pipeline tab marks each stage built, planned, not built or demo rule, and lists the planned stages (anomaly detection, conformal abstention, the explainer agent) without simulating them.
+The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. Clicking a machine shows whether that stage is built, planned or a demo rule. Anomaly detection, conformal abstention and the explainer agent are planned and not simulated.
 
 Kitchen also shapes three other things:
 

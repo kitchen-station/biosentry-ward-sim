@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CommandCenter, StaffStrip, TopBar, type Tab } from "./panels";
+import { Inspector, SelectList, TopBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
 import { createSim, step, type Sim } from "./sim/sim";
@@ -20,7 +20,6 @@ export function App() {
   const [replay, setReplay] = useState<ReplayFile | null>(null);
   const worldRef = useRef(world);
   worldRef.current = world;
-  const [tab, setTab] = useState<Tab>("ranked");
   const [selected, setSelected] = useState<string | null>(null);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -90,18 +89,13 @@ export function App() {
     };
   }, []);
 
-  const select = (id: string) => {
-    setSelected(id);
-    setTab("chart");
-  };
-
   const restart = (useReplay: boolean) => {
     rendererRef.current?.reset();
     setSelected(null);
     setWorld(newWorld(useReplay ? replay : null));
   };
 
-  const bedAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const targetAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return (
       rendererRef.current?.hit(world.s, event.clientX - rect.left, event.clientY - rect.top) ?? null
@@ -121,27 +115,17 @@ export function App() {
         <div className="floor">
           <canvas
             ref={canvasRef}
-            aria-label="Isometric view of ward W4. Use the ranked list to select a patient by keyboard."
-            onClick={(e) => {
-              const id = bedAt(e);
-              if (id) select(id);
-            }}
+            aria-label="Isometric view of ward W4. Use the list after this view to select by keyboard."
+            onClick={(e) => setSelected(targetAt(e))}
             onMouseMove={(e) => {
-              hoveredRef.current = bedAt(e);
+              hoveredRef.current = targetAt(e);
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
           />
+          <SelectList s={world.s} onSelect={setSelected} />
         </div>
-        <CommandCenter
-          s={world.s}
-          src={world.src}
-          tab={tab}
-          setTab={setTab}
-          selected={selected}
-          onSelect={select}
-        />
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={setSelected} />
       </main>
-      <StaffStrip s={world.s} />
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
         {!world.src.synthetic && (

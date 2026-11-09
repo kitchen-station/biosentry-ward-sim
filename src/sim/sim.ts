@@ -102,7 +102,6 @@ export interface MdCall {
   nurse: string;
 }
 
-export type PacketOutcome = "ok" | "rejected" | "abstained";
 
 /** What the database API is sent, queued by the sim as it runs. Set only by src/sim/sync.ts. */
 export interface Obs {
@@ -143,7 +142,6 @@ export interface Sim {
   staff: Staff[];
   tasks: Task[];
   mdCalls: MdCall[];
-  packets: { patient: string; outcome: PacketOutcome }[]; // drained by the renderer
   log: { minute: number; text: string }[];
   counts: { received: number; rejected: number; abstained: number };
   flow: { lastMinute: number; admitted: number; everOnOxygen: number; discharged: number; transferred: number; turnedAway: number };
@@ -336,16 +334,8 @@ function sample(s: Sim, src: VitalsSource, p: Patient, minute: number) {
 
   if (!p.patch) return;
   s.counts.received += 1;
-  let outcome: PacketOutcome = "ok";
-  if (!usable) {
-    s.counts.rejected += 1;
-    outcome = "rejected";
-  } else if (p.decision.kind === "not_ranked") {
-    s.counts.abstained += 1;
-    outcome = "abstained";
-  }
-  s.packets.push({ patient: p.id, outcome });
-  if (s.packets.length > 120) s.packets.shift();
+  if (!usable) s.counts.rejected += 1;
+  else if (p.decision.kind === "not_ranked") s.counts.abstained += 1;
 }
 
 function goTo(m: Staff, target: Tile) {
@@ -491,7 +481,6 @@ const HOLD_IF_UNWELL_MIN = 48 * 60; // demo rule: not sent home at NEWS2 5+; mov
 
 function leave(s: Sim, p: Patient, text: string) {
   s.patients.splice(s.patients.indexOf(p), 1);
-  s.packets = s.packets.filter((packet) => packet.patient !== p.id);
   say(s, text);
 }
 
@@ -708,7 +697,6 @@ export function createSim(src: VitalsSource): Sim {
     staff,
     tasks: [],
     mdCalls: [],
-    packets: [],
     log: [],
     counts: { received: 0, rejected: 0, abstained: 0 },
     flow: { lastMinute: 0, admitted: 0, everOnOxygen: 0, discharged: 0, transferred: 0, turnedAway: 0 },
