@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CommandCenter, StaffStrip, TopBar, type Tab } from "./panels";
+import { BedTimeline, Inspector, SelectList, TopBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
 import { createSim, step, type Sim } from "./sim/sim";
@@ -20,8 +20,8 @@ export function App() {
   const syncRef = useRef<ReturnType<typeof createSync>>(null);
   const worldRef = useRef(world);
   worldRef.current = world;
-  const [tab, setTab] = useState<Tab>("ranked");
   const [selected, setSelected] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const [, refresh] = useState(0);
@@ -52,7 +52,7 @@ export function App() {
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer = createRenderer(canvas, worldRef.current.s);
+    const renderer = createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -93,18 +93,18 @@ export function App() {
     };
   }, []);
 
-  const select = (id: string) => {
+  const select = (id: string | null) => {
     setSelected(id);
-    setTab("chart");
+    setTimeline(false);
   };
 
   const restart = () => {
     rendererRef.current?.reset();
-    setSelected(null);
+    select(null);
     setWorld(newWorld());
   };
 
-  const bedAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const targetAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return (
       rendererRef.current?.hit(world.s, event.clientX - rect.left, event.clientY - rect.top) ?? null
@@ -123,27 +123,18 @@ export function App() {
         <div className="floor">
           <canvas
             ref={canvasRef}
-            aria-label="Isometric view of ward W4. Use the ranked list to select a patient by keyboard."
-            onClick={(e) => {
-              const id = bedAt(e);
-              if (id) select(id);
-            }}
+            aria-label="Isometric view of ward W4. Use the list after this view to select by keyboard."
+            onClick={(e) => select(targetAt(e))}
             onMouseMove={(e) => {
-              hoveredRef.current = bedAt(e);
+              hoveredRef.current = targetAt(e);
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
           />
+          <SelectList s={world.s} onSelect={select} />
+          {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <CommandCenter
-          s={world.s}
-          src={world.src}
-          tab={tab}
-          setTab={setTab}
-          selected={selected}
-          onSelect={select}
-        />
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} />
       </main>
-      <StaffStrip s={world.s} />
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
         <span>Staff loop: demo design, not a product feature.</span>
