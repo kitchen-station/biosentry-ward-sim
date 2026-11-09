@@ -2,7 +2,7 @@
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
 import { BEDS, CORRIDOR, MAP, MAP_H, MAP_W, ROOMS, STATIONS, bedByLabel, roomAt, type Floor, type Tile } from "../sim/map";
-import { minuteOf, patientById, staffById, staffStatus, vitalQuality, type PacketOutcome, type Patient, type Sim } from "../sim/sim";
+import { minuteOf, staffById, staffStatus, vitalQuality, type PacketOutcome, type Patient, type Sim } from "../sim/sim";
 import { VITALS } from "../sim/source";
 import {
   ENVELOPE,
@@ -461,7 +461,8 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   function launchPackets(s: Sim) {
     for (const packet of s.packets.splice(0)) {
       if (flights.length > 70) continue;
-      const p = patientById(s, packet.patient);
+      const p = s.patients.find((x) => x.id === packet.patient);
+      if (!p) continue; // left the ward while this was queued
       const route: [number, number][] = [bedAnchor(p), stationPoint(STATIONS.gateway), stationPoint(STATIONS.gate)];
       if (packet.outcome !== "rejected") route.push(stationPoint(STATIONS.news2));
       if (packet.outcome === "ok") {
@@ -533,7 +534,8 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   }
 
   function drawCard(s: Sim, selected: string) {
-    const p = patientById(s, selected);
+    const p = s.patients.find((x) => x.id === selected);
+    if (!p) return; // discharged while selected
     const minute = minuteOf(s);
     const value = (v: (typeof VITALS)[number], digits = 0) =>
       vitalQuality(p, v, minute) === "missing" || p.held[v] === null ? "--" : p.held[v]!.toFixed(digits);

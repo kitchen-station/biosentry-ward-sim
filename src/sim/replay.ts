@@ -92,6 +92,7 @@ export function createReplaySource(file: ReplayFile): VitalsSource {
           patch: true,
           signalLostMin: 0,
           irregular: false, // eICU has no waveform here, so no strip is drawn
+          ectopyPerHour: 0,
         };
       });
     },

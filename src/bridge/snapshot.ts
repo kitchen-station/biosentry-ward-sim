@@ -3,6 +3,7 @@
 // Labs, Tier B and Tier C are not simulated, so they are null: missing is missing (I1).
 
 import { type Patient, type Sim, minuteOf, vitalQuality } from "../sim/sim";
+import { roundHalfUp } from "../sim/news2";
 import type { Vital } from "../sim/source";
 
 const WARD = "W4";
@@ -43,6 +44,10 @@ function clock(s: Sim, nowMs: number) {
   return (atMinute: number) => new Date(nowMs - (minute - atMinute) * 60_000).toISOString();
 }
 
+// The precision NEWS2 scores at, so a displayed value always agrees with its points.
+const rounded = <T extends number | null>(v: Vital, value: T) =>
+  (value === null ? null : roundHalfUp(value, v === "temperature" ? 1 : 0)) as T;
+
 function provenance(observedAt: string, source: string, quality: string, synthetic: boolean) {
   return { computed_at: null, model_id: null, observed_at: observedAt, quality, source, synthetic, tier: null };
 }
@@ -55,7 +60,7 @@ function deviceVital(p: Patient, v: Vital, minute: number, at: (m: number) => st
     const reason = heldAt === null ? "No usable reading yet" : `No usable reading for ${minute - heldAt} min`;
     return { data: { present: false, reason }, provenance: provenance(observed, "device", "missing", synthetic) };
   }
-  return { data: { present: true, value: p.held[v] }, provenance: provenance(observed, "device", quality, synthetic) };
+  return { data: { present: true, value: rounded(v, p.held[v]) }, provenance: provenance(observed, "device", quality, synthetic) };
 }
 
 function nurseValue<T>(value: T | null, at: string, synthetic: boolean, reason: string) {
@@ -74,10 +79,10 @@ function scoreRow(s: Sim, p: Patient, synthetic: boolean, nowMs: number) {
   const news2 = p.decision.news2;
   const freshest = Math.max(...Object.values(p.heldAt).map((m) => m ?? -Infinity));
   const usable = p.signal.length ? p.signal.reduce((a, b) => a + b, 0) / p.signal.length : 0;
-  const trendOf = (v: Vital) => p.history[v].slice(-TREND_POINTS);
+  const trendOf = (v: Vital) => p.history[v].slice(-TREND_POINTS).map((value) => rounded(v, value));
   const historyOf = (v: Vital) => {
     const h = p.history[v];
-    return h.map((value, i) => ({ time: at(minute - (h.length - 1 - i) * 15), value }));
+    return h.map((value, i) => ({ time: at(minute - (h.length - 1 - i) * 15), value: rounded(v, value) }));
   };
   return {
     id: p.id,

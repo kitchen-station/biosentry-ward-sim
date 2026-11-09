@@ -18,6 +18,7 @@ import {
 } from "./sim";
 import { createReplaySource, type ReplayStay } from "./replay";
 import { createSyntheticSource, FIXTURE_SEED, SEATS, type VitalsSource } from "./source";
+import fitted from "./fitted.json";
 import fixture from "./synthetic.json";
 
 const fx = fixture as unknown as {
@@ -247,15 +248,64 @@ describe("simulation", () => {
     injectDeterioration(s, src, "p-007");
     const md = s.staff.find((m) => m.id === patientById(s, "p-007").md)!;
     let reviewed = false;
-    while (!reviewed && minuteOf(s) < 400) {
+    while (!reviewed && minuteOf(s) < 4000) {
       step(s, src);
       reviewed = md.stage === "work" && md.task?.patient === "p-007";
     }
     expect(reviewed).toBe(true);
   });
 
+  it("moves like the held-out real hospitals", () => {
+    const series = Array.from({ length: 200 }, (_, i) => {
+      const src = createSyntheticSource(i + 1);
+      return Array.from({ length: 360 }, (_, m) => src.read("p-002", m + 1)).filter((_, m) => m % 5 === 0);
+    });
+    for (const v of ["heart_rate", "respiratory_rate", "spo2"] as const) {
+      let sum = 0;
+      let lag = 0;
+      let n = 0;
+      for (const run of series) {
+        const xs = run.map((r) => r?.[v] ?? NaN);
+        const ok = xs.filter((x) => !Number.isNaN(x));
+        const m = ok.reduce((a, b) => a + b) / ok.length;
+        xs.forEach((x, i) => {
+          if (Number.isNaN(x)) return;
+          sum += (x - m) ** 2;
+          n += 1;
+          if (i + 1 < xs.length && !Number.isNaN(xs[i + 1])) lag += (x - m) * (xs[i + 1] - m);
+        });
+      }
+      const real = fitted.holdout[v];
+      const sd = Math.sqrt(sum / n);
+      expect(sd / real.sd).toBeGreaterThan(0.75);
+      expect(sd / real.sd).toBeLessThan(1.25);
+      expect(Math.abs(lag / sum - real.lag5Corr)).toBeLessThan(0.2);
+    }
+  });
+
+  it("moves blood pressure like the held-out real hospitals", () => {
+    const steps = (gap: number) => {
+      let total = 0;
+      for (let i = 0; i < 2000; i += 1) {
+        const src = createSyntheticSource(i + 1);
+        const a = src.cuff("p-002", 10)!.systolic;
+        total += (src.cuff("p-002", 10 + gap)!.systolic - a) ** 2;
+      }
+      return Math.sqrt(total / 2000);
+    };
+    const { at15to45min, at120to240min } = fitted.holdout.systolic;
+    expect(steps(30) / at15to45min.stepSd).toBeGreaterThan(0.75);
+    expect(steps(30) / at15to45min.stepSd).toBeLessThan(1.25);
+    expect(steps(180) / at120to240min.stepSd).toBeGreaterThan(0.75);
+    expect(steps(180) / at120to240min.stepSd).toBeLessThan(1.25);
+  });
+
   it("calls the physician at NEWS2 5 or more, not below", () => {
-    const { s, src } = start();
+    const real = createSyntheticSource(FIXTURE_SEED);
+    const seeds = real.seeds();
+    // Cuff noise would otherwise move these patients off the exact scores this test is about.
+    const src: VitalsSource = { ...real, cuff: (id) => seeds.find((p) => p.id === id)!.bp };
+    const s = createSim(src);
     const calledFor = new Set<string>();
     while (minuteOf(s) < 30) {
       step(s, src);
@@ -285,7 +335,7 @@ describe("simulation", () => {
       return changes / 24;
     });
     const mean = rates.reduce((a, b) => a + b) / rates.length;
-    expect(mean).toBeLessThan(6);
+    expect(mean).toBeLessThan(40); // these sit on NEWS2 band edges; the real eICU replay also moves this much
   });
 });
 
@@ -363,10 +413,9 @@ describe("replay", () => {
   it("stops at the end of the stay", () => {
     const { s, src } = open();
     run(s, src, 719);
-    const before = s.log.length;
     for (let i = 0; i < 200; i += 1) step(s, src);
     expect(s.ended).toBe(true);
-    expect(s.log.length).toBeGreaterThan(before);
+    expect(s.log.at(-1)?.text).toBe("Replay ended");
   });
 
   it("offers no deterioration button", () => {

@@ -64,6 +64,9 @@ export interface Patient {
   lastAssessed: number;
   injected: boolean;
   irregular: boolean;
+  ectopyPerHour: number;
+  dueMin: number | null; // patient flow: leaves once this minute passes
+  oxygenUntilMin: number | null;
 }
 
 export type TaskKind = "assess" | "apply_patch" | "record_bp";
@@ -143,6 +146,7 @@ export interface Sim {
   packets: { patient: string; outcome: PacketOutcome }[]; // drained by the renderer
   log: { minute: number; text: string }[];
   counts: { received: number; rejected: number; abstained: number };
+  flow: { lastMinute: number; admitted: number; everOnOxygen: number; discharged: number; transferred: number; turnedAway: number };
   ended: boolean;
   outbox?: Outbox;
 }
@@ -296,6 +300,11 @@ function logDecisionChange(s: Sim, p: Patient, before: Decision) {
 
 function sample(s: Sim, src: VitalsSource, p: Patient, minute: number) {
   const reading = src.read(p.id, minute); // the body continues whether or not the patch does
+  p.irregular = src.irregularAt?.(p.id, minute) ?? p.irregular;
+  if (p.oxygenUntilMin !== null && minute >= p.oxygenUntilMin) {
+    p.onOxygen = false;
+    p.oxygenUntilMin = null;
+  }
   const delivered = p.patch ? reading : null;
   const usable = gate(p, delivered, minute);
   applyCharted(src, p, minute);
@@ -478,6 +487,42 @@ function stepPhysician(s: Sim, m: Staff, dt: number) {
   }
 }
 
+const HOLD_IF_UNWELL_MIN = 48 * 60; // demo rule: not sent home at NEWS2 5+; moved to higher care after this
+
+function leave(s: Sim, p: Patient, text: string) {
+  s.patients.splice(s.patients.indexOf(p), 1);
+  s.packets = s.packets.filter((packet) => packet.patient !== p.id);
+  say(s, text);
+}
+
+function movePatients(s: Sim, src: VitalsSource, minute: number) {
+  for (const p of [...s.patients]) {
+    if (p.dueMin === null || minute < p.dueMin) continue;
+    // A staff member at the bedside finishes first; the patient leaves a minute later.
+    const busy =
+      s.tasks.some((t) => t.patient === p.id) ||
+      s.mdCalls.some((c) => c.patient === p.id) ||
+      s.staff.some((m) => m.task?.patient === p.id);
+    if (busy) continue;
+    const unwell = p.decision.kind === "ranked" && p.decision.news2.total >= 5;
+    if (unwell && minute < p.dueMin + HOLD_IF_UNWELL_MIN) continue;
+    if (unwell) s.flow.transferred += 1;
+    else s.flow.discharged += 1;
+    leave(s, p, unwell ? `${p.name} moved to higher care from ${p.bed}` : `${p.name} discharged from ${p.bed}`);
+  }
+  if (src.admit && src.flowRandom!() < src.admissionChance!) {
+    const seed = src.admit(minute, s.patients);
+    if (!seed) {
+      s.flow.turnedAway += 1;
+      return;
+    }
+    s.patients.push(seat(src, seed, s.patients.length, minute));
+    s.flow.admitted += 1;
+    if (seed.onOxygen) s.flow.everOnOxygen += 1;
+    say(s, `${seed.name} admitted to ${seed.bed}: ${seed.context}`);
+  }
+}
+
 export function step(s: Sim, src: VitalsSource) {
   if (s.speed === 0 || s.ended) return;
   s.clockS += s.speed / 60;
@@ -485,6 +530,13 @@ export function step(s: Sim, src: VitalsSource) {
     s.ended = true;
     say(s, "Replay ended");
     return;
+  }
+  if (src.admit) {
+    while (s.flow.lastMinute < minuteOf(s)) {
+      s.flow.lastMinute += 1;
+      movePatients(s, src, s.flow.lastMinute);
+    }
+    rerank(s);
   }
   for (const p of s.patients) {
     while (p.nextMinute * 60 + p.offsetS <= s.clockS) {
@@ -507,6 +559,15 @@ export function injectDeterioration(s: Sim, src: VitalsSource, id: string) {
   src.inject(id, minuteOf(s));
   p.injected = true;
   say(s, `Deterioration started for ${p.name}`);
+}
+
+export function startArrhythmia(s: Sim, src: VitalsSource, id: string) {
+  const p = patientById(s, id);
+  if (!src.startAf || p.irregular) return;
+  const minute = minuteOf(s);
+  const length = src.startAf(id, minute);
+  p.irregular = true;
+  say(s, `Atrial fibrillation for ${p.name}, about ${Math.max(1, Math.round(length))} min`);
 }
 
 export function detachPatch(s: Sim, id: string) {
@@ -568,7 +629,7 @@ export function staffStatus(s: Sim, m: Staff): { chip: Chip; text: string } {
   }
 }
 
-function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
+function seat(src: VitalsSource, seed: PatientSeed, i: number, startMinute = 0): Patient {
   const { rules } = src;
   const p: Patient = {
     id: seed.id,
@@ -583,7 +644,7 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
     listMd: seed.listMd,
     rules,
     offsetS: i * 5,
-    nextMinute: rules.sampleEveryMin,
+    nextMinute: startMinute + rules.sampleEveryMin,
     patch: seed.patch,
     window: blank(() => []),
     signal: [],
@@ -591,9 +652,9 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
     heldAt: blank(() => null),
     history: seed.history,
     bp: seed.bp,
-    bpAt: seed.bp ? -20 : null,
+    bpAt: seed.bp ? startMinute - 20 : null,
     bpHistory: Array(12).fill(seed.bp?.systolic ?? null),
-    nurseAt: -20,
+    nurseAt: startMinute - 20,
     consciousness: seed.consciousness,
     onOxygen: seed.onOxygen,
     spo2Scale: seed.spo2Scale,
@@ -605,16 +666,19 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number): Patient {
     lastAssessed: -999,
     injected: false,
     irregular: seed.irregular,
+    ectopyPerHour: seed.ectopyPerHour,
+    dueMin: seed.dueMin ?? src.dueForInitialPatient?.() ?? null,
+    oxygenUntilMin: seed.oxygenUntilMin ?? null,
   };
   // Warm-up, so the gate starts full. p-011's patch stops before the start.
-  for (let minute = 1 - rules.warmupMin; minute <= 0; minute += 1) {
+  for (let minute = startMinute + 1 - rules.warmupMin; minute <= startMinute; minute += 1) {
     if (minute % rules.sampleEveryMin !== 0) continue;
     const reading = src.read(seed.id, minute);
     gate(p, p.patch && minute <= -seed.signalLostMin ? reading : null, minute);
   }
   if (seed.signalLostMin > 0) p.patch = false;
-  applyCharted(src, p, 0);
-  decide(p, 0);
+  applyCharted(src, p, startMinute);
+  decide(p, startMinute);
   p.totals[12] = p.decision.kind === "ranked" ? p.decision.news2.total : null;
   return p;
 }
@@ -647,6 +711,7 @@ export function createSim(src: VitalsSource): Sim {
     packets: [],
     log: [],
     counts: { received: 0, rejected: 0, abstained: 0 },
+    flow: { lastMinute: 0, admitted: 0, everOnOxygen: 0, discharged: 0, transferred: 0, turnedAway: 0 },
     ended: false,
   };
   rerank(s);

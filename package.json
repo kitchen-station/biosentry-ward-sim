@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "extract": "node scripts/extract-eicu.mjs",
-    "fit": "node scripts/fit-eicu.mjs",
+    "fit": "node scripts/fit-generator.mjs",
+    "fit:calibration": "node scripts/fit-eicu.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
