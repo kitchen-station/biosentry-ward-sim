@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Inspector, SelectList, TopBar } from "./panels";
+import { BedTimeline, Inspector, SelectList, TopBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
 import { createSim, step, type Sim } from "./sim/sim";
@@ -21,6 +21,7 @@ export function App() {
   const worldRef = useRef(world);
   worldRef.current = world;
   const [selected, setSelected] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const [, refresh] = useState(0);
@@ -48,7 +49,7 @@ export function App() {
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer = createRenderer(canvas, worldRef.current.s);
+    const renderer = createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -89,9 +90,14 @@ export function App() {
     };
   }, []);
 
+  const select = (id: string | null) => {
+    setSelected(id);
+    setTimeline(false);
+  };
+
   const restart = (useReplay: boolean) => {
     rendererRef.current?.reset();
-    setSelected(null);
+    select(null);
     setWorld(newWorld(useReplay ? replay : null));
   };
 
@@ -116,15 +122,16 @@ export function App() {
           <canvas
             ref={canvasRef}
             aria-label="Isometric view of ward W4. Use the list after this view to select by keyboard."
-            onClick={(e) => setSelected(targetAt(e))}
+            onClick={(e) => select(targetAt(e))}
             onMouseMove={(e) => {
               hoveredRef.current = targetAt(e);
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
           />
-          <SelectList s={world.s} onSelect={setSelected} />
+          <SelectList s={world.s} onSelect={select} />
+          {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector s={world.s} src={world.src} selected={selected} onSelect={setSelected} />
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>

@@ -76,6 +76,7 @@ The eICU replay is stored too, flagged as `eicu_demo` and not synthetic. It is r
 - Click a bed, a staff member or a machine to zoom in on it and see only its details. A patient shows the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
 - Start a deterioration or an AF episode (synthetic only), detach a patch, apply a patch, or record a blood pressure.
 - Click the WARD LIST screen at the nurse station for the ranked list.
+- Click ENTRANCE for who came and went, length of stay and the bed timeline, or to skip a day. Click an empty bed or a past stay for its history. Stays live in memory, so a reload starts over.
 
 ## How it works
 

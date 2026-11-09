@@ -1,8 +1,8 @@
 // Isometric ward renderer: one Canvas 2D, sprites nearest-neighbour, text at full resolution.
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
-import { BEDS, CORRIDOR, MAP, MAP_H, MAP_W, ROOMS, STATIONS, bedByLabel, roomAt, type Floor, type Tile } from "../sim/map";
-import { staffById, staffStatus, type Patient, type Sim } from "../sim/sim";
+import { findPath, nurseStand, BEDS, CORRIDOR, MAP, MAP_H, MAP_W, ROOMS, STATIONS, bedByLabel, roomAt, type Floor, type Tile } from "../sim/map";
+import { staffById, staffStatus, type Sim } from "../sim/sim";
 import {
   ENVELOPE,
   ENVELOPE_PALETTE,
@@ -109,6 +109,8 @@ function rightFaceBand(ctx: Ctx, x: number, y: number, d: number, from: number, 
 interface Item {
   depth: number;
   image: HTMLCanvasElement;
+  bed?: string;
+  empty?: HTMLCanvasElement; // a bed's picture with nobody in it
   dx: number;
   dy: number;
 }
@@ -327,7 +329,7 @@ function tileItem(ch: string, x: number, y: number): Item | null {
   }
 }
 
-function buildItems(s: Sim): Item[] {
+function buildItems(): Item[] {
   const items: Item[] = [];
   for (let y = 0; y < MAP_H; y += 1) {
     for (let x = 0; x < MAP_W; x += 1) {
@@ -339,10 +341,11 @@ function buildItems(s: Sim): Item[] {
       }
     }
   }
-  for (const bed of BEDS) {
-    const index = s.patients.findIndex((p) => p.bed === bed.label);
-    items.push(bedItem(bed.head[0], bed.head[1], bed.foot[1], index >= 0 ? index : null));
-  }
+  // Both pictures, because patients come and go.
+  BEDS.forEach((bed, i) => {
+    const [x, head, foot] = [bed.head[0], bed.head[1], bed.foot[1]];
+    items.push({ ...bedItem(x, head, foot, i), bed: bed.label, empty: bedItem(x, head, foot, null).image });
+  });
   return items.sort((a, b) => a.depth - b.depth);
 }
 
@@ -352,6 +355,8 @@ const stationPoint = (tile: Tile, lift = 18): [number, number] => {
 };
 
 const ZOOM = 2.4;
+const ENTRY: Tile = [34, 8];
+const TROLLEY_TILES_PER_S = 7;
 
 // id, tile, tag text, tag height above the machine (staggered so neighbours do not overlap)
 const MACHINES: [string, Tile, string, number][] = [
@@ -360,19 +365,29 @@ const MACHINES: [string, Tile, string, number][] = [
   ["news2", STATIONS.news2, "NEWS2", 19],
   ["arbiter", STATIONS.arbiter, "ARBITER", 31],
   ["screen", STATIONS.screen, "WARD LIST", 19],
+  ["entrance", ENTRY, "ENTRANCE", 10],
 ];
 
-export function bedAnchor(p: Patient): [number, number] {
+interface Trolley {
+  path: Tile[];
+  at: number; // tiles along the path
+  bed: string;
+  kind: Sim["moves"][number]["kind"];
+}
+
+const TROLLEY_TAG: Record<Trolley["kind"], string> = { in: "IN", discharged: "OUT", higher_care: "HIGHER CARE" };
+
+export function bedAnchor(p: { bed: string }): [number, number] {
   const bed = bedByLabel(p.bed);
   const y0 = Math.min(bed.head[1], bed.foot[1]);
   const [x, y] = iso(bed.foot[0] + 0.5, y0 + (bed.north ? 0.9 : 1.1));
   return [x, y - 8];
 }
 
-export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
+export function createRenderer(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext("2d")!;
   const floor = bakeFloor();
-  const items = buildItems(firstSim);
+  const items = buildItems();
   const people: Record<string, Record<string, HTMLCanvasElement>> = {};
   for (const [id, palette] of Object.entries(STAFF_PALETTES)) {
     people[id] = {
@@ -386,6 +401,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
   }
   const envelope = sprite(ENVELOPE, ENVELOPE_PALETTE);
   const cam = { zoom: 1, x: LOGICAL_W / 2, y: LOGICAL_H / 2 }; // logical point at the view centre
+  let trolleys: Trolley[] = [];
   let scale = 1; // CSS pixels per logical pixel
   let backing = 1; // device pixels per logical pixel, always a whole number
 
@@ -432,6 +448,31 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
     ctx.drawImage(set[key], sx - 6, sy - 20);
   }
 
+  function launchTrolleys(s: Sim) {
+    for (const { bed, kind } of s.moves.splice(0)) {
+      const stand = nurseStand(bedByLabel(bed));
+      const path = kind === "in" ? [ENTRY, ...findPath(ENTRY, stand)] : [stand, ...findPath(stand, ENTRY)];
+      trolleys.push({ path, at: 0, bed, kind });
+    }
+  }
+
+  // shortcut: trolleys draw over walls and furniture, depth-sort them with staff if that ever looks wrong
+  function drawTrolleys(dt: number) {
+    for (const t of trolleys) t.at += dt * TROLLEY_TILES_PER_S;
+    trolleys = trolleys.filter((t) => t.at < t.path.length - 1);
+    for (const t of trolleys) {
+      const leg = Math.floor(t.at);
+      const [ax, ay] = t.path[leg];
+      const [bx, by] = t.path[leg + 1];
+      const x = ax + (bx - ax) * (t.at - leg);
+      const y = ay + (by - ay) * (t.at - leg);
+      box(ctx, x + 0.1, y + 0.2, 0.8, 0.6, 2, ["#7DA7D9", "#5E89BC", "#4F78A9"], 3);
+      const [sx, sy] = iso(x + 0.5, y + 0.5);
+      ctx.drawImage(sprite(PATIENT_HEAD, patientPalette(BEDS.findIndex((b) => b.label === t.bed))), sx - 3, sy - 13);
+      tag(TROLLEY_TAG[t.kind], sx, sy - 14);
+    }
+  }
+
   function drawEnvelopes(s: Sim) {
     for (const m of s.staff) {
       if (m.stage !== "message") continue;
@@ -464,20 +505,22 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
       ctx.fillRect(lx - 3, ly - 15, 7, 6);
       ctx.fillStyle = blink ? CREAM : risk ? RISK_LIGHT[risk] : "#A899B5";
       ctx.fillRect(lx - 2, ly - 14, 5, 4);
-      if (p.id === selected || p.id === hovered) {
-        const [a, b] = [iso(bed.head[0], Math.min(bed.head[1], bed.foot[1])), iso(bed.head[0] + 1, Math.min(bed.head[1], bed.foot[1]) + 2)];
-        const left = iso(bed.head[0], Math.min(bed.head[1], bed.foot[1]) + 2);
-        const right = iso(bed.head[0] + 1, Math.min(bed.head[1], bed.foot[1]));
-        ctx.strokeStyle = p.id === selected ? "#FFD93D" : CREAM;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(a[0], a[1]);
-        ctx.lineTo(right[0], right[1]);
-        ctx.lineTo(b[0], b[1]);
-        ctx.lineTo(left[0], left[1]);
-        ctx.closePath();
-        ctx.stroke();
-      }
+    }
+    for (const bed of BEDS) {
+      const ids = [`bed:${bed.label}`, s.patients.find((p) => p.bed === bed.label)?.id];
+      const isSelected = ids.includes(selected ?? "");
+      if (!isSelected && !ids.includes(hovered ?? "")) continue;
+      const y0 = Math.min(bed.head[1], bed.foot[1]);
+      const [a, right, b, left] = [iso(bed.head[0], y0), iso(bed.head[0] + 1, y0), iso(bed.head[0] + 1, y0 + 2), iso(bed.head[0], y0 + 2)];
+      ctx.strokeStyle = isSelected ? "#FFD93D" : CREAM;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(right[0], right[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.lineTo(left[0], left[1]);
+      ctx.closePath();
+      ctx.stroke();
     }
     for (const p of s.patients) {
       const [x, y] = bedAnchor(p);
@@ -502,6 +545,9 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
       const [x, y] = iso(m.x + 0.5, m.y + 0.5);
       return [x, y - 10];
     }
+    if (id.startsWith("bed:")) return bedAnchor({ bed: id.slice(4) });
+    const stay = s.stays.find((x) => x.id === id);
+    if (stay) return bedAnchor(stay);
     const machine = MACHINES.find(([key]) => key === id);
     return machine ? stationPoint(machine[1]) : null;
   }
@@ -534,6 +580,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
 
     reset() {
       Object.assign(cam, { zoom: 1, x: LOGICAL_W / 2, y: LOGICAL_H / 2 });
+      trolleys = [];
     },
 
     frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number) {
@@ -552,18 +599,18 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
       }
       const [wx, wy] = iso(3, 8.6);
       label("WARD W4 · CARDIOLOGY", wx, wy, "rgba(26,19,32,.6)", FONT);
-      const [ex, ey] = iso(34.2, 9);
-      label("ENTRANCE", ex, ey, "rgba(26,19,32,.6)");
       const actors = s.staff
         .map((m) => ({ id: m.id, depth: m.x + m.y + 0.01 }))
         .sort((a, b) => a.depth - b.depth);
       let next = 0;
+      const arriving = trolleys.filter((t) => t.kind === "in").map((t) => t.bed);
+      const taken = new Set(s.patients.map((p) => p.bed).filter((bed) => !arriving.includes(bed)));
       for (const item of items) {
         while (next < actors.length && actors[next].depth < item.depth) {
           drawStaff(s, actors[next].id);
           next += 1;
         }
-        ctx.drawImage(item.image, item.dx, item.dy);
+        ctx.drawImage(item.bed && !taken.has(item.bed) ? item.empty! : item.image, item.dx, item.dy);
       }
       while (next < actors.length) {
         drawStaff(s, actors[next].id);
@@ -572,7 +619,7 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
 
       MACHINES.forEach(([id, tile, name, lift], i) => {
         const [x, y] = iso(tile[0] + 0.5, tile[1] + 0.5);
-        if (id !== "screen") {
+        if (i < 4) {
           ctx.fillStyle = Math.floor(now * 4 + i) % 3 === 0 ? "#FFD93D" : "#4ECDC4";
           ctx.fillRect(x - 6, y - 11, 3, 2);
           ctx.fillStyle = "#6BCF7F";
@@ -581,12 +628,14 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
         tag(name, x, y - lift, undefined, id === selected || id === hovered);
       });
 
+      if (s.speed > 0) launchTrolleys(s);
+      drawTrolleys(s.speed > 0 ? dt : 0);
       drawEnvelopes(s);
       drawBedOverlays(s, selected, hovered, now);
       drawStaffTags(s, selected, hovered);
     },
 
-    /** The patient, staff member or machine under a canvas CSS pixel, if any. */
+    /** The patient, empty bed, staff member or machine under a canvas CSS pixel, if any. */
     hit(s: Sim, cssX: number, cssY: number): string | null {
       const x = cam.x + (cssX / scale - LOGICAL_W / 2) / cam.zoom;
       const y = cam.y + (cssY / scale - LOGICAL_H / 2) / cam.zoom;
@@ -603,14 +652,15 @@ export function createRenderer(canvas: HTMLCanvasElement, firstSim: Sim) {
         const [mx, my] = iso(tile[0] + 0.5, tile[1] + 0.5);
         if (Math.hypot(x - mx, y - (my - 6)) <= 12) return id;
       }
-      for (const p of s.patients) {
-        const bed = bedByLabel(p.bed);
+      for (const bed of BEDS) {
         const y0 = Math.min(bed.head[1], bed.foot[1]);
         const left = iso(bed.head[0], y0 + 2)[0];
         const right = iso(bed.head[0] + 1, y0)[0];
         const top = iso(bed.head[0], y0)[1] - 18;
         const bottom = iso(bed.head[0] + 1, y0 + 2)[1];
-        if (x >= left && x <= right && y >= top && y <= bottom) return p.id;
+        if (x >= left && x <= right && y >= top && y <= bottom) {
+          return s.patients.find((p) => p.bed === bed.label)?.id ?? `bed:${bed.label}`;
+        }
       }
       return null;
     },
