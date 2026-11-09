@@ -56,16 +56,16 @@ export interface Charted {
 export interface VitalsSource {
   readonly synthetic: boolean;
   readonly rules: GateRules;
-  /** Replay length in minutes. Synthetic runs forever. */
+  /** Run length in minutes. Synthetic runs forever. */
   readonly durationMin?: number;
   seeds(): PatientSeed[];
   /** One sample. Minute 0 is the start, negatives are warm-up. Called in order, every sampleEveryMin. */
   read(patientId: string, minute: number): DeviceReading | null;
   /** What a blood pressure cuff would read now. */
   cuff(patientId: string, minute: number): Cuff | null;
-  /** Replay only: what the chart says now. */
+  /** Real data only: what the chart says now. */
   charted?(patientId: string, minute: number): Charted;
-  /** Synthetic only: start a deterioration. A replay source leaves this out. */
+  /** Synthetic only: start a deterioration. A real-data source leaves this out. */
   inject?(patientId: string, minute: number): void;
 }
 
@@ -185,22 +185,12 @@ const assignee = (id: string, role: string) =>
 const ROWS = [...fx.ranked, ...fx.unscored];
 
 /** The twelve occupied beds and who covers them, in fixture order. */
-export const SEATS = ROWS.map((row) => ({
+const SEATS = ROWS.map((row) => ({
   bed: row.bed,
   rn: assignee(row.id, "rn")!,
   md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
   listMd: assignee(row.id, "md") ?? null,
 }));
-
-/** Seats for a replay: the first four patients take the first four (high dependency), the rest a seat of their sex. */
-export function allocateBeds(sexes: string[]): (typeof SEATS)[number][] {
-  const free = SEATS.map((_, k) => k);
-  return sexes.map((sex, i) => {
-    if (free.length === 0) throw new Error(`No free bed for patient ${i + 1}; the ward has ${SEATS.length}`);
-    const at = i < 4 ? 0 : Math.max(0, free.findIndex((k) => ROWS[k].sex === sex));
-    return SEATS[free.splice(at, 1)[0]];
-  });
-}
 
 function fixtureSeeds(): PatientSeed[] {
   return ROWS.map((row, i): PatientSeed => ({

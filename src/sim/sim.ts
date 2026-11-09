@@ -483,7 +483,7 @@ export function step(s: Sim, src: VitalsSource) {
   s.clockS += s.speed / 60;
   if (src.durationMin !== undefined && minuteOf(s) >= src.durationMin) {
     s.ended = true;
-    say(s, "Replay ended");
+    say(s, "Run ended");
     return;
   }
   for (const p of s.patients) {

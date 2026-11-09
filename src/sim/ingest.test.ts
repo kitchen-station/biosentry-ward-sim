@@ -1,17 +1,17 @@
 /// <reference types="node" />
 // The sim's writes to the database API. The fake-fetch tests always run; the parity tests need a
-// real API: BIOSENTRY_API=http://127.0.0.1:8000 BIOSENTRY_INGEST_KEY=dev-local npx vitest run src/sim/ingest.test.ts
+// real API: BIOSENTRY_API=http://127.0.0.1:8123 BIOSENTRY_INGEST_KEY=dev-local BIOSENTRY_PASSPHRASE=... npx vitest run src/sim/ingest.test.ts
 import { describe, expect, it } from "vitest";
-import { createReplaySource, type ReplayFile } from "./replay";
-import { createSim, detachPatch, injectDeterioration, minuteOf, recordBp, step, type Obs, type Sim } from "./sim";
+import { createSim, detachPatch, injectDeterioration, minuteOf, recordBp, setSpeed, step, type Obs, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 import { createSync } from "./sync";
 import fixture from "./synthetic.json";
 
 const API = process.env.BIOSENTRY_API;
 const KEY = process.env.BIOSENTRY_INGEST_KEY ?? "dev-local";
-const real = import.meta.glob<ReplayFile>("/public/replay/eicu-12.json", { eager: true, import: "default" });
-const realReplay = Object.values(real)[0];
+const PASSPHRASE = process.env.BIOSENTRY_PASSPHRASE ?? "";
+// One id for every test run, so a run replaces its predecessor instead of meeting a 409.
+const TEST_CLIENT = "ward-sim-ingest-test";
 
 const start = () => {
   const src = createSyntheticSource(FIXTURE_SEED);
@@ -23,25 +23,20 @@ function run(s: Sim, src: VitalsSource, minutes: number) {
   while (s.clockS < until) step(s, src);
 }
 
-/** A fetch that records the requests and can be switched offline. */
-function fake() {
+/** A fetch that records the requests, can be switched offline, and answers with a chosen status. */
+function fake(clientId = "page-1") {
   const calls: { path: string; key: string | null; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const net = { offline: false };
+  const net = { offline: false, register: 201, batch: 204 };
   const f = (async (url: string, init: RequestInit) => {
     if (net.offline) throw new Error("offline");
     const path = url.replace("http://api", "");
     calls.push({ path, key: (init.headers as Record<string, string>)["X-Ingest-Key"] ?? null, body: JSON.parse(init.body as string) });
-    return path === "/sim/runs" ? new Response('{"run_id":7}', { status: 201 }) : new Response(null, { status: 204 });
+    return path === "/sim/runs"
+      ? new Response(net.register === 201 ? '{"run_id":7}' : "{}", { status: net.register })
+      : new Response(null, { status: net.batch });
   }) as unknown as typeof fetch;
-  return { calls, net, sync: createSync({ apiUrl: "http://api", key: "k", fetch: f }) };
+  return { calls, net, sync: createSync({ apiUrl: "http://api", key: "k", clientId, fetch: f }) };
 }
-
-const stay = (id: string) => ({
-  id, dx: "CHF", age: "> 89", sex: "F", unit: "MICU", to: "Floor", durationMin: 120,
-  hr: [[-30, 80], [0, 80], [60, 80]], rr: [[-30, 16], [0, 16], [60, 16]], spo2: [[-30, 97], [0, 97], [60, 97]],
-  temp: [[-200, 36.8]], bp: [[-10, 120, 70]], o2: [[-10, 0]], gcs: [[-10, 15]],
-}) as unknown as ReplayFile["stays"][number];
-const fakeReplay: ReplayFile = { dataset: "test", licence: "test", stays: Array.from({ length: 12 }, (_, i) => stay(String(1000 + i))) };
 
 describe("the outbox", () => {
   it("is off by default, and filling it changes nothing the sim does", () => {
@@ -63,10 +58,10 @@ describe("sync, with a fake fetch", () => {
     const { s, src } = start();
     const { calls, sync } = fake();
     await sync.start(s, src);
-    expect(calls).toHaveLength(1);
+    expect(calls.map((c) => c.path)).toEqual(["/sim/runs", "/sim/runs/7/batch"]);
     const { path, key, body } = calls[0];
     expect([path, key]).toEqual(["/sim/runs", "k"]);
-    expect(Object.keys(body).sort()).toEqual(["origin", "patients", "seed", "source"]);
+    expect(Object.keys(body).sort()).toEqual(["client_id", "origin", "patients", "seed", "source"]);
     expect([body.source, body.seed]).toEqual(["synthetic", FIXTURE_SEED]);
     expect(Date.parse(body.origin)).not.toBeNaN();
     expect(body.origin).toMatch(/Z$/);
@@ -97,7 +92,7 @@ describe("sync, with a fake fetch", () => {
     detachPatch(s, "p-001");
     run(s, src, 40);
     await sync.flush();
-    const { path, body } = calls[1];
+    const { path, body } = calls[2];
     expect(path).toBe("/sim/runs/7/batch");
     expect(Object.keys(body).sort()).toEqual(["bins", "counts", "ended", "events", "minute", "observations", "patients"]);
     expect([body.minute, body.ended]).toEqual([40, false]);
@@ -125,7 +120,7 @@ describe("sync, with a fake fetch", () => {
     }
 
     await sync.flush();
-    expect(calls).toHaveLength(2); // nothing new, nothing sent
+    expect(calls).toHaveLength(4); // the next flush sends a batch even though only device rows repeat
   });
 
   it("keeps rows through a failed flush and sends them next time", async () => {
@@ -136,10 +131,10 @@ describe("sync, with a fake fetch", () => {
     net.offline = true;
     await sync.flush();
     run(s, src, 5);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     net.offline = false;
     await sync.flush();
-    const rows = calls[1].body.observations as Obs[];
+    const rows = calls[2].body.observations as Obs[];
     expect(rows.some((o) => o.minute <= 10)).toBe(true);
     expect(rows.some((o) => o.minute > 10)).toBe(true);
     expect(s.outbox!.observations).toHaveLength(0);
@@ -170,34 +165,116 @@ describe("sync, with a fake fetch", () => {
 
     net.offline = false;
     await sync.flush();
-    const sizes = calls.slice(1).map((c) => c.body.bins.length);
+    const sizes = calls.slice(2).map((c) => c.body.bins.length);
     expect(sizes).toEqual([20_000, 20_000, 10_000]);
-    expect(calls.slice(1).map((c) => c.body.ended)).toEqual([false, false, false]);
+    expect(calls.slice(2).map((c) => c.body.ended)).toEqual([false, false, false]);
   });
 
-  it("registers the source: synthetic or eicu_demo, with no age for a replay stay over 89", async () => {
-    const replay = fake();
-    const src = createReplaySource(fakeReplay);
-    await replay.sync.start(createSim(src), src);
-    const { body } = replay.calls[0];
-    expect([body.source, body.seed]).toEqual(["eicu_demo", null]);
-    expect(body.patients.every((p: { age: null }) => p.age === null)).toBe(true);
-    expect(body.patients.filter((p: { md: string | null }) => p.md === null)).toHaveLength(2); // the p-004 and p-005 seats
+  it("sends the same client_id for every sync of one page", async () => {
+    const id = crypto.randomUUID();
+    const sent = [];
+    for (let i = 0; i < 2; i += 1) {
+      const { s, src } = start();
+      const { calls, sync } = fake(id);
+      await sync.start(s, src);
+      sent.push(calls[0].body.client_id);
+    }
+    expect(sent).toEqual([id, id]);
+  });
 
-    const synthetic = fake();
-    const { s, src: syntheticSrc } = start();
-    await synthetic.sync.start(s, syntheticSrc);
-    expect(synthetic.calls[0].body.source).toBe("synthetic");
+  it("does not register a source that is not synthetic", async () => {
+    const src = { ...createSyntheticSource(FIXTURE_SEED), synthetic: false };
+    const s = createSim(src);
+    const { calls, sync } = fake();
+    await sync.start(s, src);
+    await sync.flush();
+    expect(calls).toHaveLength(0);
+    expect(s.outbox).toBeUndefined();
+  });
+
+  it("stops on 409 at registration: no more requests, the status is set, the sim runs on", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    net.register = 409;
+    await sync.start(s, src);
+    expect(sync.stopped).toBe("other_live");
+    run(s, src, 5);
+    await sync.flush();
+    await sync.flush();
+    expect(calls).toHaveLength(1);
+    expect(minuteOf(s)).toBe(5);
+    expect(s.outbox).toBeUndefined();
+  });
+
+  it("stops on 409 for a batch and drops the queue", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    await sync.start(s, src);
+    run(s, src, 10);
+    net.batch = 409;
+    await sync.flush();
+    expect(sync.stopped).toBe("superseded");
+    expect(s.outbox).toBeUndefined();
+    run(s, src, 5);
+    await sync.flush();
+    expect(calls).toHaveLength(3); // registration, the first batch, the refused one
+  });
+
+  it.each([403, 503])("stops on %i at registration", async (status) => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    net.register = status;
+    await sync.start(s, src);
+    await sync.flush();
+    expect(sync.stopped).toBe("bad_key");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("still retries on a 500, at registration and for a batch", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    net.register = 500;
+    await sync.start(s, src);
+    expect(sync.stopped).toBeNull();
+    net.register = 201;
+    net.batch = 500;
+    run(s, src, 5);
+    await sync.flush();
+    expect(sync.stopped).toBeNull();
+    expect(s.outbox!.observations.length).toBeGreaterThan(0);
+    net.batch = 204;
+    await sync.flush();
+    expect(s.outbox!.observations).toHaveLength(0);
+    expect(calls.map((c) => c.path)).toEqual(["/sim/runs", "/sim/runs", "/sim/runs/7/batch", "/sim/runs/7/batch"]);
+  });
+
+  it("sends an empty batch while paused, so the run is not stale", async () => {
+    const { s, src } = start();
+    const { calls, sync } = fake();
+    await sync.start(s, src);
+    run(s, src, 5);
+    await sync.flush();
+    setSpeed(s, 0);
+    await sync.flush();
+    await sync.flush();
+    const paused = calls.slice(-2).map((c) => c.body);
+    expect(paused.map((b) => [b.observations.length, b.bins.length, b.events.length, b.minute, b.ended])).toEqual([
+      [0, 0, 0, 5, false],
+      [0, 0, 0, 5, false],
+    ]);
   });
 
   it("sends the final ended state", async () => {
-    const src = createReplaySource(fakeReplay);
+    const src = { ...createSyntheticSource(FIXTURE_SEED), durationMin: 120 };
     const s = createSim(src);
     const { calls, sync } = fake();
     await sync.start(s, src);
     while (!s.ended) step(s, src);
     await sync.flush();
     expect(calls.at(-1)!.body).toMatchObject({ ended: true, minute: 120 });
+    const before = calls.length;
+    await sync.flush();
+    expect(calls).toHaveLength(before); // an ended run is not written to again
   });
 });
 
@@ -209,13 +286,14 @@ async function rows(who: string) {
   const login = await fetch(`${API}/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clinician_id: who }),
+    body: JSON.stringify({ clinician_id: who, passphrase: PASSPHRASE }),
   });
+  expect(login.status, `sign-in as ${who}: is BIOSENTRY_PASSPHRASE set?`).toBe(200);
   const { token } = (await login.json()) as { token: string };
   const res = await fetch(`${API}/wards/W4/rows`, { headers: { Authorization: `Bearer ${token}` } });
   expect(res.status).toBe(200);
   return (await res.json()) as {
-    ranked: { id: string; score: number; synthetic: boolean }[];
+    ranked: { id: string; score: number }[];
     abstained: { id: string; reason: string }[];
   };
 }
@@ -233,7 +311,7 @@ const mirror = (s: Sim) => ({
 
 /** Runs the sim through a real sync, flushing every 15 sim minutes and comparing the API's ranks. */
 async function parity(s: Sim, src: VitalsSource, minutes: number, commands: Record<number, () => void> = {}) {
-  const sync = createSync({ apiUrl: API!, key: KEY, fetch: globalThis.fetch.bind(globalThis) });
+  const sync = createSync({ apiUrl: API!, key: KEY, clientId: TEST_CLIENT, fetch: globalThis.fetch.bind(globalThis) });
   await sync.start(s, src);
   let compared = 0;
   const compare = async () => {
@@ -285,12 +363,18 @@ describe.runIf(API)("rank parity with the real API", () => {
     expect(last.ranked.length + last.abstained.length).toBe(12);
   }, 120_000);
 
-  it.runIf(realReplay)("matches the eICU replay, stored as eicu_demo", async () => {
-    const src = createReplaySource(realReplay);
-    const s = createSim(src);
-    const { last } = await parity(s, src, 24 * 60);
-    expect(s.ended).toBe(true);
-    expect(last.ranked.length).toBeGreaterThan(0);
-    expect(last.ranked.every((r) => r.synthetic === false)).toBe(true);
-  }, 120_000);
+  it("gives a second client a 409 while the first is live", async () => {
+    const { s, src } = start();
+    const first = createSync({ apiUrl: API!, key: KEY, clientId: TEST_CLIENT, fetch: globalThis.fetch.bind(globalThis) });
+    await first.start(s, src);
+    expect(first.stopped).toBeNull();
+
+    const other = start();
+    const second = createSync({ apiUrl: API!, key: KEY, clientId: `${TEST_CLIENT}-other`, fetch: globalThis.fetch.bind(globalThis) });
+    await second.start(other.s, other.src);
+    expect(second.stopped).toBe("other_live");
+
+    await first.flush(); // the first keeps the ward
+    expect(first.stopped).toBeNull();
+  });
 });

@@ -1,6 +1,7 @@
 // Writes the sim to the BioSentry database API: one run per world, then a batch of what changed.
-// Plain and headless: fetch is a parameter. A failed request leaves the rows queued for the next
-// flush and never reaches the sim.
+// Plain and headless: fetch is a parameter. A network error or 5xx leaves the rows queued for the
+// next flush and never reaches the sim. A refusal (another sim is live, this run was replaced, a
+// wrong key) stops the sync for good: the sim carries on locally and `stopped` says why.
 
 import { minuteOf, record, type Patient, type Sim } from "./sim";
 import { FIXTURE_SEED, VITALS, type VitalsSource } from "./source";
@@ -12,7 +13,23 @@ const MAX_QUEUED = 50_000;
 export interface SyncOptions {
   apiUrl: string;
   key: string;
+  /** Random, 1 to 64 characters, generated once per page load: a sim can replace its own run. */
+  clientId: string;
   fetch: typeof fetch;
+}
+
+export type StopReason = "other_live" | "superseded" | "bad_key";
+
+export const STOP_TEXT: Record<StopReason, string> = {
+  other_live: "Not saved: another ward simulation is live",
+  superseded: "Not saved: a newer simulation replaced this one",
+  bad_key: "Not saved: the API refused the ingest key",
+};
+
+class HttpError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`);
+  }
 }
 
 const signalQuality = (p: Patient) =>
@@ -23,14 +40,14 @@ const lastSample = (p: Patient) => {
   return Number.isFinite(latest) ? latest : null;
 };
 
-export function createSync({ apiUrl, key, fetch: send }: SyncOptions) {
+export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) {
   let s: Sim | null = null;
   let registration: object | null = null;
   let runId: number | null = null;
-  let sentMinute = 0;
   let sentEnded = false;
   let busy = false;
   let dropped = 0;
+  let stopped: StopReason | null = null;
 
   async function post(path: string, body: object) {
     const response = await send(`${apiUrl}${path}`, {
@@ -38,7 +55,7 @@ export function createSync({ apiUrl, key, fetch: send }: SyncOptions) {
       headers: { "Content-Type": "application/json", "X-Ingest-Key": key },
       body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`${path}: ${response.status}`);
+    if (!response.ok) throw new HttpError(response.status);
     return response;
   }
 
@@ -53,11 +70,17 @@ export function createSync({ apiUrl, key, fetch: send }: SyncOptions) {
     }
   }
 
+  function stop(reason: StopReason) {
+    stopped = reason;
+    s!.outbox = undefined; // the queue is dropped and the sim stops filling it
+  }
+
+  /** Sends at least one batch, even an empty one: the server frees a run that sends none for 30 s. */
   async function drain() {
     const sim = s!;
     const out = sim.outbox!;
     const pending = () => out.observations.length + out.bins.length + out.events.length > 0;
-    while (pending() || minuteOf(sim) !== sentMinute || sim.ended !== sentEnded) {
+    do {
       const observations = out.observations.splice(0, BATCH.observations);
       const bins = out.bins.splice(0, BATCH.bins);
       const events = out.events.splice(0, BATCH.events);
@@ -84,38 +107,48 @@ export function createSync({ apiUrl, key, fetch: send }: SyncOptions) {
         out.events.unshift(...events);
         throw error;
       }
-      sentMinute = minute;
       sentEnded = ended;
-    }
+    } while (pending() || sim.ended !== sentEnded);
   }
 
   /** Sends what is queued. One request at a time; a failure is retried by the next call. */
   async function flush() {
-    if (busy || !s) return;
+    if (busy || !s || stopped || sentEnded) return;
     busy = true;
     try {
       trim();
-      if (runId === null) runId = ((await (await post("/sim/runs", registration!)).json()) as { run_id: number }).run_id;
+      if (runId === null) {
+        try {
+          runId = ((await (await post("/sim/runs", registration!)).json()) as { run_id: number }).run_id;
+        } catch (error) {
+          if (error instanceof HttpError && error.status === 409) return stop("other_live");
+          if (error instanceof HttpError && (error.status === 403 || error.status === 503)) return stop("bad_key");
+          throw error;
+        }
+      }
       await drain();
-    } catch {
-      // The rows stay queued.
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 409) stop("superseded");
+      // Otherwise the rows stay queued.
     } finally {
       busy = false;
     }
   }
 
   /** Begins a run for this world: queues the sim's changes and registers its minute-0 state. */
-  function start(world: Sim, src: VitalsSource) {
-    s = world;
+  async function start(world: Sim, src: VitalsSource) {
+    s = src.synthetic ? world : null; // only the synthetic ward is stored; a real dataset must never register
+    if (!s) return;
     runId = null;
-    sentMinute = 0;
     sentEnded = false;
+    stopped = null;
     world.outbox = { observations: [], bins: [], events: [], sent: new Map() };
     for (const p of world.patients) record(world, p, 0);
     const initial = world.outbox.observations.splice(0);
     registration = {
-      source: src.synthetic ? "synthetic" : "eicu_demo",
-      seed: src.synthetic ? FIXTURE_SEED : null,
+      client_id: clientId,
+      source: "synthetic",
+      seed: FIXTURE_SEED,
       origin: new Date().toISOString(),
       patients: world.patients.map((p) => ({
         id: p.id,
@@ -140,12 +173,15 @@ export function createSync({ apiUrl, key, fetch: send }: SyncOptions) {
         ),
       })),
     };
-    return flush();
+    await flush();
   }
 
   return {
     start,
     flush,
+    get stopped() {
+      return stopped;
+    },
     get dropped() {
       return dropped;
     },

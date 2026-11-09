@@ -29,7 +29,7 @@ const DIASTOLIC_BOUNDS = { min: 10, max: 200 };
 const hhmm = (minutes: number) =>
   `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
-/** Synthetic runs from 15:00 in Manila. Replay dates are de-identified, so it shows elapsed time. */
+/** Synthetic runs from 15:00 in Manila. A de-identified dataset has no dates, so it shows elapsed time. */
 export function clockText(src: VitalsSource, minute: number) {
   if (src.synthetic) return hhmm((15 * 60 + minute) % (24 * 60));
   return `${minute < 0 ? "-" : "+"}${hhmm(Math.abs(minute))}`;
@@ -47,14 +47,12 @@ const bpText = (p: Patient) => (p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "-
 export function TopBar({
   s,
   src,
-  replayReady,
-  onSource,
+  notice,
   onReset,
 }: {
   s: Sim;
   src: VitalsSource;
-  replayReady: boolean;
-  onSource: (replay: boolean) => void;
+  notice: string | null;
   onReset: () => void;
 }) {
   const minute = minuteOf(s);
@@ -65,23 +63,14 @@ export function TopBar({
       <span className="clock">
         {src.synthetic
           ? `${dayOf(minute)} Sep 2026, ${clockText(src, minute)} Manila`
-          : `Replay ${clockText(src, minute)} of 24:00`}
+          : clockText(src, minute)}
       </span>
-      <div className="speeds" role="group" aria-label="Data source">
-        <button className={src.synthetic ? "on" : ""} aria-pressed={src.synthetic} onClick={() => onSource(false)}>
-          Synthetic
-        </button>
-        <button
-          className={src.synthetic ? "" : "on"}
-          aria-pressed={!src.synthetic}
-          disabled={!replayReady}
-          title={replayReady ? undefined : "Run npm run extract first. See the README."}
-          onClick={() => onSource(true)}
-        >
-          eICU replay
-        </button>
-      </div>
-      {s.ended && <span className="pill solid">Replay ended</span>}
+      {notice && (
+        <span className="pill solid" role="status">
+          {notice}
+        </span>
+      )}
+      {s.ended && <span className="pill solid">Run ended</span>}
       <div className="speeds right" role="group" aria-label="Simulation speed">
         {SPEEDS.map((speed) => (
           <button
@@ -259,14 +248,14 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
   const p = patientById(s, id);
   const minute = minuteOf(s);
   const d = p.decision;
-  const origin = src.synthetic ? "synthetic" : "eICU";
+  const origin = src.synthetic ? "synthetic" : "dataset";
   const when = (at: number | null) => (at === null ? "no reading" : clockText(src, at));
   const device = (v: Vital, label: string, unit: string, digits = 0) => (
     <VitalCard
       label={label}
       value={vitalText(p, v, minute, digits)}
       unit={unit}
-      source={`${src.rules.charted.includes(v) ? "charted" : src.synthetic ? "device" : "monitor"} · ${origin}`}
+      source={`${src.rules.charted.includes(v) ? "charted" : "device"} · ${origin}`}
       at={when(p.heldAt[v])}
       quality={vitalQuality(p, v, minute)}
       data={p.history[v]}
@@ -298,7 +287,7 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
           label="Blood pressure"
           value={bpText(p)}
           unit="mmHg"
-          source={`${src.synthetic ? "nurse" : "cuff"} · ${origin}`}
+          source={`nurse · ${origin}`}
           at={when(p.bpAt)}
           quality={p.bp ? "ok" : "missing"}
           data={p.bpHistory}
@@ -322,12 +311,11 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
             </div>
           </>
         ) : (
-          <div className="prov">The eICU demo has no waveforms, so no strip is drawn.</div>
+          <div className="prov">This source has no waveforms, so no strip is drawn.</div>
         )}
       </div>
       <p className="second mono">
-        ACVPU {p.consciousness}
-        {src.synthetic ? "" : " (from GCS)"} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
+        ACVPU {p.consciousness} · {p.onOxygen ? "On oxygen" : "Room air"} · Scale {p.spo2Scale} · Signal{" "}
         {Math.round((100 * p.signal.reduce((a, b) => a + b, 0)) / Math.max(1, p.signal.length))}%
       </p>
       {d.kind === "ranked" ? (
