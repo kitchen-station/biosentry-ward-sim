@@ -1,8 +1,8 @@
 # BioSentry ward simulation
 
-An interactive demo of how BioSentry Intelligence would behave on a live ward. Twenty patients sit on ward W4, covered by one staff nurse, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
+An interactive demo of how BioSentry Intelligence would behave on a live ward. Twenty patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
 
-It runs on two sources: synthetic patients wearing chest patches, or real de-identified ICU stays replayed on the same simulated ward.
+It runs on two sources: synthetic patients wearing chest patches, or real de-identified ICU stays replayed on the same simulated ward. The synthetic patients' movement is fitted to real open datasets; see [Fitted to real data](#fitted-to-real-data).
 
 Advisory only. BioSentry does not replace a monitor alarm. This demo makes no clinical claim.
 
@@ -38,7 +38,7 @@ Then, in the dashboard's `frontend` folder:
 VITE_API_URL=http://localhost:5180/api npm run dev
 ```
 
-Sign in as a clinician on the sim's staff (Nurse de la Cruz, Charge Nurse Manalo, Dr. Santos or Dr. Aquino). Each one sees only their own patients, live: same ranks, NEWS2 totals and NOT RANKED rows as the sim's ranked list.
+Sign in as a clinician on the sim's staff (Nurse de la Cruz, Nurse Reyes, Charge Nurse Manalo, Dr. Santos or Dr. Aquino). Each one sees only their own patients, live: same ranks, NEWS2 totals and NOT RANKED rows as the sim's ranked list.
 
 - The sim page sends its ward to `POST /api/snapshot` every 2 seconds (`src/bridge/snapshot.ts`). Keep the tab open, or the dashboard stops updating.
 - `src/bridge/api.ts` answers `POST /session`, `GET /wards/W4/rows`, `GET /patients`, `GET /patients/{id}` and its notes. Scoping is on the server and each view is logged as `[audit]` in the dev server's terminal.
@@ -51,7 +51,7 @@ Sign in as a clinician on the sim's staff (Nurse de la Cruz, Charge Nurse Manalo
 - Switch between synthetic patients and the eICU replay.
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
 - Click a bed or a ranked row to open a chart with the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
-- Start a deterioration (synthetic only), detach a patch, apply a patch, or record a blood pressure.
+- Start a deterioration or an AF episode (synthetic only), detach a patch, apply a patch, or record a blood pressure.
 - Open Pipeline for stage counts and Log for ward events.
 
 ## How it works
@@ -79,14 +79,14 @@ Ward W4 is laid out like a real cardiology ward. One corridor runs from the entr
 - **Doctors' office:** desks for both physicians.
 - **Support rooms:** the sluice, the relatives' room, and the edge server room for the BioSentry pipeline.
 
-Patients keep their bed for the whole run; they do not move as their scores change. Bed labels are this demo's own, not the fixture's. In the replay, the first four stays take high dependency and the rest are placed by sex.
+Patients keep their bed for their whole stay; they do not move as their scores change. Bed labels are this demo's own, not the fixture's. In the replay, the first four stays take high dependency and the rest are placed by sex.
 
 The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. The Pipeline tab marks each stage built, planned, not built or demo rule, and lists the planned stages (anomaly detection, conformal abstention, the explainer agent) without simulating them.
 
 Kitchen also shapes three other things:
 
-- **Ward size:** Kitchen says one nurse has 20 to 50 patients, against a DOH standard of 12. The demo takes the low end: 20 patients, one staff nurse. Eight of the synthetic patients (p-013 to p-020) are demo patients added to the BioSentry fixture's twelve, kept low risk.
-- **ECG:** the patch sends ECG. The chart draws an illustrative strip from the heart rate, irregular for the AF patient. It is not data and nothing analyses it. The eICU demo has no waveforms, so the replay shows none.
+- **Ward size:** Kitchen says one nurse has 20 to 50 patients, against a DOH standard of 12. The demo is lighter than that: 20 patients shared by two staff nurses, ten each, matching the dashboard's sign-in staff. Eight of the synthetic patients (p-013 to p-020) are demo patients added to the BioSentry fixture's twelve, kept low risk.
+- **ECG:** the patch sends ECG. The chart draws an illustrative strip from the heart rate. Beat timing and premature beats follow real labelled ECGs; the waveform shape is drawn. Nothing analyses it. The eICU demo has no waveforms, so the replay shows none.
 - **Explainer agent:** planned in the product. The chart shows a fixed template in its place, built from the NEWS2 breakdown and the RCP responses. It is not an AI agent and it does not rank.
 
 The sim is plain data with no React or canvas, so it runs headless in tests. At minute 0 it reproduces the BioSentry fixture: all ten NEWS2 totals, the rank order, the reason strings and the NOT RANKED text. `src/sim/sim.test.ts` checks this against `src/sim/synthetic.json`.
@@ -114,7 +114,66 @@ This is real ICU data on a simulated ward. It is not ward data, and it is not fr
 | Consciousness | GCS from nurse charting | GCS 15 is Alert, lower is new confusion |
 | SpO2 scale | Not recorded | Scale 1 for everyone |
 
-Scores change about 37 times an hour across the 20 replay patients, about 1.8 per patient each hour, against about 0.3 in the synthetic ward. That is left visible, because smoothing it would change how the arbiter behaves.
+Scores change about 37 times an hour across the 20 replay patients, about 1.8 per patient each hour. That is left visible, because smoothing it would change how the arbiter behaves.
+
+### Fitted to real data
+
+`src/sim/fitted.json` replaces the generator's hand-set constants. It holds aggregate statistics only: no recording and no single patient's values. To rebuild it, put the four datasets in one folder and run:
+
+```bash
+npm run fit -- ~/Documents/datasets
+```
+
+| Generator part | Source | Licence |
+|---|---|---|
+| Vital-sign drift, how fast it moves, how vitals move together, patient-to-patient spread | [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/) | ODbL v1.0 |
+| Blood pressure drift, cuff noise, how diastolic follows systolic | eICU-CRD Demo | ODbL v1.0 |
+| Deterioration size and speed, in three kinds: respiratory, tachycardic, hypotensive | eICU-CRD Demo | ODbL v1.0 |
+| Minute-to-minute noise for HR, RR, SpO2 | [BIDMC PPG and Respiration 1.0.0](https://physionet.org/content/bidmc/1.0.0/) | ODC-By v1.0 |
+| Premature beat rates and timing | [MIT-BIH Arrhythmia 1.0.0](https://physionet.org/content/mitdb/1.0.0/), 100 series only | ODC-By v1.0 |
+| AF beat irregularity, episode length, rate change | [MIT-BIH Atrial Fibrillation 1.0.0](https://physionet.org/content/afdb/1.0.0/) | ODC-By v1.0 |
+
+`fitted.json` is published under ODbL v1.0 with attribution to these sources.
+
+Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
+
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Respiratory rate, systolic, oxygen use, occupancy and the 24-hour heart rate and respiratory rate swings pass. Four checks are marked as known misses:
+
+| Known miss | Sim | Published |
+|---|---|---|
+| Observation sets at NEWS 5+ | about 35% | about 20% (RCP 2012, medical wards) |
+| Observation sets at NEWS 7+ | about 17% | about 10% |
+| SpO2, low end | 1st to 10th percentiles 90 to 93 | 86 to 91 (Welch 2015) |
+| Heart rate, upper tail | 99th percentile about 118 | 128 (Welch 2015) |
+
+The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
+
+Limits:
+
+- **No ward data:** no open ward-level dataset was found. The dynamics come from ICU stays, restricted to six-hour windows with ward-like medians, and applied around the ward patients' own baselines. Real ward patients may be steadier.
+- **Deterioration events are physiological rise events, our definition:** a rise of 4 or more in an hourly three-vital NEWS2 (HR, RR, SpO2) held for 2 hours, or two cuff readings at or below 100 systolic and at least 20 below baseline. No open dataset labels deterioration and no source validates these rules.
+- **Hypotensive events are ICU-derived:** they are fast (median about an hour) and may reflect sedation or drugs. The patch does not measure blood pressure, so a hypotensive event shows only when a nurse takes a cuff reading. Some go unseen on a low-risk patient, as they could on a real ward.
+- **Still hand-set:** the mix of event kinds (55% respiratory, 20% tachycardic, 25% hypotensive, a judgement because no published split exists), temperature noise and deterioration rise, circadian size for temperature, the time of day each rhythm peaks, patch dropouts and the value clamps.
+- **AF episodes are short:** the median is a few minutes, as recorded in patients referred for AF, so a Start AF episode can end quickly.
+- **Score changes:** about 2.3 per patient per hour, close to the real replay's 1.8 and well above the 0.3 before fitting.
+
+MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
+
+### Patient flow
+
+The synthetic ward in the app admits and discharges patients. Tests of the fixture turn this off with `createSyntheticSource(seed)`; the app passes `true` as the second argument. The 20 starting patients leave over the first days and new patients take their place.
+
+| Part | Value | Source |
+|---|---|---|
+| Occupancy | about 75% | Philippine Heart Center 73-76%; the admission rate is set from this |
+| Length of stay | Lognormal by condition, capped at 30 days | PhilHealth 2014 and 2017 medians and spreads |
+| Baseline vitals of a new patient | Drawn from real six-hour medians | eICU-CRD Demo, ward-like windows; each vital drawn separately |
+| On oxygen at admission | 39% | Pimentel 2019; the share of stay on oxygen is tuned to match 18-19% of observation sets |
+| AF | 8% pre-existing, 5% new onset | Published cardiac cohorts |
+| Deterioration | 6.1% of admissions, at a random time in the stay | Churpek 2016 |
+| Discharge time | About 15% before noon, median near 15:00 | US sources only |
+
+Case mix (35% heart failure, 45% coronary medical, 20% coronary procedure), age range, and the 48-hour hold before moving a patient with NEWS2 of 5 or more to higher care are judgement. Moving to higher care leaves the ward; it is not modelled further. Admission figures come from whole hospitals, not one ward.
 
 ### Adding another dataset
 
@@ -131,6 +190,8 @@ BioSentry only ranks and displays. A human decides. These parts were invented fo
 - **NOT RANKED cutoff:** 30 stale minutes.
 - **Filled fixture gaps:** a cuff reading of 128/76 for p-004, a baseline for p-005, and physicians for both.
 - **Hardware:** the patch, gateway and edge server are the described design. None of it is built.
+
+A deterioration or AF episode started from a chart is a demo control. On a real ward of this size a serious event is roughly weekly.
 
 The demo deliberately shows no recovery after review and no response-time figures. Either would imply an outcome benefit the product does not claim.
 

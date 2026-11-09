@@ -85,6 +85,7 @@ const staffPalette = (skin: string, hair: string, top: string, shade: string, tr
 
 export const STAFF_PALETTES: Record<string, Palette> = {
   "rn-delacruz": staffPalette("#C98F63", "#2A1D1A", "#3AA89F", "#2F8C84", "#FFF8E7", "#2F8C84"),
+  "rn-reyes": staffPalette("#A9734C", "#3A2A1E", "#4C9BD6", "#3A80B8", "#FFF8E7", "#3A80B8"),
   "rn-manalo": staffPalette("#B97F55", "#1A1320", "#8E72E0", "#7459C4", "#FFD93D", "#7459C4"),
   "md-santos": staffPalette("#D9A273", "#2F2430", "#FCFAF0", "#E4DCC6", "#FF6B6B", "#3D2E4A"),
   "md-aquino": staffPalette("#C48A5B", "#8D8496", "#FCFAF0", "#E4DCC6", "#4ECDC4", "#3D2E4A"),

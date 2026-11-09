@@ -9,7 +9,7 @@ import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./sim/so
 const TICK = 1 / 60;
 
 function newWorld(replay: ReplayFile | null = null): { s: Sim; src: VitalsSource } {
-  const src = replay ? createReplaySource(replay) : createSyntheticSource(FIXTURE_SEED);
+  const src = replay ? createReplaySource(replay) : createSyntheticSource(FIXTURE_SEED, true);
   return { s: createSim(src), src };
 }
 

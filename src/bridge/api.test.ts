@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createSim } from "../sim/sim";
+import { createSim, step } from "../sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "../sim/source";
 import { createApiState, handle, type ApiState } from "./api";
 import { wardSnapshot } from "./snapshot";
 
 const NOW = Date.parse("2026-11-08T07:00:00Z");
+
+type Row = {
+  vitals: Record<string, { data: { value?: number } }>;
+  vital_trends: Record<string, (number | null)[]>;
+  vital_history: Record<string, { value: number | null }[] | undefined>;
+};
 
 function running(): ApiState {
   const state = createApiState(() => {});
@@ -28,8 +34,39 @@ describe("dashboard API bridge", () => {
     const state = running();
     expect(get(state, "/wards/W4/rows", null).status).toBe(401);
     expect(get(state, "/wards/W4/rows", "Bearer md-santos").status).toBe(401); // an id is not a token
-    const res = handle(state, { method: "POST", path: "/session", authorization: null, body: '{"clinician_id":"rn-reyes"}' });
+    const res = handle(state, { method: "POST", path: "/session", authorization: null, body: '{"clinician_id":"rn-nobody"}' });
     expect(res.status).toBe(403);
+  });
+
+  it("sends vitals at the precision NEWS2 scores them", () => {
+    const src = createSyntheticSource(FIXTURE_SEED);
+    const sim = createSim(src);
+    for (let i = 0; i < 600; i += 1) step(sim, src); // live samples, not just the fixture's round history
+    const ranked = wardSnapshot(sim, true, NOW).patients.flatMap((p) => (p.ranked ? [p.ranked as Row] : []));
+    expect(ranked.length).toBeGreaterThan(0);
+    const check = (vital: string, x: number | null | undefined) => {
+      if (x == null) return;
+      const scaled = x * (vital === "temperature" ? 10 : 1);
+      expect(Math.abs(scaled - Math.round(scaled))).toBeLessThan(1e-9);
+    };
+    for (const row of ranked) {
+      for (const vital of ["heart_rate", "respiratory_rate", "spo2", "temperature"]) {
+        check(vital, row.vitals[vital].data.value);
+        row.vital_trends[vital].forEach((x) => check(vital, x));
+        row.vital_history[vital]?.forEach((point) => check(vital, point.value));
+      }
+    }
+  });
+
+  it("splits the ward evenly between the two staff nurses", () => {
+    const state = running();
+    const ids = (nurse: string) => (get(state, "/patients", signIn(state, nurse)).body as { id: string }[]).map((p) => p.id);
+    const delacruz = ids("rn-delacruz");
+    const reyes = ids("rn-reyes");
+    expect(delacruz).toHaveLength(10);
+    expect(reyes).toHaveLength(10);
+    expect(delacruz.filter((id) => reyes.includes(id))).toEqual([]);
+    expect(reyes).toContain("p-003"); // the fixture's own assignment
   });
 
   it("answers 503 before the sim page has published", () => {
