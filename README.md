@@ -223,6 +223,10 @@ The demo deliberately shows no recovery after review and no response-time figure
 
 All art is drawn in this repository's code, in `src/render/`. The panel layout and status palette take their idiom from [Munder Difflin](https://github.com/HarnessMD/munder-difflin) (MIT). None of its assets are used.
 
+## Licence
+
+The code is under the [MIT License](LICENSE). The fitted data files are not: `src/sim/fitted.json` and `src/sim/calibration.json` are under ODbL v1.0, as set out in [NOTICE.md](NOTICE.md).
+
 ## Before sharing publicly
 
 BioSentry's NEWS2 model card lists the licence as unverified. Resolve that before making this repository or demo public.
