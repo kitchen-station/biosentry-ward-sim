@@ -24,7 +24,7 @@ const SHORT: Partial<Record<string, string>> = {
 export interface PatientEntry {
   id: string;
   rn: string; // assigned staff nurse: the server scopes by these (I7)
-  md: string;
+  md: string | null; // the physician whose list holds this patient; null when none does
   ranked: Record<string, unknown> | null; // a PatientDetail: a ScoreRow plus history and breakdown
   abstained: Record<string, unknown> | null; // an AbstainedRow
 }
@@ -145,7 +145,7 @@ export function wardSnapshot(s: Sim, synthetic: boolean, nowMs = Date.now()): Wa
     patients: s.patients.map((p) => ({
       id: p.id,
       rn: p.rn,
-      md: p.md,
+      md: p.listMd,
       ranked: scoreRow(s, p, synthetic, nowMs),
       abstained:
         p.decision.kind === "not_ranked"

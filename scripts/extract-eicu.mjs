@@ -1,16 +1,14 @@
-// Builds public/replay/eicu-20.json from the eICU-CRD Demo. The output stays out of git.
+// Builds public/replay/eicu-12.json from the eICU-CRD Demo. The output stays out of git.
 // Usage: npm run extract -- <folder holding the four .csv.gz files>
 
-import { createReadStream, mkdirSync, writeFileSync } from "node:fs";
-import { createInterface } from "node:readline";
-import { createGunzip } from "node:zlib";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { rows as readRows } from "./eicu-csv.mjs";
 
-// Cardiac, awake, unventilated stays, discharged alive. The first twelve give a spread of NEWS2
-// paths; the last eight are lower and steadier, so the ward of twenty looks like a ward.
+// Cardiac, awake, unventilated stays, discharged alive, picked for a spread of NEWS2 paths. One
+// stay per bed on the twelve-bed ward.
 const STAYS = [
   "967281", "1695183", "1724218", "1076979", "1176675", "2511125",
   "1728151", "2316703", "1626712", "1794908", "2325386", "263850",
-  "2560585", "1063742", "242895", "965083", "1061585", "2032312", "518155", "976505",
 ];
 const GRID = 5;
 const WARMUP = 480;
@@ -20,34 +18,7 @@ const ROOM_AIR = new Set(["ra", "room air", "r/a"]);
 const folder = process.argv[2];
 if (!folder) throw new Error("Usage: npm run extract -- <folder>");
 
-function parse(line) {
-  const out = [];
-  let cell = "";
-  let quoted = false;
-  for (const ch of line) {
-    if (ch === '"') quoted = !quoted;
-    else if (ch === "," && !quoted) {
-      out.push(cell);
-      cell = "";
-    } else cell += ch;
-  }
-  out.push(cell);
-  return out;
-}
-
-async function rows(name, visit) {
-  const stream = createReadStream(`${folder}/${name}.csv.gz`).pipe(createGunzip());
-  let header = null;
-  for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
-    if (!header) {
-      header = parse(line);
-      continue;
-    }
-    const cells = parse(line);
-    const row = Object.fromEntries(header.map((key, i) => [key, cells[i]]));
-    if (STAYS.includes(row.patientunitstayid)) visit(row);
-  }
-}
+const rows = (name, visit) => readRows(folder, name, visit, (row) => STAYS.includes(row.patientunitstayid));
 
 const number = (text) => (text === "" || text === undefined || Number.isNaN(Number(text)) ? null : Number(text));
 
@@ -130,7 +101,7 @@ const stays = STAYS.map((id) => {
 
 mkdirSync("public/replay", { recursive: true });
 writeFileSync(
-  "public/replay/eicu-20.json",
+  "public/replay/eicu-12.json",
   JSON.stringify({ dataset: "eICU-CRD Demo 2.0.1", licence: "ODbL v1.0", stays }),
 );
 console.log(stays.map((s) => `${s.id}: ${s.hr.length} HR, ${s.temp.length} temp, ${s.bp.length} BP, ${s.durationMin} min`).join("\n"));

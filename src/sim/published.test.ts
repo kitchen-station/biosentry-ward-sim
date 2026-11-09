@@ -108,7 +108,7 @@ describe("published ward values", () => {
       const runs = 1500;
       for (let i = 0; i < runs; i += 1) {
         const src = createSyntheticSource(i + 1);
-        swing += (src.read("p-013", 360)?.[v] ?? 0) - (src.read("p-013", 1080)?.[v] ?? 0);
+        swing += (src.read("p-002", 360)?.[v] ?? 0) - (src.read("p-002", 1080)?.[v] ?? 0);
       }
       return swing / runs / 2;
     };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { explain } from "../explain";
 import { arbitrate, rankWard, type Ranked } from "./arbiter";
-import { BEDS, findPath, HOMES, nurseStand, physicianStand, STATIONS } from "./map";
+import { BEDS, bedByLabel, findPath, HOMES, nurseStand, physicianStand, STATIONS } from "./map";
 import { roundHalfUp, scoreNews2, type News2Inputs } from "./news2";
 import {
   applyPatch,
@@ -25,6 +25,19 @@ const fx = fixture as unknown as {
   ranked: { id: string; score: number; escalation_reasons: { text: string }[] }[];
   abstained: { id: string; reason: string; instruction: string }[];
   labels: Record<string, { expected_news2: number | null }>;
+};
+
+interface Row {
+  id: string;
+  name: string;
+  age: number;
+  sex: string;
+  bed: string;
+}
+const roster = fixture as unknown as {
+  ranked: Row[];
+  unscored: Row[];
+  clinicians: Record<string, { role: string; patients: string[] }>;
 };
 
 const start = (seed = FIXTURE_SEED) => {
@@ -72,8 +85,7 @@ describe("NEWS2", () => {
 
 describe("parity with the BioSentry fixture at minute 0", () => {
   const { s } = start();
-  const inFixture = (id: string) => id in fx.labels; // the ward also holds 8 demo patients
-  const ranked = s.patients.filter((p) => p.decision.kind === "ranked" && inFixture(p.id));
+  const ranked = s.patients.filter((p) => p.decision.kind === "ranked");
 
   it("scores all ten ranked patients exactly", () => {
     expect(ranked).toHaveLength(10);
@@ -91,8 +103,7 @@ describe("parity with the BioSentry fixture at minute 0", () => {
 
   it("ranks in fixture order, level before total", () => {
     const order = rankWard(s.patients.map((p) => p.decision))
-      .ranked.map((d) => d.patientId)
-      .filter(inFixture);
+      .ranked.map((d) => d.patientId);
     expect(order).toEqual(fx.ranked.map((r) => r.id));
     expect(patientById(s, "p-008").rank).toBeLessThan(patientById(s, "p-007").rank!);
   });
@@ -119,7 +130,44 @@ describe("parity with the BioSentry fixture at minute 0", () => {
   });
 });
 
+describe("roster", () => {
+  it("is the dashboard's: same patients, beds, nurses and physicians, and the same staff", () => {
+    const { s } = start();
+    const rows = [...roster.ranked, ...roster.unscored];
+    const covers = (id: string, role: string) =>
+      Object.entries(roster.clinicians).find(([, c]) => c.role === role && c.patients.includes(id))?.[0];
+    const demoPhysician: Record<string, string> = { "p-004": "md-santos", "p-005": "md-aquino" }; // the fixture assigns none
+    expect(s.patients).toHaveLength(12);
+    expect(s.patients.map((p) => p.id)).toEqual(rows.map((r) => r.id));
+    for (const row of rows) {
+      const p = patientById(s, row.id);
+      expect(
+        { bed: p.bed, name: p.name, age: p.age, sex: p.sex, rn: p.rn, md: p.md },
+        row.id,
+      ).toEqual({
+        bed: row.bed,
+        name: row.name,
+        age: row.age,
+        sex: row.sex,
+        rn: covers(row.id, "rn"),
+        md: covers(row.id, "md") ?? demoPhysician[row.id],
+      });
+      expect(p.listMd, row.id).toBe(covers(row.id, "md") ?? null); // the list has no fills
+    }
+    expect(s.staff.map((m) => m.id).sort()).toEqual(Object.keys(roster.clinicians).sort());
+  });
+});
+
 describe("map", () => {
+  it("puts each dashboard bed label on its own floor tile", () => {
+    const heads: Record<string, [number, number]> = {
+      "4A": [12, 1], "2B": [14, 1], "1C": [16, 1], "3A": [18, 1], "6A": [2, 1], "7B": [5, 1],
+      "9A": [8, 1], "5B": [2, 11], "8A": [5, 11], "10B": [8, 11], "4B": [21, 1], "3B": [25, 1],
+    };
+    for (const [label, head] of Object.entries(heads)) expect(bedByLabel(label).head, label).toEqual(head);
+    expect(BEDS).toHaveLength(20);
+  });
+
   it("reaches every bedside from every home", () => {
     for (const home of Object.values(HOMES)) {
       for (const bed of BEDS) {
@@ -133,7 +181,7 @@ describe("map", () => {
     const { s } = start();
     for (const p of s.patients) expect(BEDS.some((b) => b.label === p.bed), p.bed).toBe(true);
     expect(STATIONS.screen).toEqual([14, 10]);
-    expect(new Set(s.patients.map((p) => p.bed)).size).toBe(20); // one patient per bed
+    expect(new Set(s.patients.map((p) => p.bed)).size).toBe(12); // one patient per bed
   });
 });
 
@@ -210,7 +258,7 @@ describe("simulation", () => {
   it("moves like the held-out real hospitals", () => {
     const series = Array.from({ length: 200 }, (_, i) => {
       const src = createSyntheticSource(i + 1);
-      return Array.from({ length: 360 }, (_, m) => src.read("p-013", m + 1)).filter((_, m) => m % 5 === 0);
+      return Array.from({ length: 360 }, (_, m) => src.read("p-002", m + 1)).filter((_, m) => m % 5 === 0);
     });
     for (const v of ["heart_rate", "respiratory_rate", "spo2"] as const) {
       let sum = 0;
@@ -240,8 +288,8 @@ describe("simulation", () => {
       let total = 0;
       for (let i = 0; i < 2000; i += 1) {
         const src = createSyntheticSource(i + 1);
-        const a = src.cuff("p-013", 10)!.systolic;
-        total += (src.cuff("p-013", 10 + gap)!.systolic - a) ** 2;
+        const a = src.cuff("p-002", 10)!.systolic;
+        total += (src.cuff("p-002", 10 + gap)!.systolic - a) ** 2;
       }
       return Math.sqrt(total / 2000);
     };
@@ -287,7 +335,7 @@ describe("simulation", () => {
       return changes / 24;
     });
     const mean = rates.reduce((a, b) => a + b) / rates.length;
-    expect(mean).toBeLessThan(40); // these eight sit on NEWS2 band edges; the real eICU replay also moves this much
+    expect(mean).toBeLessThan(40); // these sit on NEWS2 band edges; the real eICU replay also moves this much
   });
 });
 

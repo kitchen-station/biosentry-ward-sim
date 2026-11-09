@@ -72,6 +72,7 @@ export const roomAt = (x: number, y: number) =>
 // Beds are a 1x2 footprint. `head` is the pillow tile, `foot` the tile toward the aisle.
 export interface Bed {
   label: string;
+  zone: string; // H, A, B or S: the room, which survives relabelling below
   head: Tile;
   foot: Tile;
   north: boolean; // head on the smaller y
@@ -80,6 +81,7 @@ export interface Bed {
 function bedsAt(prefix: string, xs: number[], headY: number, footY: number, first = 1): Bed[] {
   return xs.map((x, i) => ({
     label: `${prefix}${first + i}`,
+    zone: prefix,
     head: [x, headY] as Tile,
     foot: [x, footY] as Tile,
     north: headY < footY,
@@ -95,6 +97,13 @@ export const BEDS: Bed[] = [
   ...bedsAt("S", [21, 25, 29], 1, 2),
   ...bedsAt("S", [27], 16, 15, 4),
 ];
+
+// The twelve occupied tiles carry the BioSentry dashboard's bed labels; the other eight stay empty.
+const DASHBOARD_LABEL: Record<string, string> = {
+  H1: "4A", H2: "2B", H3: "1C", H4: "3A", A1: "6A", A2: "7B", A3: "9A",
+  B1: "5B", B2: "8A", B3: "10B", S1: "4B", S2: "3B",
+};
+for (const bed of BEDS) bed.label = DASHBOARD_LABEL[bed.label] ?? bed.label;
 
 export const bedByLabel = (label: string) => {
   const bed = BEDS.find((b) => b.label === label);

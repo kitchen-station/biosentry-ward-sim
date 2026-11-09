@@ -9,6 +9,7 @@
     "test": "vitest run",
     "extract": "node scripts/extract-eicu.mjs",
     "fit": "node scripts/fit-generator.mjs",
+    "fit:calibration": "node scripts/fit-eicu.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -16,11 +17,12 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@types/node": "24.13.3",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.1",
     "typescript": "6.0.3",
     "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "5.1.0"
   }
 }

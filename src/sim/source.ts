@@ -4,6 +4,7 @@
 import { BEDS } from "./map";
 import type { Acvpu } from "./news2";
 import fixture from "./synthetic.json";
+import calibration from "./calibration.json";
 import fit from "./fitted.json";
 
 export const VITALS = ["heart_rate", "respiratory_rate", "spo2", "temperature"] as const;
@@ -35,6 +36,7 @@ export interface PatientSeed {
   story: string;
   rn: string;
   md: string;
+  listMd: string | null;
   trend: "rising" | "falling" | "stable" | "insufficient";
   history: Record<Vital, (number | null)[]>;
   bp: Cuff | null;
@@ -115,6 +117,14 @@ const CIRCADIAN_AMPLITUDE: Record<Vital, number> = {
   spo2: 0,
   temperature: 0.12,
 };
+/** Published size, peak hour fitted from eICU (PR 6). Zero at minute 0 so the fixture's values hold. */
+function circadian(v: Vital, minute: number) {
+  if (v === "temperature" || v === "spo2") return CIRCADIAN_AMPLITUDE[v] * Math.sin((2 * Math.PI * (minute / 60)) / 24);
+  const peak = calibration.vitals[v].circadianPeak;
+  const at = (clock: number) => Math.cos((2 * Math.PI * (clock - peak)) / 24);
+  return CIRCADIAN_AMPLITUDE[v] * (at(15 + minute / 60) - at(15));
+}
+
 const MEAN_MINUTES_BETWEEN_DROPOUTS = 150;
 
 const AF_PATIENTS = new Set(["p-009"]);
@@ -166,87 +176,33 @@ const DEMO_PHYSICIAN: Record<string, string> = { "p-004": "md-santos", "p-005": 
 const assignee = (id: string, role: string) =>
   Object.entries(fx.clinicians).find(([, c]) => c.role === role && c.patients.includes(id))?.[0];
 
-// Twenty patients shared by the dashboard's two staff nurses, with the charge nurse watching the list.
-export const WARD_SIZE = 20;
-const staffNurse = (i: number) => (i % 2 === 0 ? "rn-delacruz" : "rn-reyes");
+const ROWS = [...fx.ranked, ...fx.unscored];
 
-// Demo patients beyond the fixture's twelve. Values sit inside the NEWS2 zero bands, away from
-// the edges, so they stay low risk and quiet: a typical ward, not a crisis.
-const EXTRA: [string, string, number, string, string, string, Record<Vital, number>, Cuff][] = [
-  ["p-013", "Ramos, Teresa", 71, "F", "Heart failure, stable on oral diuretics", "stable, discharge planned for tomorrow", { heart_rate: 76, respiratory_rate: 16, spo2: 97, temperature: 36.7 }, { systolic: 126, diastolic: 74 }],
-  ["p-014", "Navarro, Eduardo", 64, "M", "Unstable angina, now pain-free", "stable on medical therapy, awaiting angiography", { heart_rate: 68, respiratory_rate: 15, spo2: 98, temperature: 36.6 }, { systolic: 134, diastolic: 80 }],
-  ["p-015", "Castillo, Rosario", 58, "F", "Hypertension, medication review", "stable, blood pressure now controlled", { heart_rate: 72, respiratory_rate: 16, spo2: 98, temperature: 36.8 }, { systolic: 142, diastolic: 86 }],
-  ["p-016", "Domingo, Felipe", 77, "M", "Syncope, telemetry for rhythm", "stable, no events overnight", { heart_rate: 64, respiratory_rate: 15, spo2: 97, temperature: 36.5 }, { systolic: 128, diastolic: 70 }],
-  ["p-017", "Salazar, Gloria", 69, "F", "NSTEMI, day 3", "stable, mobilising", { heart_rate: 80, respiratory_rate: 17, spo2: 97, temperature: 36.9 }, { systolic: 122, diastolic: 72 }],
-  ["p-018", "Pascual, Ricardo", 55, "M", "Atypical chest pain, troponin negative", "stable, for discharge after review", { heart_rate: 70, respiratory_rate: 14, spo2: 99, temperature: 36.6 }, { systolic: 130, diastolic: 78 }],
-  ["p-019", "Aguilar, Corazon", 82, "F", "Heart failure with preserved EF", "stable, mild ankle swelling", { heart_rate: 78, respiratory_rate: 17, spo2: 96, temperature: 36.7 }, { systolic: 138, diastolic: 76 }],
-  ["p-020", "Fernandez, Manuel", 60, "M", "Post-PCI, day 1", "stable, groin site clean", { heart_rate: 66, respiratory_rate: 15, spo2: 98, temperature: 36.8 }, { systolic: 124, diastolic: 74 }],
-];
-
-// Patients are grouped the way a ward places them: the sickest at admission in the
-// high-dependency bay opposite the station, the rest in single-sex bays, a few in side rooms.
-const BED_OF: Record<string, string> = {
-  "p-001": "H1", "p-002": "H2", "p-003": "H3", "p-006": "H4",
-  "p-008": "A1", "p-009": "A2", "p-011": "A3", "p-013": "A4", "p-015": "A5", "p-017": "A6",
-  "p-007": "B1", "p-010": "B2", "p-012": "B3", "p-014": "B4", "p-016": "B5", "p-018": "B6",
-  "p-004": "S1", "p-005": "S2", "p-019": "S3", "p-020": "S4",
-};
-
-const ORDER = [...[...fx.ranked, ...fx.unscored].map((row) => row.id), ...EXTRA.map(([id]) => id)];
-
-/** The twenty occupied beds and who covers them, in seed order: fixture patients, then demo ones. */
-export const SEATS = ORDER.map((id, i) => ({
-  bed: BED_OF[id],
-  rn: assignee(id, "rn") ?? staffNurse(i),
-  md: assignee(id, "md") ?? DEMO_PHYSICIAN[id] ?? (i % 2 === 0 ? "md-santos" : "md-aquino"),
+/** The twelve occupied beds and who covers them, in fixture order. */
+export const SEATS = ROWS.map((row) => ({
+  bed: row.bed,
+  rn: assignee(row.id, "rn")!,
+  md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
+  listMd: assignee(row.id, "md") ?? null,
 }));
 
-/** Beds for patients with no fixed bed: the first four to high dependency, then by sex. */
-export function allocateBeds(sexes: string[]): { bed: string; rn: string; md: string }[] {
-  const free = (prefix: string) => BEDS.filter((b) => b.label.startsWith(prefix)).map((b) => b.label);
-  const pools: Record<string, string[]> = { H: free("H"), F: free("A"), M: free("B"), S: free("S") };
-  const any = () => pools.S.shift() ?? pools.F.shift() ?? pools.M.shift() ?? pools.H.shift();
+/** Seats for a replay: the first four patients take the first four (high dependency), the rest a seat of their sex. */
+export function allocateBeds(sexes: string[]): (typeof SEATS)[number][] {
+  const free = SEATS.map((_, k) => k);
   return sexes.map((sex, i) => {
-    const bed = (i < 4 ? pools.H.shift() : pools[sex]?.shift()) ?? any();
-    if (!bed) throw new Error(`No free bed for patient ${i + 1}; the ward has ${BEDS.length}`);
-    return { bed, rn: staffNurse(i), md: i % 2 === 0 ? "md-santos" : "md-aquino" };
+    if (free.length === 0) throw new Error(`No free bed for patient ${i + 1}; the ward has ${SEATS.length}`);
+    const at = i < 4 ? 0 : Math.max(0, free.findIndex((k) => ROWS[k].sex === sex));
+    return SEATS[free.splice(at, 1)[0]];
   });
 }
 
 // Spreads patients across the fitted quantiles without using up the vitals' random stream.
-const ectopyOf = (id: string) => fit.rhythm.ectopyPerHour[(ORDER.indexOf(id) * 7) % 20];
+const ectopyOf = (id: string) => fit.rhythm.ectopyPerHour[(ROWS.findIndex((row) => row.id === id) * 7) % 20];
 
 const quiet = (value: number) => Array<number | null>(12).fill(value);
 
-function extraSeeds(): PatientSeed[] {
-  return EXTRA.map(([id, name, age, sex, context, story, vitals, bp]) => ({
-    id,
-    name,
-    age,
-    sex,
-    context,
-    story: `At 15:00: ${story} (demo patient, not in the BioSentry fixture)`,
-    ...SEATS[ORDER.indexOf(id)],
-    trend: "stable",
-    history: {
-      heart_rate: quiet(vitals.heart_rate),
-      respiratory_rate: quiet(vitals.respiratory_rate),
-      spo2: quiet(vitals.spo2),
-      temperature: quiet(vitals.temperature),
-    },
-    bp,
-    consciousness: "A",
-    onOxygen: false,
-    spo2Scale: 1,
-    patch: true,
-    signalLostMin: 0,
-    irregular: false,
-    ectopyPerHour: ectopyOf(id),
-  }));
-}
-
 function fixtureSeeds(): PatientSeed[] {
-  const seeds = [...fx.ranked, ...fx.unscored].map((row, i): PatientSeed => ({
+  return ROWS.map((row, i): PatientSeed => ({
     id: row.id,
     name: row.name,
     age: row.age,
@@ -265,7 +221,6 @@ function fixtureSeeds(): PatientSeed[] {
     irregular: AF_PATIENTS.has(row.id),
     ectopyPerHour: ectopyOf(row.id),
   }));
-  return [...seeds, ...extraSeeds()];
 }
 
 function presentValue<T>(m: Measured | undefined): T | null {
@@ -273,9 +228,8 @@ function presentValue<T>(m: Measured | undefined): T | null {
 }
 
 function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; cuff: Cuff }> {
-  const rows = [...fx.ranked, ...fx.unscored];
   const out: Record<string, { vitals: Record<Vital, number>; cuff: Cuff }> = {};
-  for (const row of rows) {
+  for (const row of ROWS) {
     const vitals = {} as Record<Vital, number>;
     for (const v of VITALS) {
       vitals[v] = presentValue<number>(row.vitals[v]) ?? DEMO_BASELINE[row.id]?.[v] ?? NaN;
@@ -283,7 +237,6 @@ function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; c
     const cuff = presentValue<Cuff>(row.vitals.blood_pressure) ?? DEMO_CUFF[row.id];
     out[row.id] = { vitals, cuff };
   }
-  for (const [id, , , , , , vitals, cuff] of EXTRA) out[id] = { vitals: { ...vitals }, cuff };
   return out;
 }
 
@@ -399,7 +352,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
   function admit(minute: number, occupied: { bed: string; rn: string; md: string }[]): PatientSeed | null {
     const taken = new Set(occupied.map((o) => o.bed));
     const sex = flowRng() < 0.5 ? "F" : "M";
-    const free = (prefix: string) => BEDS.filter((b) => b.label.startsWith(prefix) && !taken.has(b.label));
+    const free = (zone: string) => BEDS.filter((b) => b.zone === zone && !taken.has(b.label));
     const onOxygen = flowRng() < EVER_ON_OXYGEN;
     const bed = [...(onOxygen ? free("H") : []), ...free(sex === "F" ? "A" : "B"), ...free("S"), ...free("H")][0];
     if (!bed) return null;
@@ -417,7 +370,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
     const cuff = { systolic: Math.round(systolic), diastolic: Math.round(Math.max(40, systolic - drawFrom(fit.baseline.pulsePressure, flowRng))) };
     anchors[id] = { vitals, cuff };
     const stream: Stream = {
-      rng: mulberry32(seed + (ORDER.length + admitted) * 0x9e3779b1),
+      rng: mulberry32(seed + (ROWS.length + admitted) * 0x9e3779b1),
       spread: 1,
       latent: 0,
       wander: { heart_rate: 0, respiratory_rate: 0, spo2: 0, temperature: 0 },
@@ -425,7 +378,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
       injectAt: null,
       episode: null,
       rampMin: 1,
-      bpRng: mulberry32(seed ^ ((ORDER.length + admitted) * 0x85ebca6b)),
+      bpRng: mulberry32(seed ^ ((ROWS.length + admitted) * 0x85ebca6b)),
       bpDrift: 0,
       bpAt: null,
       afFrom: null,
@@ -459,6 +412,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
       story: `New admission, ${condition.story} (synthetic patient)`,
       rn: fewer("rn", "rn-delacruz", "rn-reyes"),
       md: fewer("md", "md-santos", "md-aquino"),
+      listMd: null,
       trend: "insufficient",
       history: {
         heart_rate: quiet(vitals.heart_rate),
@@ -521,7 +475,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
           ((SLOPE[id]?.[v] ?? 0) * 2 * Math.min(minute, 180)) / 360 +
           injected(id, v, minute) +
           afRate +
-          CIRCADIAN_AMPLITUDE[v] * Math.sin((2 * Math.PI * (minute / 60)) / 24) +
+          circadian(v, minute) +
           s.wander[v] +
           fit.vitals[v].loading * s.spread * s.latent +
           noise * gaussian(s.rng);

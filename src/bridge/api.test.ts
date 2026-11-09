@@ -63,8 +63,8 @@ describe("dashboard API bridge", () => {
     const ids = (nurse: string) => (get(state, "/patients", signIn(state, nurse)).body as { id: string }[]).map((p) => p.id);
     const delacruz = ids("rn-delacruz");
     const reyes = ids("rn-reyes");
-    expect(delacruz).toHaveLength(10);
-    expect(reyes).toHaveLength(10);
+    expect(delacruz).toHaveLength(6);
+    expect(reyes).toHaveLength(6);
     expect(delacruz.filter((id) => reyes.includes(id))).toEqual([]);
     expect(reyes).toContain("p-003"); // the fixture's own assignment
   });
@@ -80,15 +80,26 @@ describe("dashboard API bridge", () => {
       ranked: { id: string; rank: number; vitals: object; vital_history?: unknown }[];
       abstained: { id: string; reason: string }[];
     };
-    expect(all.ranked.length + all.abstained.length).toBe(20); // the charge nurse sees the ward
+    expect(all.ranked.length + all.abstained.length).toBe(12); // the charge nurse sees the ward
     expect(all.ranked.map((r) => r.rank)).toEqual(all.ranked.map((_, i) => i + 1));
     expect(all.ranked[0]).not.toHaveProperty("vital_history"); // ward rows are ScoreRows
 
     const md = get(state, "/wards/W4/rows", signIn(state, "md-santos")).body as typeof all;
     const mine = [...md.ranked, ...md.abstained].map((p) => p.id);
     expect(mine.length).toBeGreaterThan(0);
-    expect(mine.length).toBeLessThan(20);
+    expect(mine.length).toBeLessThan(12);
     expect(md.ranked.map((r) => r.rank)).toEqual(md.ranked.map((_, i) => i + 1));
+  });
+
+  it("scopes each clinician to the dashboard fixture's list", () => {
+    const state = running();
+    const ids = (who: string) =>
+      (get(state, "/patients", signIn(state, who)).body as { id: string }[]).map((p) => p.id).sort();
+    expect(ids("md-santos")).toEqual(["p-001", "p-002", "p-006", "p-008", "p-011"]);
+    expect(ids("md-aquino")).toEqual(["p-003", "p-007", "p-009", "p-010", "p-012"]);
+    expect(ids("rn-delacruz")).toHaveLength(6);
+    expect(ids("rn-reyes")).toHaveLength(6);
+    expect(ids("rn-manalo")).toHaveLength(12);
   });
 
   it("hides another clinician's patient exactly like a missing one", () => {
