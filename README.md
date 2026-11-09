@@ -229,4 +229,4 @@ The code is under the [MIT License](LICENSE). The fitted data files are not: `sr
 
 ## Before sharing publicly
 
-BioSentry's NEWS2 model card lists the licence as unverified. Resolve that before making this repository or demo public.
+NEWS2: the RCP's page says there is no copyright restriction, on conditions this repository follows (see [NOTICE.md](NOTICE.md)). It does not mention software, so its application to code is unconfirmed. Queries go to cqid@rcp.ac.uk. BioSentry's own model card still lists the licence as unverified.
