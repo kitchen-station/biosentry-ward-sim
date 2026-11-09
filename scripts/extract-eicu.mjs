@@ -1,9 +1,8 @@
 // Builds public/replay/eicu-12.json from the eICU-CRD Demo. The output stays out of git.
 // Usage: npm run extract -- <folder holding the four .csv.gz files>
 
-import { createReadStream, mkdirSync, writeFileSync } from "node:fs";
-import { createInterface } from "node:readline";
-import { createGunzip } from "node:zlib";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { rows as readRows } from "./eicu-csv.mjs";
 
 // Cardiac, awake, unventilated stays, discharged alive, picked for a spread of NEWS2 paths. One
 // stay per bed on the twelve-bed ward.
@@ -19,34 +18,7 @@ const ROOM_AIR = new Set(["ra", "room air", "r/a"]);
 const folder = process.argv[2];
 if (!folder) throw new Error("Usage: npm run extract -- <folder>");
 
-function parse(line) {
-  const out = [];
-  let cell = "";
-  let quoted = false;
-  for (const ch of line) {
-    if (ch === '"') quoted = !quoted;
-    else if (ch === "," && !quoted) {
-      out.push(cell);
-      cell = "";
-    } else cell += ch;
-  }
-  out.push(cell);
-  return out;
-}
-
-async function rows(name, visit) {
-  const stream = createReadStream(`${folder}/${name}.csv.gz`).pipe(createGunzip());
-  let header = null;
-  for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
-    if (!header) {
-      header = parse(line);
-      continue;
-    }
-    const cells = parse(line);
-    const row = Object.fromEntries(header.map((key, i) => [key, cells[i]]));
-    if (STAYS.includes(row.patientunitstayid)) visit(row);
-  }
-}
+const rows = (name, visit) => readRows(folder, name, visit, (row) => STAYS.includes(row.patientunitstayid));
 
 const number = (text) => (text === "" || text === undefined || Number.isNaN(Number(text)) ? null : Number(text));
 
