@@ -79,6 +79,8 @@ export interface Stay {
   name: string;
   bed: string;
   context: string;
+  rn: string;
+  md: string | null;
   inMin: number; // 0: already on the ward when the sim began, so the true arrival is unknown
   outMin: number | null;
   outcome: StayOutcome | null;
@@ -147,10 +149,27 @@ export interface LogEvent {
   staff_id: null;
   text: string;
 }
+export interface PatientRow {
+  id: string;
+  name: string;
+  age: number | null;
+  sex: string;
+  bed: string;
+  context: string;
+  story: string;
+  rn: string;
+  md: string | null;
+  trend: Trend;
+  signal_quality: number | null;
+  observations: Obs[];
+  bins: Bin[];
+}
 export interface Outbox {
   observations: Obs[];
   bins: Bin[];
   events: LogEvent[];
+  admissions: (PatientRow & { minute: number })[];
+  departures: { patient_id: string; minute: number; outcome: StayOutcome }[];
   sent: Map<string, string>; // patient/code to the value and quality last queued
 }
 
@@ -207,6 +226,35 @@ function say(s: Sim, text: string) {
 }
 
 /** Queues every input decide() used that changed since it was last queued, so the server scores the same. */
+export const signalQuality = (p: Patient) =>
+  p.signal.length ? Math.round((100 * p.signal.reduce((a, b) => a + b, 0)) / p.signal.length) : null;
+
+/** A patient as the database API registers one. `minute` is when their 15-minute bins end. */
+export function patientRow(p: Patient, observations: Obs[], minute: number): PatientRow {
+  return {
+    id: p.id,
+    name: p.name,
+    age: typeof p.age === "number" ? p.age : null,
+    sex: p.sex,
+    bed: p.bed,
+    context: p.context,
+    story: p.story,
+    rn: p.rn,
+    md: p.listMd,
+    trend: p.trend,
+    signal_quality: signalQuality(p),
+    observations,
+    bins: VITALS.flatMap((vital) =>
+      p.history[vital].map((value, i, all) => ({
+        patient_id: p.id,
+        vital,
+        minute: minute - (all.length - 1 - i) * 15,
+        value,
+      })),
+    ),
+  };
+}
+
 export function record(s: Sim, p: Patient, minute: number) {
   const out = s.outbox;
   if (!out) return;
@@ -524,6 +572,7 @@ function leave(s: Sim, p: Patient, minute: number, outcome: StayOutcome, text: s
   s.patients.splice(s.patients.indexOf(p), 1);
   p.stay.outMin = minute;
   p.stay.outcome = outcome;
+  s.outbox?.departures.push({ patient_id: p.id, minute, outcome });
   s.moves.push({ bed: p.bed, kind: outcome });
   if (s.moves.length > 20) s.moves.shift();
   if (s.stays.length > MAX_STAYS) s.stays.splice(s.stays.findIndex((x) => x.outMin !== null), 1);
@@ -554,6 +603,8 @@ function movePatients(s: Sim, src: VitalsSource, minute: number) {
     const admitted = seat(src, seed, s.patients.length, minute);
     s.patients.push(admitted);
     s.stays.push(admitted.stay);
+    s.outbox?.admissions.push({ ...patientRow(admitted, [], minute - (minute % 15)), minute });
+    record(s, admitted, minute);
     s.moves.push({ bed: admitted.bed, kind: "in" });
     if (s.moves.length > 20) s.moves.shift();
     s.flow.admitted += 1;
@@ -739,6 +790,8 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number, startMinute = 0):
       name: seed.name,
       bed: seed.bed,
       context: seed.context,
+      rn: seed.rn,
+      md: seed.listMd,
       inMin: startMinute,
       outMin: null,
       outcome: null,
