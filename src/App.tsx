@@ -33,7 +33,8 @@ export function App() {
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL;
     if (!apiUrl) return;
-    clientId.current ??= crypto.randomUUID(); // once per page load: a restart replaces its own run
+    // Once per page load: a restart replaces its own run. Not randomUUID, which needs a secure context (plain-HTTP LAN fails).
+    clientId.current ??= Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
     const sync = createSync({
       apiUrl,
       key: import.meta.env.VITE_INGEST_KEY ?? "",
