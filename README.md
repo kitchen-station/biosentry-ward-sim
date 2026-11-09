@@ -84,6 +84,7 @@ The eICU replay is stored too, flagged as `eicu_demo` and not synthetic. It is r
 | Vitals source, the seam for a real dataset | `src/sim/source.ts` |
 | eICU replay source | `src/sim/replay.ts` |
 | eICU extract | `scripts/extract-eicu.mjs` |
+| Calibration fit and its output | `scripts/fit-eicu.mjs`, `src/sim/calibration.json` |
 | Database writer | `src/sim/sync.ts` |
 | Quality gate, staff loop, commands | `src/sim/sim.ts` |
 | NEWS2, ported from BioSentry | `src/sim/news2.ts` |
@@ -138,7 +139,55 @@ This is real ICU data on a simulated ward. It is not ward data, and it is not fr
 | Consciousness | GCS from nurse charting | GCS 15 is Alert, lower is new confusion |
 | SpO2 scale | Not recorded | Scale 1 for everyone |
 
-Counting a change when the score differs from 15 minutes earlier, scores change about 24.5 times an hour across the 12 replay patients, about 2.0 per patient, against about 1.1 across the 12 synthetic patients, about 0.1 per patient (mean of five seeds). That is left visible, because smoothing it would change how the arbiter behaves.
+Counting a change when the score differs from 15 minutes earlier, scores change about 24.5 times an hour across the 12 replay patients, about 2.0 per patient. The synthetic patients change about 2.5 times an hour across all 12 (2.54), about 0.2 per patient. That figure counts non-overlapping 15-minute samples over 24 hours, for the 12 patients, mean of seeds 1 to 5, after the calibration below. The previous constants give 1.01 by this same method. The replay's figures were not re-measured, and the replay source does not use these constants. That is left visible, because smoothing it would change how the arbiter behaves.
+
+### Calibration
+
+The synthetic generator's dynamics are fitted from the same eICU-CRD Demo instead of set by hand. The generator is a small statistical model: per-vital Ornstein-Uhlenbeck wander, one latent factor shared by the vitals, a circadian cosine and white noise. To refit, with the same folder as the extract:
+
+```bash
+npm run fit -- /path/to/that/folder
+```
+
+That prints the fit and writes `src/sim/calibration.json`, which is committed.
+
+**Cohort:** adult stays discharged alive, awake (median charted GCS 14 or more), with 12 hours or more of heart rate, respiratory rate and SpO2. That is 885 stays. Hospitals are split by a stable hash: 716 stays fit the numbers and 169 are held out. The 122 cardiac-unit stays (103 fit, 19 held out) are fitted separately for comparison and are not used.
+
+**Method:** values outside the gate range are dropped and the rest snapped to a 5-minute grid. The circadian cosine is fitted on stays of 24 hours or more, on the raw values of each stay, separately from the detrended residuals. It is not subtracted before detrending, and the 6-hour median absorbs about 10% of the 24-hour amplitude. The cosine and sine coefficients are pooled by their median, separately. The amplitude moves about 20% with the pooling estimator, while the peak hour is stable. Everything else uses the residual from a rolling 6-hour median, so real trends do not inflate the wander. Tau comes from the 5 and 10 minute autocovariances: `tau = -5 / ln(C(10) / C(5))`, and the OU variance is `C(5)^2 / C(10)`. The ratio cancels the white noise that a lag-1 fit would mistake for fast dynamics. The latent factor is the first principal component of the HR, RR and SpO2 residual correlations, with a positive HR loading, in vital units. Wander is fitted on what is left after removing it. Each stay gives one estimate and the pooled value is the median.
+
+| Fitted | Heart rate | Respiratory rate | SpO2 | Was |
+|---|---|---|---|---|
+| Coupling to the latent factor | 3.25 | 1.83 | -0.46 | 1.2, 0.35, -0.25 |
+| Wander sd | 2.30 | 1.44 | 1.13 | 2.5, 0.6, 0.4 |
+| Wander tau (min) | 19.4 | 16.3 | 17.0 | 20 for all |
+| Circadian amplitude | 1.46 | 0.69 | 0.10 | 2.0, 0.3, 0 |
+| Circadian peak (clock hour) | 21.6 | 21.2 | 19.5 | none |
+| Fast noise sd at 5 minutes | not fitted | 1.25 | 0.50 | |
+| Measurement noise per minute | 0.8 (hand-set) | 2.33 | 0.94 | 0.8, 0.4, 0.25 |
+
+The fast noise is the white part of the detrended 5-minute series, `C(0) - C(5)^2 / C(10)`, fitted for RR and SpO2 only. It is measured only at 5-minute resolution and is assumed white below it. eICU stores 5-minute medians, and the sd of a median of 5 Gaussians is about 0.536 of one reading's, so the sim's per-minute noise is the fast sd divided by 0.536. Like the wander, it is multiplied by the `wander` scale. Heart rate and temperature keep their hand-set noise, and the AF irregularity is unchanged.
+
+The latent factor's tau is 16.9 minutes (was 45). The circadian term is shifted to 0 at minute 0, so the fixture's values still hold there. `LIVE_WANDER` (0.25) scales the fitted wander and latent factor for the live demo; 1 is the fitted variability. It is the largest 0.05 step that keeps `sim.test.ts` score churn under its limit of 6 an hour: 0.25 gives 4.76, 0.30 gives 6.69, now that the fitted noise scales with it too. These figures use the churn test's metric (4 seeds, 8 patients, change against the previous minute), which differs from the per-hour figure above. A seed fixes the run, and `createSyntheticSource(seed, wander)` takes the scale.
+
+**Not fitted:** temperature (charted about every 3.4 hours, too sparse), the heart rate and temperature measurement noise (the data is 5-minute, so 1-minute noise is not visible; RR and SpO2 noise is fitted at 5 minutes under a white-noise assumption, above), dropouts (monitor gaps are not patch contact loss), the deterioration injection (ICU courses are treated and confounded), and the fixture anchors, slope, cuff and clamps.
+
+**Check:** `src/sim/calibration.test.ts` runs the source at wander 1, takes 5-minute medians, detrends the same way and compares the change sd at 5, 15, 60 and 180 minutes with the held-out stays' p25 to p75 band, skipping p-001 (scripted slope) and p-009 (AF). eICU stores 5-minute medians of 1-minute averages, so the sim's 1-minute readings get the same treatment. The band is the middle half of the held-out stays and the sim side is the median patient, so passing is a weak check. It reads only `calibration.json`, so CI needs no dataset. All twelve checks pass (three vitals, four lags). Sim change sd against the held-out band, with nothing widened:
+
+| Vital | 5 min | 15 min | 60 min | 180 min |
+|---|---|---|---|---|
+| Heart rate | 2.39 (2.30 to 4.30) | 3.96 (3.37 to 5.93) | 5.30 (4.67 to 8.19) | 5.21 (5.06 to 8.60) |
+| Respiratory rate | 2.25 (1.96 to 3.08) | 2.96 (2.39 to 3.67) | 3.64 (2.80 to 4.58) | 3.56 (2.84 to 4.70) |
+| SpO2 | 1.01 (0.94 to 1.63) | 1.42 (1.20 to 2.08) | 1.80 (1.61 to 2.57) | 1.76 (1.68 to 2.72) |
+
+Before RR and SpO2 got their fitted noise, four lags failed: RR at 5 and 15 minutes and SpO2 at 5 minutes, because the hand-set noise was far below the real fast component, and SpO2 at 180 minutes by about 2.5%, whose cause was never established (the 100 percent clamp was ruled out). The fitted noise lifts that lag over the band, which does not explain why it was short. No lag overshoots its p75. Several sit close to p25: heart rate at 5 minutes (2.39 against 2.30), SpO2 at 180 minutes (1.76 against 1.68) and heart rate at 180 minutes (5.21 against 5.06), which is the usual weakness of a median-patient check against a middle-half band.
+
+What the pass does and does not show: the fast component is measured at 5-minute resolution only, so the per-minute noise rests on the assumption that it is white below that. Any lag-1 structure inside the 5 minutes is invisible to this data. Heart rate passes at every lag without a fitted noise, so it keeps its hand-set value.
+
+Limits on these numbers. Run back through the fit's own estimator at wander 1, the generator returns a fast sd of 1.06 for RR and 0.32 for SpO2, against the fitted 1.25 and 0.50. With the noise off, it returns a wander timescale of 14.5 minutes for RR and 14.9 for HR, against the configured 16.3 and 19.4. So the estimator is biased on the generator's own output, through the 5-minute medians and the 6-hour detrend, and the fitted values may carry a bias of unknown direction. The twelve checks compare change sd and do not catch this. The 180-minute checks pass only with seeds pooled: of 288 single-seed evaluations, 7 fail, all at 180 minutes, for HR and SpO2. At the default `LIVE_WANDER` of 0.25 the fast noise runs at a quarter of its fitted size (per minute: RR 0.58, SpO2 0.235), so the default demo is calmer than the data. For patients with an SpO2 anchor of 99, the 100 percent ceiling trims about 5 percent of the noise variance. The fit drops 8 to 10 stays per vital where the OU estimate is invalid; including them moves the SpO2 fast sd from 0.504 to 0.511.
+
+**Limits:** this calibrates to ICU monitors, not a ward and not a chest patch. ICU patients are sicker and actively treated, so the fitted variability is an upper-side estimate for a ward. It makes the demo's motion more realistic; it validates nothing about BioSentry's performance, and the no-clinical-claim line above stands.
+
+**Licence:** `calibration.json` holds numbers derived from the eICU-CRD Demo 2.0.1, which is open under ODbL v1.0. Treat the file as ODbL: keep the attribution to the dataset (Pollard et al., PhysioNet) and the same licence on any copy. It holds pooled values only, never per-stay values.
 
 ### Adding another dataset
 

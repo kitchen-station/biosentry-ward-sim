@@ -2,6 +2,7 @@
 // synthetic implementation, a live version of BioSentry's removed batch generator.
 
 import type { Acvpu } from "./news2";
+import calibration from "./calibration.json";
 import fixture from "./synthetic.json";
 
 export const VITALS = ["heart_rate", "respiratory_rate", "spo2", "temperature"] as const;
@@ -82,50 +83,69 @@ const SYNTHETIC_RULES: GateRules = {
   charted: [],
 };
 
-// Generator constants, unchanged from BioSentry.
+// Clamps are BioSentry's, and also the gate range in sim.ts. Dynamics below are fitted from the
+// eICU-CRD Demo by scripts/fit-eicu.mjs (src/sim/calibration.json) for heart rate, respiratory rate
+// and SpO2. Temperature is charted too sparsely to fit, so its constants stay hand-set.
 export const CLAMPS: Record<Vital, [number, number]> = {
   heart_rate: [30, 200],
   respiratory_rate: [6, 40],
   spo2: [78, 100],
   temperature: [34.5, 40.5],
 };
+const FITTED = calibration.vitals;
 const COUPLING: Record<Vital, number> = {
-  heart_rate: 1.2,
-  respiratory_rate: 0.35,
-  spo2: -0.25,
+  heart_rate: FITTED.heart_rate.coupling,
+  respiratory_rate: FITTED.respiratory_rate.coupling,
+  spo2: FITTED.spo2.coupling,
   temperature: 0.03,
 };
+// The fast component is measured only at 5-minute resolution and is assumed white below it.
+// eICU stores 5-minute medians, and the sd of a median of 5 Gaussians is about 0.536 of one reading's.
+const MEDIAN_OF_FIVE_SD = 0.536;
 const MEASUREMENT_NOISE: Record<Vital, number> = {
   heart_rate: 0.8,
-  respiratory_rate: 0.4,
-  spo2: 0.25,
+  respiratory_rate: calibration.fastNoise.respiratory_rate / MEDIAN_OF_FIVE_SD,
+  spo2: calibration.fastNoise.spo2 / MEDIAN_OF_FIVE_SD,
   temperature: 0.02,
 };
-const CIRCADIAN_AMPLITUDE: Record<Vital, number> = {
-  heart_rate: 2.0,
-  respiratory_rate: 0.3,
-  spo2: 0,
-  temperature: 0.12,
-};
+const NOISE_SCALES_WITH_WANDER = new Set<Vital>(["respiratory_rate", "spo2"]);
+const TEMPERATURE_CIRCADIAN = 0.12;
+const SIM_START_CLOCK_HOUR = 15; // the fixture's minute 0 is 15:00
+
+/** Fitted cosine, shifted to 0 at minute 0 so the fixture's values hold. Temperature keeps its hand-set sine. */
+function circadian(v: Vital, minute: number) {
+  if (v === "temperature") return TEMPERATURE_CIRCADIAN * Math.sin((2 * Math.PI * (minute / 60)) / 24);
+  const { circadianAmp, circadianPeak } = FITTED[v];
+  const at = (clock: number) => Math.cos((2 * Math.PI * (clock - circadianPeak)) / 24);
+  return circadianAmp * (at(SIM_START_CLOCK_HOUR + minute / 60) - at(SIM_START_CLOCK_HOUR));
+}
 const AF_IRREGULARITY_BPM = 6;
 const MEAN_MINUTES_BETWEEN_DROPOUTS = 150;
 
-// Scales the slow wander down. Fixture values sit on NEWS2 band edges, so a full-size wander
-// churns the ranking. sim.test.ts pins the resulting score-change rate.
-const LIVE_WANDER = 0.35;
+// Scales the fitted wander and latent factor: 1 is the fitted variability. Fixture values sit on
+// NEWS2 band edges, so full size churns the ranking. sim.test.ts pins the resulting score-change rate.
+const LIVE_WANDER = 0.25;
 
 const WANDER_NOISE: Record<Vital, number> = {
-  heart_rate: 2.5,
-  respiratory_rate: 0.6,
-  spo2: 0.4,
+  heart_rate: FITTED.heart_rate.wanderSd,
+  respiratory_rate: FITTED.respiratory_rate.wanderSd,
+  spo2: FITTED.spo2.wanderSd,
   temperature: 0.05,
 };
+const WANDER_TAU: Record<Vital, number> = {
+  heart_rate: FITTED.heart_rate.wanderTau,
+  respiratory_rate: FITTED.respiratory_rate.wanderTau,
+  spo2: FITTED.spo2.wanderTau,
+  temperature: 20,
+};
+const LATENT_TAU = calibration.latentTau;
+// Heart-rate wander relative to the fitted value, so patients keep their relative noisiness.
 const HR_NOISE: Record<string, number> = {
-  "p-001": 3.0,
-  "p-002": 1.5,
-  "p-006": 2.0,
-  "p-009": 3.5,
-  "p-011": 1.5,
+  "p-001": 3.0 / 2.5,
+  "p-002": 1.5 / 2.5,
+  "p-006": 2.0 / 2.5,
+  "p-009": 3.5 / 2.5,
+  "p-011": 1.5 / 2.5,
 };
 const AF_PATIENTS = new Set(["p-009"]);
 
@@ -265,7 +285,7 @@ function ou(previous: number, tau: number, sd: number, rng: () => number) {
 const injectRamp = (minute: number, start: number | null) =>
   start === null || minute <= start ? 0 : Math.min(1, ((minute - start) / INJECT_MINUTES) ** 2);
 
-export function createSyntheticSource(seed: number): VitalsSource {
+export function createSyntheticSource(seed: number, wander = LIVE_WANDER): VitalsSource {
   const anchors = anchorsFromFixture();
   const streams = Object.fromEntries(
     Object.keys(anchors).map((id, i) => [
@@ -289,20 +309,20 @@ export function createSyntheticSource(seed: number): VitalsSource {
       const anchor = anchors[id].vitals;
       if (minute <= 0) return { ...anchor }; // t=0 parity with the fixture holds by construction
       const s = streams[id];
-      s.latent = ou(s.latent, 45, LIVE_WANDER, s.rng);
+      s.latent = ou(s.latent, LATENT_TAU, wander, s.rng);
       const out = {} as DeviceReading;
       for (const v of VITALS) {
-        const wanderSd = (v === "heart_rate" ? (HR_NOISE[id] ?? 2.5) : WANDER_NOISE[v]) * LIVE_WANDER;
-        s.wander[v] = ou(s.wander[v], 20, wanderSd, s.rng);
+        const wanderSd = WANDER_NOISE[v] * (v === "heart_rate" ? (HR_NOISE[id] ?? 1) : 1) * wander;
+        s.wander[v] = ou(s.wander[v], WANDER_TAU[v], wanderSd, s.rng);
         const noise =
           v === "heart_rate" && AF_PATIENTS.has(id)
             ? Math.hypot(MEASUREMENT_NOISE[v], AF_IRREGULARITY_BPM)
-            : MEASUREMENT_NOISE[v];
+            : MEASUREMENT_NOISE[v] * (NOISE_SCALES_WITH_WANDER.has(v) ? wander : 1);
         const value =
           anchor[v] +
           ((SLOPE[id]?.[v] ?? 0) * 2 * Math.min(minute, 180)) / 360 +
           INJECT[v] * injectRamp(minute, s.injectAt) +
-          CIRCADIAN_AMPLITUDE[v] * Math.sin((2 * Math.PI * (minute / 60)) / 24) +
+          circadian(v, minute) +
           s.wander[v] +
           COUPLING[v] * s.latent +
           noise * gaussian(s.rng);
