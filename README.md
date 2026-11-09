@@ -4,7 +4,7 @@
 
 An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
 
-It runs on synthetic patients wearing chest patches. A real de-identified dataset is planned and will plug in at the vitals source (see "Adding another dataset").
+It runs on synthetic patients wearing chest patches. Their movement is fitted to real open datasets; see [Fitted to real data](#fitted-to-real-data). A real de-identified dataset is planned and will plug in at the vitals source (see "Adding another dataset").
 
 Advisory only. BioSentry does not replace a monitor alarm. This demo makes no clinical claim.
 
@@ -91,7 +91,7 @@ The dev-server bridge above stays for now. A physician's list is the fixture's: 
 
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
 - Click a bed or a ranked row to open a chart with the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
-- Start a deterioration, detach a patch, apply a patch, or record a blood pressure.
+- Start a deterioration or an AF episode, detach a patch, apply a patch, or record a blood pressure.
 - Open Pipeline for stage counts and Log for ward events.
 
 ## How it works
@@ -99,6 +99,7 @@ The dev-server bridge above stays for now. A physician's list is the fixture's: 
 | Stage | Where |
 |---|---|
 | Vitals source, the seam for a real dataset | `src/sim/source.ts` |
+| Calibration fit and its output | `scripts/fit-eicu.mjs`, `src/sim/calibration.json` |
 | Database writer | `src/sim/sync.ts` |
 | Quality gate, staff loop, commands | `src/sim/sim.ts` |
 | NEWS2, ported from BioSentry | `src/sim/news2.ts` |
@@ -130,6 +131,68 @@ Kitchen also shapes three other things:
 
 The sim is plain data with no React or canvas, so it runs headless in tests. At minute 0 it reproduces the BioSentry fixture: all ten NEWS2 totals, the rank order, the reason strings and the NOT RANKED text. `src/sim/sim.test.ts` checks this against `src/sim/synthetic.json`.
 
+Counting a change when the score differs from 15 minutes earlier, the synthetic patients change about 2.5 times an hour across all 12 (2.54), about 0.2 per patient. That figure counts non-overlapping 15-minute samples over 24 hours, for the 12 patients, mean of seeds 1 to 5, after the calibration below. The previous constants give 1.01 by this same method.
+
+### Fitted to real data
+
+`src/sim/calibration.json` (from `npm run fit:calibration`, cohort of 885 eICU stays, adult, alive, awake, 12 hours or more) supplies the hour each 24-hour rhythm peaks and the held-out range used by `src/sim/calibration.test.ts`. Its 25% scaling (`LIVE_WANDER`) is gone: the ward now runs at full fitted size. Its RR and SpO2 checks at 5 minutes are marked as known misses, because this generator takes that noise from BIDMC.
+
+`src/sim/fitted.json` replaces the generator's hand-set constants. It holds aggregate statistics only: no recording and no single patient's values. To rebuild it, put the four datasets in one folder and run:
+
+```bash
+npm run fit -- ~/Documents/datasets
+```
+
+| Generator part | Source | Licence |
+|---|---|---|
+| Vital-sign drift, how fast it moves, how vitals move together, patient-to-patient spread | [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/) | ODbL v1.0 |
+| Blood pressure drift, cuff noise, how diastolic follows systolic | eICU-CRD Demo | ODbL v1.0 |
+| Deterioration size and speed, in three kinds: respiratory, tachycardic, hypotensive | eICU-CRD Demo | ODbL v1.0 |
+| Minute-to-minute noise for HR, RR, SpO2 | [BIDMC PPG and Respiration 1.0.0](https://physionet.org/content/bidmc/1.0.0/) | ODC-By v1.0 |
+| Premature beat rates and timing | [MIT-BIH Arrhythmia 1.0.0](https://physionet.org/content/mitdb/1.0.0/), 100 series only | ODC-By v1.0 |
+| AF beat irregularity, rate change | [MIT-BIH Atrial Fibrillation 1.0.0](https://physionet.org/content/afdb/1.0.0/) | ODC-By v1.0 |
+| AF episode length | AFDB and [Long Term AF Database 1.0.0](https://physionet.org/content/ltafdb/1.0.0/) | ODC-By v1.0 |
+
+`fitted.json` is published under ODbL v1.0. Attribution and citations are in [NOTICE.md](NOTICE.md).
+
+Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
+
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss, occupancy and the 24-hour heart rate and respiratory rate swings pass. Three checks are marked as known misses:
+
+| Known miss | Sim | Published |
+|---|---|---|
+| Observation sets at NEWS 5+ | about 35% | about 20% (RCP 2012, medical wards) |
+| Observation sets at NEWS 7+ | about 18% | about 10% |
+| SpO2, low end | 1st to 10th percentiles 90 to 93 | 86 to 91 (Welch 2015) |
+
+Patients spend about 14% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
+
+Limits:
+
+- **No ward data:** no open ward-level dataset was found. The dynamics come from ICU stays, restricted to six-hour windows with ward-like medians, and applied around the ward patients' own baselines. Real ward patients may be steadier.
+- **Deterioration events are physiological rise events, our definition:** a rise of 4 or more in an hourly three-vital NEWS2 (HR, RR, SpO2) held for 2 hours, or two cuff readings at or below 100 systolic and at least 20 below baseline. No open dataset labels deterioration and no source validates these rules.
+- **Hypotensive events are ICU-derived:** they are fast (median about an hour) and may reflect sedation or drugs. The patch does not measure blood pressure, so a hypotensive event shows only when a nurse takes a cuff reading. Some go unseen on a low-risk patient, as they could on a real ward.
+- **Still hand-set:** the mix of event kinds (55% respiratory, 20% tachycardic, 25% hypotensive, a judgement because no published split exists), temperature noise and deterioration rise, circadian size for temperature, and the value clamps. Patch dropouts use ViSi Mobile ward pilot figures for rate and length, with a judgement 4-hour cap. The time of day each rhythm peaks comes from eICU.
+- **AF episodes are short:** the median is a few minutes, as recorded in patients referred for AF, so a Start AF episode can end quickly.
+
+MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
+
+### Patient flow
+
+The synthetic ward in the app admits and discharges patients. Tests of the fixture turn this off with `createSyntheticSource(seed)`; the app passes `true` as the second argument. The 12 starting patients leave over the first days and new patients take their place, using all 20 beds. When `VITE_API_URL` is set, flow is off and the ward keeps its 12 patients, because the database API registers a fixed roster when a run starts.
+
+| Part | Value | Source |
+|---|---|---|
+| Occupancy | about 75% | Philippine Heart Center 73-76%; the admission rate is set from this |
+| Length of stay | Lognormal by condition, capped at 30 days | PhilHealth 2014 and 2017 medians and spreads |
+| Baseline vitals of a new patient | Drawn from real six-hour medians | eICU-CRD Demo, ward-like windows; each vital drawn separately |
+| On oxygen at admission | 39% | Pimentel 2019; the share of stay on oxygen is tuned to match 18-19% of observation sets |
+| AF | 8% pre-existing, 5% new onset | Published cardiac cohorts |
+| Deterioration | 6.1% of admissions, at a random time in the stay | Churpek 2016 |
+| Discharge time | About 15% before noon, median near 15:00 | US sources only |
+
+Case mix (35% heart failure, 45% coronary medical, 20% coronary procedure), age range, and the 48-hour hold before moving a patient with NEWS2 of 5 or more to higher care are judgement. Moving to higher care leaves the ward; it is not modelled further. Admission figures come from whole hospitals, not one ward.
+
 ### Adding another dataset
 
 Implement `VitalsSource` (defined in `src/sim/source.ts`) and pass it to `createSim`. `createSyntheticSource` in the same file is the working example. A source supplies the patients, its gate rules, device samples and, if it has them, charted values (`charted`) and a run length (`durationMin`). Leave out `inject` and the deterioration button goes away. The database writer stores only synthetic sources, so a source with `synthetic: false` is never registered with the API.
@@ -152,6 +215,10 @@ The demo deliberately shows no recovery after review and no response-time figure
 
 All art is drawn in this repository's code, in `src/render/`. The panel layout and status palette take their idiom from [Munder Difflin](https://github.com/HarnessMD/munder-difflin) (MIT). None of its assets are used.
 
+## Licence
+
+The code is under the [MIT License](LICENSE). The fitted data files are not: `src/sim/fitted.json` and `src/sim/calibration.json` are under ODbL v1.0, as set out in [NOTICE.md](NOTICE.md).
+
 ## Before sharing publicly
 
-BioSentry's NEWS2 model card lists the licence as unverified. Resolve that before making this repository or demo public.
+NEWS2: the RCP's page says there is no copyright restriction, on conditions this repository follows (see [NOTICE.md](NOTICE.md)). It does not mention software, so its application to code is unconfirmed. Queries go to cqid@rcp.ac.uk. BioSentry's own model card still lists the licence as unverified.

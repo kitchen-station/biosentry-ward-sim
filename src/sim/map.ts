@@ -72,6 +72,7 @@ export const roomAt = (x: number, y: number) =>
 // Beds are a 1x2 footprint. `head` is the pillow tile, `foot` the tile toward the aisle.
 export interface Bed {
   label: string;
+  zone: string; // H, A, B or S: the room, which survives relabelling below
   head: Tile;
   foot: Tile;
   north: boolean; // head on the smaller y
@@ -80,6 +81,7 @@ export interface Bed {
 function bedsAt(prefix: string, xs: number[], headY: number, footY: number, first = 1): Bed[] {
   return xs.map((x, i) => ({
     label: `${prefix}${first + i}`,
+    zone: prefix,
     head: [x, headY] as Tile,
     foot: [x, footY] as Tile,
     north: headY < footY,

@@ -8,8 +8,8 @@ import {
   applyPatch,
   detachPatch,
   injectDeterioration,
+  startArrhythmia,
   minuteOf,
-  patientById,
   recordBp,
   setSpeed,
   staffStatus,
@@ -245,7 +245,8 @@ function BpForm({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
 
 function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null }) {
   if (!id) return <p className="empty">Click a bed or a ranked row to open a chart.</p>;
-  const p = patientById(s, id);
+  const p = s.patients.find((x) => x.id === id);
+  if (!p) return <p className="empty">This patient has left the ward.</p>;
   const minute = minuteOf(s);
   const d = p.decision;
   const origin = src.synthetic ? "synthetic" : "dataset";
@@ -304,9 +305,11 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
               hr={p.patch && vitalQuality(p, "heart_rate", minute) !== "missing" ? p.held.heart_rate : null}
               clockS={s.clockS}
               irregular={p.irregular}
+              ectopyPerHour={p.ectopyPerHour}
             />
             <div className="prov">
-              Drawn from the heart rate{p.irregular ? ", irregular for AF" : ""}. The patch sends ECG; BioSentry
+              Waveform drawn from the heart rate{p.irregular ? ", AF" : ""}; beat timing fitted to real labelled
+              ECGs. The patch sends ECG; BioSentry
               stores waveforms in Object Storage Service. Nothing here analyses it.
             </div>
           </>
@@ -341,6 +344,11 @@ function ChartTab({ s, src, id }: { s: Sim; src: VitalsSource; id: string | null
         {src.inject && (
           <button disabled={p.injected} onClick={() => injectDeterioration(s, src, id)}>
             {p.injected ? "Deteriorating" : "Start deterioration"}
+          </button>
+        )}
+        {src.startAf && (
+          <button disabled={p.irregular} onClick={() => startArrhythmia(s, src, id)}>
+            {p.irregular ? "In AF" : "Start AF"}
           </button>
         )}
         {p.patch ? (

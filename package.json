@@ -1,12 +1,15 @@
 {
   "name": "biosentry-ward-sim",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "fit": "node scripts/fit-generator.mjs",
+    "fit:calibration": "node scripts/fit-eicu.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

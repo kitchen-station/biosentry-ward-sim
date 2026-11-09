@@ -1,0 +1,118 @@
+{
+  "dataset": "eICU-CRD Demo 2.0.1",
+  "licence": "ODbL v1.0",
+  "cohort": {
+    "stays": 885,
+    "fit": 716,
+    "heldOut": 169,
+    "fitted": 714
+  },
+  "latentTau": 16.9,
+  "fastNoise": {
+    "respiratory_rate": 1.25,
+    "spo2": 0.504
+  },
+  "vitals": {
+    "heart_rate": {
+      "coupling": 3.25,
+      "wanderSd": 2.3,
+      "wanderTau": 19.4,
+      "circadianAmp": 1.46,
+      "circadianPeak": 21.6
+    },
+    "respiratory_rate": {
+      "coupling": 1.83,
+      "wanderSd": 1.44,
+      "wanderTau": 16.3,
+      "circadianAmp": 0.685,
+      "circadianPeak": 21.2
+    },
+    "spo2": {
+      "coupling": -0.46,
+      "wanderSd": 1.13,
+      "wanderTau": 17,
+      "circadianAmp": 0.101,
+      "circadianPeak": 19.5
+    }
+  },
+  "changeSd": {
+    "heart_rate": [
+      {
+        "lag": 5,
+        "p25": 2.3,
+        "p50": 3.05,
+        "p75": 4.3
+      },
+      {
+        "lag": 15,
+        "p25": 3.37,
+        "p50": 4.39,
+        "p75": 5.93
+      },
+      {
+        "lag": 60,
+        "p25": 4.67,
+        "p50": 6.1,
+        "p75": 8.19
+      },
+      {
+        "lag": 180,
+        "p25": 5.06,
+        "p50": 6.38,
+        "p75": 8.6
+      }
+    ],
+    "respiratory_rate": [
+      {
+        "lag": 5,
+        "p25": 1.96,
+        "p50": 2.36,
+        "p75": 3.08
+      },
+      {
+        "lag": 15,
+        "p25": 2.39,
+        "p50": 2.87,
+        "p75": 3.67
+      },
+      {
+        "lag": 60,
+        "p25": 2.8,
+        "p50": 3.43,
+        "p75": 4.58
+      },
+      {
+        "lag": 180,
+        "p25": 2.84,
+        "p50": 3.46,
+        "p75": 4.7
+      }
+    ],
+    "spo2": [
+      {
+        "lag": 5,
+        "p25": 0.942,
+        "p50": 1.21,
+        "p75": 1.63
+      },
+      {
+        "lag": 15,
+        "p25": 1.2,
+        "p50": 1.6,
+        "p75": 2.08
+      },
+      {
+        "lag": 60,
+        "p25": 1.61,
+        "p50": 2.04,
+        "p75": 2.57
+      },
+      {
+        "lag": 180,
+        "p25": 1.68,
+        "p50": 2.13,
+        "p75": 2.72
+      }
+    ]
+  }
+}

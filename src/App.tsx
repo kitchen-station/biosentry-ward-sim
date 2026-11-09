@@ -8,8 +8,9 @@ import { createSync, STOP_TEXT } from "./sim/sync";
 
 const TICK = 1 / 60;
 
+// shortcut: the database API takes a fixed roster at run start, so a live ward keeps its 12 patients until it can register admissions.
 function newWorld(): { s: Sim; src: VitalsSource } {
-  const src = createSyntheticSource(FIXTURE_SEED);
+  const src = createSyntheticSource(FIXTURE_SEED, !import.meta.env.VITE_API_URL);
   return { s: createSim(src), src };
 }
 
