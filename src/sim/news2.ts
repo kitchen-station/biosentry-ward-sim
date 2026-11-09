@@ -1,4 +1,6 @@
-// NEWS2 (RCP 2017), ported from BioSentry's removed Tier A scorer. Deterministic and pure.
+// NEWS2, ported from BioSentry's removed Tier A scorer. Deterministic and pure. Reproduced from: Royal College of
+// Physicians. National Early Warning Score (NEWS) 2: Standardising the assessment of acute-illness severity in the
+// NHS. Updated report of a working party. London: RCP, 2017. Bands must stay unmodified; see NOTICE.md.
 // Every input is required: a missing or impossible input abstains, nothing is imputed.
 
 export type Acvpu = "A" | "C" | "V" | "P" | "U";

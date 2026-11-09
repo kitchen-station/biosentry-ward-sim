@@ -86,8 +86,9 @@ describe("published ward values", () => {
     expect(Math.abs(pct(setsOnOxygen, sets) - 18.7)).toBeLessThanOrEqual(5);
   });
 
-  // Known misses, measured after the starting patients have left. The ward still runs sicker than published.
-  it.fails("heart rate matches Welch percentiles", () => expectWelch("heart_rate"));
+  // Known misses, measured after the starting patients have left. Patients spend about 15% of time at NEWS2 5+;
+  // sampling sick patients at the policy cadence lifts that in observation sets, and real wards often fall short of it.
+  it("heart rate matches Welch percentiles", () => expectWelch("heart_rate"));
   it.fails("SpO2 matches Welch percentiles", () => expectWelch("spo2"));
   it.fails("about 20% of observation sets at NEWS 5+ (RCP 2012, medical wards)", () => {
     expect(Math.abs(pct(setsAt5, sets) - 20)).toBeLessThanOrEqual(7);
@@ -100,6 +101,20 @@ describe("published ward values", () => {
   });
   it("about 75% of beds occupied (Philippine Heart Center 73-76%)", () => {
     expect(Math.abs(pct(occupied / occupancySlots, 20) - 75)).toBeLessThanOrEqual(10);
+  });
+
+  it("patch loses 6-30% of time (ward wearable studies)", () => {
+    let lost = 0;
+    let total = 0;
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const src = createSyntheticSource(seed);
+      for (let minute = 1; minute <= 7 * 1440; minute += 1) {
+        total += 1;
+        if (src.read("p-002", minute) === null) lost += 1;
+      }
+    }
+    expect(pct(lost, total)).toBeGreaterThanOrEqual(6);
+    expect(pct(lost, total)).toBeLessThanOrEqual(30);
   });
 
   it("24-hour rhythm matches van Goor 2022", () => {

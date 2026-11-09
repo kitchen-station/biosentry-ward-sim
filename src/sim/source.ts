@@ -125,7 +125,14 @@ function circadian(v: Vital, minute: number) {
   return CIRCADIAN_AMPLITUDE[v] * (at(15 + minute / 60) - at(15));
 }
 
-const MEAN_MINUTES_BETWEEN_DROPOUTS = 150;
+// ViSi Mobile ward pilot: 306 artefacts in 742.8 hours, over 74% under 5 minutes, about 7% over an hour.
+const MEAN_MINUTES_BETWEEN_DROPOUTS = 146;
+function drawGapMin(rng: () => number) {
+  const u = rng();
+  if (u < 0.74) return 1 + Math.floor(rng() * 5);
+  if (u < 0.93) return 5 + Math.floor(rng() * 55);
+  return 60 + Math.floor(rng() * 180); // shortcut: 4-hour cap is judgement, published gaps reach 24 hours
+}
 
 const AF_PATIENTS = new Set(["p-009"]);
 
@@ -197,7 +204,14 @@ export function allocateBeds(sexes: string[]): (typeof SEATS)[number][] {
 }
 
 // Spreads patients across the fitted quantiles without using up the vitals' random stream.
-const ectopyOf = (id: string) => fit.rhythm.ectopyPerHour[(ROWS.findIndex((row) => row.id === id) * 7) % 20];
+const ectopyOf = (id: string) => ectopyAt(((ROWS.findIndex((row) => row.id === id) * 7) % 20) / 20);
+
+// shortcut: MIT-BIH is a small Holter sample, so about 9% of patients get its frequent-ectopy half, per a
+// published 9% with PVC burden over 5%; replace with a ward rate if one appears.
+function ectopyAt(u: number) {
+  const table = fit.rhythm.ectopyPerHour;
+  return u < 0.91 ? table[Math.floor((u / 0.91) * 10)] : table[11 + Math.floor(((u - 0.91) / 0.09) * 9)];
+}
 
 const quiet = (value: number) => Array<number | null>(12).fill(value);
 
@@ -277,6 +291,12 @@ function pickEpisode(rng: () => number) {
 
 // Excludes each end of the table, which holds monitor artefact and censored records.
 const drawFrom = (table: number[], rng: () => number) => table[1 + Math.floor(rng() * (table.length - 2))];
+// Keeps a reading inside the 1st to 99th percentile of real diastolic/systolic ratios.
+function diastolicWithin(systolic: number, diastolic: number) {
+  const [low, high] = fit.bloodPressure.diastolicRatioRange;
+  return Math.round(Math.min(systolic * high, Math.max(systolic * low, diastolic)));
+}
+
 const wanderSd = (v: Vital) => Math.sqrt(Math.max(0, fit.vitals[v].sd ** 2 - fit.vitals[v].loading ** 2));
 
 const DAY_MIN = 1440;
@@ -367,7 +387,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
       spo2: drawFrom(fit.baseline.spo2, flowRng),
       temperature: drawFrom(fit.baseline.temperature, flowRng),
     };
-    const cuff = { systolic: Math.round(systolic), diastolic: Math.round(Math.max(40, systolic - drawFrom(fit.baseline.pulsePressure, flowRng))) };
+    const cuff = { systolic: Math.round(systolic), diastolic: diastolicWithin(systolic, systolic - drawFrom(fit.baseline.pulsePressure, flowRng)) };
     anchors[id] = { vitals, cuff };
     const stream: Stream = {
       rng: mulberry32(seed + (ROWS.length + admitted) * 0x9e3779b1),
@@ -427,7 +447,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
       patch: true,
       signalLostMin: 0,
       irregular,
-      ectopyPerHour: fit.rhythm.ectopyPerHour[Math.floor(flowRng() * 20)],
+      ectopyPerHour: ectopyAt(flowRng()),
       dueMin: dueAt(minute, stayMin, flowRng),
       oxygenUntilMin: onOxygen ? minute + stayMin * OXYGEN_SHARE_OF_STAY : undefined,
     };
@@ -483,7 +503,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
         out[v] = Math.min(high, Math.max(low, value));
       }
       if (s.gapLeft === 0 && s.rng() < 1 / MEAN_MINUTES_BETWEEN_DROPOUTS) {
-        s.gapLeft = 1 + Math.floor(s.rng() * 4); // 1 to 4 minutes of lost contact
+        s.gapLeft = drawGapMin(s.rng);
       }
       if (s.gapLeft > 0) {
         s.gapLeft -= 1;
@@ -503,13 +523,12 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
       s.bpAt = minute;
       const ramp = injectRamp(minute, s.injectAt, s.rampMin);
       const systolicMove = s.bpDrift + bp.noise * gaussian(s.bpRng);
+      const systolic = Math.round(base.systolic + systolicMove + (s.episode?.systolic ?? 0) * ramp);
       return {
-        systolic: Math.round(base.systolic + systolicMove + (s.episode?.systolic ?? 0) * ramp),
-        diastolic: Math.round(
-          base.diastolic +
-            bp.diastolicPerSystolic * systolicMove +
-            bp.diastolicNoise * gaussian(s.bpRng) +
-            (s.episode?.diastolic ?? 0) * ramp,
+        systolic,
+        diastolic: diastolicWithin(
+          systolic,
+          base.diastolic + bp.diastolicPerSystolic * systolicMove + bp.diastolicNoise * gaussian(s.bpRng) + (s.episode?.diastolic ?? 0) * ramp,
         ),
       };
     },

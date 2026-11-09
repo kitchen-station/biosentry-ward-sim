@@ -158,29 +158,29 @@ npm run fit -- ~/Documents/datasets
 | Deterioration size and speed, in three kinds: respiratory, tachycardic, hypotensive | eICU-CRD Demo | ODbL v1.0 |
 | Minute-to-minute noise for HR, RR, SpO2 | [BIDMC PPG and Respiration 1.0.0](https://physionet.org/content/bidmc/1.0.0/) | ODC-By v1.0 |
 | Premature beat rates and timing | [MIT-BIH Arrhythmia 1.0.0](https://physionet.org/content/mitdb/1.0.0/), 100 series only | ODC-By v1.0 |
-| AF beat irregularity, episode length, rate change | [MIT-BIH Atrial Fibrillation 1.0.0](https://physionet.org/content/afdb/1.0.0/) | ODC-By v1.0 |
+| AF beat irregularity, rate change | [MIT-BIH Atrial Fibrillation 1.0.0](https://physionet.org/content/afdb/1.0.0/) | ODC-By v1.0 |
+| AF episode length | AFDB and [Long Term AF Database 1.0.0](https://physionet.org/content/ltafdb/1.0.0/) | ODC-By v1.0 |
 
-`fitted.json` is published under ODbL v1.0 with attribution to these sources.
+`fitted.json` is published under ODbL v1.0. Attribution and citations are in [NOTICE.md](NOTICE.md).
 
 Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
 
-`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Respiratory rate, systolic, oxygen use, occupancy and the 24-hour heart rate and respiratory rate swings pass. Four checks are marked as known misses:
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss, occupancy and the 24-hour heart rate and respiratory rate swings pass. Three checks are marked as known misses:
 
 | Known miss | Sim | Published |
 |---|---|---|
-| Observation sets at NEWS 5+ | about 38% | about 20% (RCP 2012, medical wards) |
-| Observation sets at NEWS 7+ | about 19% | about 10% |
+| Observation sets at NEWS 5+ | about 35% | about 20% (RCP 2012, medical wards) |
+| Observation sets at NEWS 7+ | about 18% | about 10% |
 | SpO2, low end | 1st to 10th percentiles 90 to 93 | 86 to 91 (Welch 2015) |
-| Heart rate, upper tail | 99th percentile about 118 | 128 (Welch 2015) |
 
-The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
+Patients spend about 14% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
 
 Limits:
 
 - **No ward data:** no open ward-level dataset was found. The dynamics come from ICU stays, restricted to six-hour windows with ward-like medians, and applied around the ward patients' own baselines. Real ward patients may be steadier.
 - **Deterioration events are physiological rise events, our definition:** a rise of 4 or more in an hourly three-vital NEWS2 (HR, RR, SpO2) held for 2 hours, or two cuff readings at or below 100 systolic and at least 20 below baseline. No open dataset labels deterioration and no source validates these rules.
 - **Hypotensive events are ICU-derived:** they are fast (median about an hour) and may reflect sedation or drugs. The patch does not measure blood pressure, so a hypotensive event shows only when a nurse takes a cuff reading. Some go unseen on a low-risk patient, as they could on a real ward.
-- **Still hand-set:** the mix of event kinds (55% respiratory, 20% tachycardic, 25% hypotensive, a judgement because no published split exists), temperature noise and deterioration rise, circadian size for temperature, the time of day each rhythm peaks, patch dropouts and the value clamps.
+- **Still hand-set:** the mix of event kinds (55% respiratory, 20% tachycardic, 25% hypotensive, a judgement because no published split exists), temperature noise and deterioration rise, circadian size for temperature, and the value clamps. Patch dropouts use ViSi Mobile ward pilot figures for rate and length, with a judgement 4-hour cap. The time of day each rhythm peaks comes from eICU.
 - **AF episodes are short:** the median is a few minutes, as recorded in patients referred for AF, so a Start AF episode can end quickly.
 
 MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
@@ -223,6 +223,10 @@ The demo deliberately shows no recovery after review and no response-time figure
 
 All art is drawn in this repository's code, in `src/render/`. The panel layout and status palette take their idiom from [Munder Difflin](https://github.com/HarnessMD/munder-difflin) (MIT). None of its assets are used.
 
+## Licence
+
+The code is under the [MIT License](LICENSE). The fitted data files are not: `src/sim/fitted.json` and `src/sim/calibration.json` are under ODbL v1.0, as set out in [NOTICE.md](NOTICE.md).
+
 ## Before sharing publicly
 
-BioSentry's NEWS2 model card lists the licence as unverified. Resolve that before making this repository or demo public.
+NEWS2: the RCP's page says there is no copyright restriction, on conditions this repository follows (see [NOTICE.md](NOTICE.md)). It does not mention software, so its application to code is unconfirmed. Queries go to cqid@rcp.ac.uk. BioSentry's own model card still lists the licence as unverified.

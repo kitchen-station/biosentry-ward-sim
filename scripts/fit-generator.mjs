@@ -92,6 +92,7 @@ await eachRow(eicu, "vitalAperiodic", (r) => {
 });
 
 const wardSpans = new Map(); // stay id -> start slots of its ward-like windows
+const diastolicRatios = [];
 const baselines = { heart_rate: [], respiratory_rate: [], spo2: [], temperature: [], systolic: [], pulsePressure: [] };
 
 /** Six-hour windows that look like a ward patient, each vital centred on its own window mean. */
@@ -120,6 +121,7 @@ function wardWindows(group) {
         const inside = (cuffs.get(id) ?? []).filter(([o, sys]) => o >= start * SLOT && o < (start + WINDOW) * SLOT && sys >= 60 && sys <= 240);
         if (inside.length >= 2) {
           baselines.systolic.push(median(inside.map((c) => c[1])));
+          diastolicRatios.push(...inside.filter((c) => Number.isFinite(c[2]) && c[2] > 0).map((c) => c[2] / c[1]));
           const pulse = inside.filter((c) => Number.isFinite(c[2])).map((c) => c[1] - c[2]);
           if (pulse.length) baselines.pulsePressure.push(median(pulse));
         }
@@ -490,9 +492,10 @@ for (const record of records(af, ".atr")) {
   const rates = { AFIB: [], N: [] };
   for (const span of spans) {
     if (span.rhythm !== "AFIB" && span.rhythm !== "N") continue;
-    // 30 seconds is the clinical minimum for an AF episode. A record's last span is cut off, so left out.
+    // 30 seconds is the clinical minimum for an AF episode. A record's last span is kept though cut off:
+    // leaving it out would remove the longest episodes.
     const minutes = (span.end - span.start) / AF_HZ / 60;
-    if (span.rhythm === "AFIB" && span.end < end && minutes >= 0.5) afEpisodeMinutes.push(minutes);
+    if (span.rhythm === "AFIB" && minutes >= 0.5) afEpisodeMinutes.push(minutes);
     const rr = [];
     for (let i = 1; i < beats.length; i += 1) {
       if (beats[i - 1] >= span.start && beats[i] <= span.end) {
@@ -518,6 +521,18 @@ for (const record of records(af, ".atr")) {
   if (rates.AFIB.length >= 20 && rates.N.length >= 20) rateRatio.push(median(rates.AFIB) / median(rates.N));
 }
 
+// LTAFDB adds day-long records, so episodes are less cut off than in AFDB's ten hours.
+const longAf = join(root, "ltafdb-1.0.0");
+const LTAF_HZ = 128;
+for (const record of records(longAf, ".atr")) {
+  const notes = readAnnotations(readFileSync(join(longAf, `${record}.atr`)));
+  const marks = notes.filter((a) => a.aux?.startsWith("("));
+  marks.forEach((m, i) => {
+    const minutes = ((marks[i + 1]?.time ?? notes.at(-1).time) - m.time) / LTAF_HZ / 60;
+    if (m.aux.startsWith("(AFIB") && minutes >= 0.5) afEpisodeMinutes.push(minutes);
+  });
+}
+
 const output = {
   provenance: {
     note: "Aggregate statistics only. Dynamics come from ICU stays, used around ward-like baselines; no ward data was available.",
@@ -526,6 +541,7 @@ const output = {
       "BIDMC PPG and Respiration 1.0.0": "ODC-By v1.0",
       "MIT-BIH Arrhythmia 1.0.0": "ODC-By v1.0",
       "MIT-BIH Atrial Fibrillation 1.0.0": "ODC-By v1.0",
+      "Long Term AF Database 1.0.0": "ODC-By v1.0",
     },
     licence: "ODbL v1.0",
     trainHospitals: hospitals.length - heldOut.size,
@@ -548,6 +564,7 @@ const output = {
     noise: round(bpFit.noise),
     diastolicPerSystolic: round(diaSlope),
     diastolicNoise: round(diaResidual),
+    diastolicRatioRange: [round(quantile(diastolicRatios, 0.01)), round(quantile(diastolicRatios, 0.99))],
   },
   baseline: Object.fromEntries(Object.entries(baselines).map(([k, xs]) => [k, table(xs)])),
   latentTauMin: round(latentTau),
