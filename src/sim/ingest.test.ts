@@ -43,7 +43,7 @@ describe("the outbox", () => {
     const a = start();
     const b = start();
     expect(a.s.outbox).toBeUndefined();
-    b.s.outbox = { observations: [], bins: [], events: [], sent: new Map() };
+    b.s.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
     run(a.s, a.src, 180);
     run(b.s, b.src, 180);
     const view = (s: Sim) => s.patients.map((p) => [p.id, p.decision, p.rank, p.trend, p.held, p.bp]);
@@ -94,7 +94,7 @@ describe("sync, with a fake fetch", () => {
     await sync.flush();
     const { path, body } = calls[2];
     expect(path).toBe("/sim/runs/7/batch");
-    expect(Object.keys(body).sort()).toEqual(["bins", "counts", "ended", "events", "minute", "observations", "patients"]);
+    expect(Object.keys(body).sort()).toEqual(["admissions", "bins", "counts", "departures", "ended", "events", "minute", "observations", "patients"]);
     expect([body.minute, body.ended]).toEqual([40, false]);
     expect(body.patients).toHaveLength(12);
     expect(Object.keys(body.patients[0]).sort()).toEqual(["id", "last_sample_minute", "signal_quality", "trend"]);
