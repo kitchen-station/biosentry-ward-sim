@@ -4,7 +4,7 @@
 
 An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
 
-It runs on two sources: synthetic patients wearing chest patches, or real de-identified ICU stays replayed on the same simulated ward. The synthetic patients' movement is fitted to real open datasets; see [Fitted to real data](#fitted-to-real-data).
+It runs on synthetic patients wearing chest patches. Their movement is fitted to real open datasets; see [Fitted to real data](#fitted-to-real-data). A real de-identified dataset is planned and will plug in at the vitals source (see "Adding another dataset").
 
 Advisory only. BioSentry does not replace a monitor alarm. This demo makes no clinical claim.
 
@@ -50,31 +50,48 @@ Sign in as a clinician on the sim's staff (Nurse de la Cruz, Nurse Reyes, Charge
 
 ## Feed the BioSentry database
 
-The sim can also write to the BioSentry database API. Start the API from the dashboard repo with `make api-dev` (it listens on port 8000), then run the sim with the API's address and ingest key:
+The sim can also write to the BioSentry database API. Run the sim with the API's address and the ingest key:
 
 ```bash
 VITE_API_URL=http://127.0.0.1:8000 VITE_INGEST_KEY=dev-local npm run dev
 ```
 
-With `VITE_API_URL` unset, nothing is sent. Each world (first load, restart, switching to the replay) registers a new run with its 12 patients, their minute-0 state and the last 3 hours of history. About once a second the page then sends a batch of what changed:
+With `VITE_API_URL` unset, nothing is sent. The ingest key is read only from `VITE_INGEST_KEY`.
+
+**Rule: the public Cloudflare Pages build must have neither `VITE_API_URL` nor `VITE_INGEST_KEY`.** Vite inlines both into the shipped JavaScript, so anything set there is public. Nothing in this repository sets them; set them only in your own shell or an uncommitted `.env.local`. The hosted API is reached over the team's private network, so only a sim running on that network can use it.
+
+Each page load picks one random `client_id` (32 hex characters from `crypto.getRandomValues`, which works without a secure context) and keeps it. Each world (first load, Reset) registers a run with `source: "synthetic"`, its 12 patients, their minute-0 state and the last 3 hours of history. A restart replaces the page's own earlier run. About once a second the page then sends a batch of what changed, and sends one even when nothing changed, including while paused, because the server treats a run that sends no batch for 30 seconds as stale and lets anyone take it. When a sim ends it sends `ended: true`.
 
 - **Observations:** the four device vitals, and the nurse-charted blood pressure, consciousness, oxygen and SpO2 scale. A value is sent only when it or its quality changes. A vital with no usable reading is sent as absent, with the reason, never as a made-up value.
 - **Bins:** the 15-minute medians behind the trend charts.
 - **Events:** the sim's log lines.
 - **Patients:** trend, signal quality and the minute of the last sample.
 
-If the API is down, the rows wait and go with the next batch. The queue holds 50,000 rows of each kind; past that the oldest are dropped. The sim runs the same either way. `src/sim/ingest.test.ts` runs the headless sim through a real sync and checks that the API's ranks, scores and NOT RANKED reasons equal the sim's every 15 sim-minutes. It needs a running API: `BIOSENTRY_API=http://127.0.0.1:8000 BIOSENTRY_INGEST_KEY=dev-local npx vitest run src/sim/ingest.test.ts`.
+There is one shared ward. While a sim holds it, a sim on another page cannot save. The top bar says so, and the sim keeps running locally:
+
+| Top bar | Meaning |
+|---|---|
+| Not saved: another ward simulation is live | The API answered 409 to registration: a different page holds the ward. The sim does not retry. Reset registers again, and succeeds once the other run has ended or gone 30 seconds without a batch. |
+| Not saved: a newer simulation replaced this one | A batch got 409: another sim took the ward. The sim stops sending and drops its queue. |
+| Not saved: the API refused the ingest key | Registration got 403 or 503: the key is wrong or missing. The sim does not retry. |
+
+If the API is down, or answers 5xx, the rows wait and go with the next batch. The queue holds 50,000 rows of each kind; past that the oldest are dropped. The sim runs the same either way. A source that is not synthetic never registers.
+
+`src/sim/ingest.test.ts` tests the sync with a fake fetch, and, when `BIOSENTRY_API` is set, runs the headless sim through a real sync and checks that the API's ranks, scores and NOT RANKED reasons equal the sim's every 15 sim-minutes, that each clinician sees exactly the fixture's patients, and that a second client gets 409 while the first is live. Sign-in needs the clinicians' passphrase:
+
+```bash
+BIOSENTRY_API=http://127.0.0.1:8123 BIOSENTRY_INGEST_KEY=dev-local BIOSENTRY_PASSPHRASE=... npx vitest run src/sim/ingest.test.ts
+```
+
+The tests always use one `client_id`, so consecutive runs replace each other. Another client's live run makes them fail with 409 until it ends or goes stale.
 
 The dev-server bridge above stays for now. A physician's list is the fixture's: p-004 and p-005 are stored with no physician.
 
-The eICU replay is stored too, flagged as `eicu_demo` and not synthetic. It is real de-identified data, so run `make db-purge-eicu` in the dashboard repo before sharing the database.
-
 ## What you can do
 
-- Switch between synthetic patients and the eICU replay.
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
 - Click a bed, a staff member or a machine to zoom in on it and see only its details. A patient shows the five vitals (heart rate, respiratory rate, SpO2, temperature and blood pressure), an illustrative ECG strip, and the reasons in plain words.
-- Start a deterioration or an AF episode (synthetic only), detach a patch, apply a patch, or record a blood pressure.
+- Start a deterioration or an AF episode, detach a patch, apply a patch, or record a blood pressure.
 - Click the WARD LIST screen at the nurse station for the ranked list.
 - Click ENTRANCE for who came and went, length of stay and the bed timeline, or to skip a day. Click an empty bed or a past stay for its history. Without the database API, stays live in memory, so a reload starts over.
 
@@ -83,8 +100,6 @@ The eICU replay is stored too, flagged as `eicu_demo` and not synthetic. It is r
 | Stage | Where |
 |---|---|
 | Vitals source, the seam for a real dataset | `src/sim/source.ts` |
-| eICU replay source | `src/sim/replay.ts` |
-| eICU extract | `scripts/extract-eicu.mjs` |
 | Calibration fit and its output | `scripts/fit-eicu.mjs`, `src/sim/calibration.json` |
 | Database writer | `src/sim/sync.ts` |
 | Quality gate, staff loop, commands | `src/sim/sim.ts` |
@@ -105,42 +120,19 @@ Ward W4 is laid out like a real cardiology ward. One corridor runs from the entr
 - **Doctors' office:** desks for both physicians.
 - **Support rooms:** the sluice, the relatives' room, and the edge server room for the BioSentry pipeline.
 
-The ward has 20 beds. The 12 occupied ones carry the BioSentry dashboard's bed labels (1C, 2B, 3A and so on); the other 8 are empty. Patients keep their bed for the whole run; they do not move as their scores change. The replay uses the same 12 beds: the first four stays take the high-dependency beds and the rest take a bed of their sex.
+The ward has 20 beds. The 12 occupied ones carry the BioSentry dashboard's bed labels (1C, 2B, 3A and so on); the other 8 are empty. Patients keep their bed for the whole run; they do not move as their scores change.
 
 The flow follows the Kitchen BioSentry page: chest patch, BLE to the ward gateway, IoT Device Access to the ward edge server, and a synced copy in Huawei Cloud. NEWS2 and the arbiter run on the edge server. Clicking a machine shows whether that stage is built, planned or a demo rule. Anomaly detection, conformal abstention and the explainer agent are planned and not simulated.
 
 Kitchen also shapes three other things:
 
 - **Ward size:** Kitchen says one nurse has 20 to 50 patients, against a DOH standard of 12. The sim mirrors the dashboard's roster instead: 12 patients and two staff nurses, about 1:6. It does not show the workload pressure Kitchen describes.
-- **ECG:** the patch sends ECG. The chart draws an illustrative strip from the heart rate, irregular for the AF patient. It is not data and nothing analyses it. The eICU demo has no waveforms, so the replay shows none.
+- **ECG:** the patch sends ECG. The chart draws an illustrative strip from the heart rate, irregular for the AF patient. It is not data and nothing analyses it.
 - **Explainer agent:** planned in the product. The chart shows a fixed template in its place, built from the NEWS2 breakdown and the RCP responses. It is not an AI agent and it does not rank.
 
 The sim is plain data with no React or canvas, so it runs headless in tests. At minute 0 it reproduces the BioSentry fixture: all ten NEWS2 totals, the rank order, the reason strings and the NOT RANKED text. `src/sim/sim.test.ts` checks this against `src/sim/synthetic.json`.
 
-### The eICU replay
-
-The replay uses 12 stays from the [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/), which is open under ODbL v1.0. The data is not in this repository. To add it locally, put these four files in a folder outside the repo: `patient.csv.gz`, `vitalPeriodic.csv.gz`, `vitalAperiodic.csv.gz` and `nurseCharting.csv.gz`. Then run:
-
-```bash
-npm run extract -- /path/to/that/folder
-```
-
-On the author's machine the files live in `~/Documents/datasets/eicu-crd-demo-2.0.1`, with PhysioNet's `SHA256SUMS.txt` beside them.
-
-That writes `public/replay/eicu-12.json`, which git ignores, and turns on the eICU replay button. If you share an extract, ODbL requires attribution and keeps it under the same licence.
-
-This is real ICU data on a simulated ward. It is not ward data, and it is not from a chest patch. The stays are US ICU stays, the monitor stands in for the patch, and NEWS2 scores run high because these patients are sicker than a ward population. The 12 stays were hand-picked from 39 cardiac, awake, unventilated stays discharged alive, for a spread of NEWS2 paths. Every stay has all inputs at the start. They are not a representative sample.
-
-| Input | Replay source | Rule |
-|---|---|---|
-| HR, RR, SpO2 | Monitor, every 5 minutes | Median of 2 of 3 readings in 15 minutes, NOT RANKED after 30 minutes |
-| Temperature | Nurse charting | Holds 8 hours |
-| Blood pressure | Non-invasive cuff | Holds until the next reading |
-| Oxygen | Nurse charting | Holds until the next entry; any flow except 0 or 21 counts as on oxygen |
-| Consciousness | GCS from nurse charting | GCS 15 is Alert, lower is new confusion |
-| SpO2 scale | Not recorded | Scale 1 for everyone |
-
-Counting a change when the score differs from 15 minutes earlier, scores change about 24.5 times an hour across the 12 replay patients, about 2.0 per patient. The synthetic patients change about 2.5 times an hour across all 12 (2.54), about 0.2 per patient. That figure counts non-overlapping 15-minute samples over 24 hours, for the 12 patients, mean of seeds 1 to 5, after the calibration below. The previous constants give 1.01 by this same method. The replay's figures were not re-measured, and the replay source does not use these constants. That is left visible, because smoothing it would change how the arbiter behaves.
+Counting a change when the score differs from 15 minutes earlier, the synthetic patients change about 2.5 times an hour across all 12 (2.54), about 0.2 per patient. That figure counts non-overlapping 15-minute samples over 24 hours, for the 12 patients, mean of seeds 1 to 5, after the calibration below. The previous constants give 1.01 by this same method.
 
 ### Fitted to real data
 
@@ -204,7 +196,7 @@ Case mix (35% heart failure, 45% coronary medical, 20% coronary procedure), age 
 
 ### Adding another dataset
 
-Implement `VitalsSource` in `src/sim/source.ts` and pass it to `createSim`. `src/sim/replay.ts` is the working example. A source supplies the patients, its gate rules, device samples and, if it has them, charted values. Leave out `inject` and the deterioration button goes away.
+Implement `VitalsSource` (defined in `src/sim/source.ts`) and pass it to `createSim`. `createSyntheticSource` in the same file is the working example. A source supplies the patients, its gate rules, device samples and, if it has them, charted values (`charted`) and a run length (`durationMin`). Leave out `inject` and the deterioration button goes away. The database writer stores only synthetic sources, so a source with `synthetic: false` is never registered with the API.
 
 ## What is demo design, not product
 
@@ -213,7 +205,7 @@ BioSentry only ranks and displays. A human decides. These parts were invented fo
 - **Staff response loop:** the product has no alert or acknowledgement flow. Messages, walks, assessments and physician calls are demo design.
 - **Reassessment:** medium and high risk patients are seen at least every 60 sim-minutes.
 - **Physician calls:** at NEWS2 5 or more the nurse calls the patient's physician, following the Kitchen page and RCP 2017 ("immediately inform the medical team"). Below 5, including a single parameter at 3, the nurse handles it.
-- **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes. The replay uses its own rules, listed above.
+- **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes.
 - **NOT RANKED cutoff:** 30 stale minutes.
 - **Filled fixture gaps:** a cuff reading of 128/76 for p-004, a baseline for p-005, and a physician to call to the bedside for both. They are on no physician's list.
 - **Hardware:** the patch, gateway and edge server are the described design. None of it is built.

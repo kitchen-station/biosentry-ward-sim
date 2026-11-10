@@ -50,12 +50,12 @@ describe("patient stays", () => {
     const batches: { admissions: { id: string; minute: number; bins: unknown[] }[]; departures: { patient_id: string; outcome: string }[] }[] = [];
     let up = false;
     const fake = (async (url: string, init: { body: string }) => {
-      if (!up) return new Response("", { status: 503 });
+      if (!up) return new Response("", { status: 500 }); // an outage is retried; a 503 at registration means the key was refused
       if (url.endsWith("/sim/runs")) return Response.json({ run_id: 1 });
       batches.push(JSON.parse(init.body));
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
-    const sync = createSync({ apiUrl: "http://api", key: "k", fetch: fake });
+    const sync = createSync({ apiUrl: "http://api", key: "k", clientId: "stays-test", fetch: fake });
     await sync.start(s, src);
     for (let day = 0; day < 8; day += 1) skipDay(s, src);
     await sync.flush(); // refused: nothing lost

@@ -3,20 +3,20 @@ import { BedTimeline, Inspector, SelectList, TopBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
 import { createSim, step, type Sim } from "./sim/sim";
-import { createReplaySource, type ReplayFile } from "./sim/replay";
 import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./sim/source";
-import { createSync } from "./sim/sync";
+import { createSync, STOP_TEXT } from "./sim/sync";
 
 const TICK = 1 / 60;
 
-function newWorld(replay: ReplayFile | null = null): { s: Sim; src: VitalsSource } {
-  const src = replay ? createReplaySource(replay) : createSyntheticSource(FIXTURE_SEED, true);
+function newWorld(): { s: Sim; src: VitalsSource } {
+  const src = createSyntheticSource(FIXTURE_SEED, true);
   return { s: createSim(src), src };
 }
 
 export function App() {
   const [world, setWorld] = useState(() => newWorld());
-  const [replay, setReplay] = useState<ReplayFile | null>(null);
+  const clientId = useRef<string>(null);
+  const syncRef = useRef<ReturnType<typeof createSync>>(null);
   const worldRef = useRef(world);
   worldRef.current = world;
   const [selected, setSelected] = useState<string | null>(null);
@@ -28,22 +28,25 @@ export function App() {
   const rendererRef = useRef<ReturnType<typeof createRenderer>>(null);
   const hoveredRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    // The extract is local only. Without it the dev server answers with HTML, so json() fails.
-    fetch("/replay/eicu-12.json")
-      .then((response) => response.json())
-      .then(setReplay)
-      .catch(() => setReplay(null));
-  }, []);
-
   // Writes each world to the database API, when one is configured.
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL;
     if (!apiUrl) return;
-    const sync = createSync({ apiUrl, key: import.meta.env.VITE_INGEST_KEY ?? "", fetch: window.fetch.bind(window) });
+    // Once per page load: a restart replaces its own run. Not randomUUID, which needs a secure context (plain-HTTP LAN fails).
+    clientId.current ??= Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+    const sync = createSync({
+      apiUrl,
+      key: import.meta.env.VITE_INGEST_KEY ?? "",
+      clientId: clientId.current,
+      fetch: window.fetch.bind(window),
+    });
+    syncRef.current = sync;
     void sync.start(world.s, world.src);
     const timer = setInterval(() => void sync.flush(), 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      syncRef.current = null;
+    };
   }, [world]);
 
   useEffect(() => {
@@ -94,10 +97,10 @@ export function App() {
     setTimeline(false);
   };
 
-  const restart = (useReplay: boolean) => {
+  const restart = () => {
     rendererRef.current?.reset();
     select(null);
-    setWorld(newWorld(useReplay ? replay : null));
+    setWorld(newWorld());
   };
 
   const targetAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -112,9 +115,8 @@ export function App() {
       <TopBar
         s={world.s}
         src={world.src}
-        replayReady={replay !== null}
-        onSource={restart}
-        onReset={() => restart(!world.src.synthetic)}
+        notice={syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null}
+        onReset={restart}
       />
       <main className="main">
         <div className="floor">
@@ -134,9 +136,6 @@ export function App() {
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
-        {!world.src.synthetic && (
-          <span>Real ICU data replayed on a simulated ward. eICU-CRD Demo 2.0.1, ODbL.</span>
-        )}
         <span>Staff loop: demo design, not a product feature.</span>
       </footer>
     </div>

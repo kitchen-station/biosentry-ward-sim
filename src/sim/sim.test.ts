@@ -16,8 +16,7 @@ import {
   vitalQuality,
   type Sim,
 } from "./sim";
-import { createReplaySource, type ReplayStay } from "./replay";
-import { createSyntheticSource, FIXTURE_SEED, SEATS, type VitalsSource } from "./source";
+import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 import fitted from "./fitted.json";
 import fixture from "./synthetic.json";
 
@@ -335,91 +334,7 @@ describe("simulation", () => {
       return changes / 24;
     });
     const mean = rates.reduce((a, b) => a + b) / rates.length;
-    expect(mean).toBeLessThan(40); // these sit on NEWS2 band edges; the real eICU replay also moves this much
-  });
-});
-
-describe("replay", () => {
-  const every5 = (from: number, to: number, value: number) => {
-    const out: [number, number][] = [];
-    for (let m = from; m <= to; m += 5) out.push([m, value]);
-    return out;
-  };
-  const stayFor = (id: string): ReplayStay => ({
-    id,
-    dx: "CHF",
-    age: "> 89",
-    sex: "F",
-    unit: "MICU",
-    to: "Floor",
-    durationMin: 720,
-    hr: every5(-30, 720, 80),
-    rr: every5(-30, 720, 16),
-    spo2: every5(-30, 720, 97),
-    temp: [[-200, 36.8], [120, 98.3]],
-    bp: [[-10, 120, 70], [60, 85, 50]],
-    o2: [[-10, 0], [30, 1]],
-    gcs: [[-10, 15], [90, 12]],
-  });
-  const file = {
-    dataset: "test",
-    licence: "test",
-    stays: SEATS.map((_, i) => stayFor(String(1000 + i))),
-  };
-  const open = () => {
-    const src = createReplaySource(file);
-    return { src, s: createSim(src) };
-  };
-
-  it("ranks 5-minute data, with an old charted temperature still valid", () => {
-    const { s } = open();
-    expect(s.patients.every((p) => p.decision.kind === "ranked")).toBe(true);
-    expect(s.patients[0].decision).toMatchObject({ news2: { total: 0 } });
-  });
-
-  it("does not count quiet charted minutes as rejected samples", () => {
-    const { s, src } = open();
-    run(s, src, 60);
-    expect(s.counts.received).toBeGreaterThan(100);
-    expect(s.counts.rejected).toBe(0);
-  });
-
-  it("takes oxygen, BP and consciousness from the chart as they change", () => {
-    const { s, src } = open();
-    run(s, src, 95);
-    const p = s.patients[0];
-    expect(p.onOxygen).toBe(true);
-    expect(p.bp).toEqual({ systolic: 85, diastolic: 50 });
-    expect(p.consciousness).toBe("C");
-    expect(p.decision).toMatchObject({ news2: { total: 8 } });
-  });
-
-  it("rejects a Fahrenheit value in the Celsius column at the gate", () => {
-    const { s, src } = open();
-    run(s, src, 125);
-    expect(s.counts.rejected).toBeGreaterThan(0);
-    expect(s.patients[0].held.temperature).toBe(36.8);
-  });
-
-  it("drops a patient once the charted temperature is 8 hours old", () => {
-    const { s, src } = open();
-    run(s, src, 290);
-    expect(s.patients[0].decision).toMatchObject({
-      kind: "not_ranked",
-      reason: "Temperature missing",
-    });
-  });
-
-  it("stops at the end of the stay", () => {
-    const { s, src } = open();
-    run(s, src, 719);
-    for (let i = 0; i < 200; i += 1) step(s, src);
-    expect(s.ended).toBe(true);
-    expect(s.log.at(-1)?.text).toBe("Replay ended");
-  });
-
-  it("offers no deterioration button", () => {
-    expect(createReplaySource(file).inject).toBeUndefined();
+    expect(mean).toBeLessThan(40); // these patients sit on NEWS2 band edges at full fitted size
   });
 });
 
