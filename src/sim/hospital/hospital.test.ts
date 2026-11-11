@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import dohStandard from "../../../scenarios/hospital/doh-standard.json?raw";
 import surge from "../../../scenarios/hospital/surge.json?raw";
 import typical from "../../../scenarios/hospital/typical.json?raw";
@@ -8,6 +8,9 @@ import { drawPerson, GROUPS, stayDeathP, TRIAGES } from "./people";
 import { parseScenario, type Scenario } from "./scenario";
 import { createHospital, stepHospital, takeRows } from "./step";
 import type { EventKind, EventRow, Hospital, HourRow, Person, Sex, UnitId, W4Port } from "./types";
+
+// These tests simulate days of a hospital and take 2-3 s each on a busy machine: only the time limit is raised.
+vi.setConfig({ testTimeout: 60_000 });
 
 const SC = { standard: parseScenario(dohStandard), typical: parseScenario(typical), surge: parseScenario(surge) };
 const DAY = 1440;

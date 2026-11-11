@@ -287,7 +287,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     const s = freeBed(c, "ICU");
     p.fromW4 = true;
     if (s !== null) put(c, p, "ICU", "bed", s, "transfer", "W4 to ICU", false, false);
-    else { // shortcut: no ICU bed, so the person boards in the ER; slice H3 keeps them on W4 instead. Upgrade then.
+    else { // the real W4 (sim.ts w4Port) keeps the patient until an ICU bed is free, so only a test double reaches this
       h.acc.by.W4.transferredOut += 1;
       h.acc.by.ER.transferredIn += 1;
       release(c, p); take(c, p, "ER", anySlot(c, "ER"));
