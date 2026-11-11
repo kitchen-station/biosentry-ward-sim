@@ -187,6 +187,7 @@ export interface Sim {
   flow: { lastMinute: number; admitted: number; everOnOxygen: number; discharged: number; transferred: number; turnedAway: number };
   ended: boolean;
   outbox?: Outbox;
+  occupied?: string[]; // viewer only: beds someone else's patient is in, labels and nothing more
 }
 
 export const STAFF: [string, string, string, Staff["role"]][] = [
@@ -717,7 +718,7 @@ export function flowStats(s: Sim) {
   return {
     in24h: s.stays.filter((x) => x.inMin > 0 && x.inMin > since).length,
     out24h: s.stays.filter((x) => x.outMin !== null && x.outMin > since).length,
-    occupied: s.patients.length,
+    occupied: s.patients.length + (s.occupied?.length ?? 0),
     beds: BEDS.length,
     averageStayMin: full.length
       ? Math.round(full.reduce((sum, x) => sum + x.outMin! - x.inMin, 0) / full.length)

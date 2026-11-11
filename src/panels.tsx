@@ -560,7 +560,7 @@ function StayPanel({ s, src, stay }: { s: Sim; src: VitalsSource; stay: Stay }) 
       <div className="explain">
         <p>{stay.outcome ? OUTCOME[stay.outcome] : "On the ward"}</p>
       </div>
-      <p className="story">{stay.context}.</p>
+      {stay.context && <p className="story">{stay.context}.</p>}
       <div className="vitals">
         <Stat label="Arrived" value={stay.inMin === 0 ? "Before sim" : stamp(src, stay.inMin)} />
         <Stat label="Left" value={stay.outMin === null ? "--" : stamp(src, stay.outMin)} />
@@ -796,6 +796,14 @@ export function Inspector({
           <StaffPanel s={s} src={src} m={staff} />
         ) : stay ? (
           <StayPanel s={s} src={src} stay={stay} />
+        ) : bed && s.occupied?.includes(bed) ? (
+          <>
+            <div className="chead">
+              <h2>Bed {bed}</h2>
+              <span className="pill">Occupied</span>
+            </div>
+            <p className="story">Occupied. Not on your list.</p>
+          </>
         ) : bed ? (
           <EmptyBedPanel s={s} src={src} bed={bed} onSelect={onSelect} />
         ) : selected === "entrance" ? (
@@ -814,7 +822,7 @@ export function Inspector({
 export function SelectList({ s, onSelect }: { s: Sim; onSelect: (id: string) => void }) {
   const targets: [string, string][] = [
     ...s.patients.map((p): [string, string] => [p.id, `${p.name}, bed ${p.bed}`]),
-    ...BEDS.filter((b) => !s.patients.some((p) => p.bed === b.label)).map((b): [string, string] => [`bed:${b.label}`, `Empty bed ${b.label}`]),
+    ...BEDS.filter((b) => !s.patients.some((p) => p.bed === b.label)).map((b): [string, string] => [`bed:${b.label}`, `${s.occupied?.includes(b.label) ? "Occupied" : "Empty"} bed ${b.label}`]),
     ...s.staff.map((m): [string, string] => [m.id, m.name]),
     ...Object.entries(MACHINE_NAMES),
   ];
