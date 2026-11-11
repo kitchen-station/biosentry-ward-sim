@@ -788,3 +788,98 @@ summary {
 .backbtn:focus-visible {
   outline-color: var(--lemon);
 }
+
+/* Hospital layer, H6: strips hold buttons, so the strip is a list item; cells, figures and chips are buttons. */
+.strips > li.strip {
+  color: var(--ink-900);
+  cursor: pointer;
+  background: var(--cream-100);
+  border: 2px solid var(--ink-900);
+  box-shadow: inset -2px -2px 0 var(--cream-300);
+}
+
+.strips > li.strip:hover {
+  background: var(--cream-200);
+}
+
+.building button.cell,
+.building button.fig,
+.building button.chip {
+  box-shadow: none;
+}
+
+.building button.cell,
+.building button.fig {
+  padding: 0;
+  min-width: 0;
+  font-size: 8px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.building button.chip {
+  padding: 0 3px;
+}
+
+.strip .sleft {
+  align-self: start;
+  justify-self: start;
+  width: auto;
+  height: auto;
+  padding: 1px 4px;
+}
+
+.building button.cell:focus-visible,
+.building button.fig:focus-visible,
+.building button.chip:focus-visible,
+.building .linkbtn:focus-visible,
+.building .sleft:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--ink-900);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--lemon);
+}
+
+.linkbtn {
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.linkbtn:hover:not(:disabled) {
+  background: none;
+}
+
+.building .linkbtn {
+  color: inherit;
+}
+
+.building button.bcell {
+  padding: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.building button.bcell.full {
+  background: var(--night);
+}
+
+.plist {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px;
+  padding: 0;
+  list-style: none;
+  font-size: 15px;
+}
+
+.truth {
+  margin: 4px 0;
+  padding: 4px 6px;
+  border: 2px dashed var(--ink-900);
+  background: var(--cream-200);
+}

@@ -289,8 +289,8 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         }
       />
       <main className={`main${world.s.hospital && !panel ? " collapsed" : ""}`}>
-        {world.s.hospital && view === null && <BuildingView floors={floors} onPick={setView} />}
-        {shown && <UnitBoard f={shown} onBack={() => setView(null)} />}
+        {world.s.hospital && view === null && <BuildingView floors={floors} onPick={setView} onSelect={select} />}
+        {shown && <UnitBoard f={shown} onBack={() => setView(null)} onSelect={select} />}
         <div className="floor" hidden={!onCanvas}>
           {world.s.hospital && view === 4 && (
             <button className="backbtn" onClick={() => setView(null)}>Building</button>
@@ -308,7 +308,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
         {(!world.s.hospital || panel) && (
-          <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} />
+          <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} />
         )}
       </main>
       <footer className="notice">

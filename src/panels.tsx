@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Sparkline } from "./chart";
 import { EcgStrip } from "./ecg";
 import { explain } from "./explain";
+import { floorSummary, type FloorSummary } from "./building";
+import { HospitalPanel, isHospitalId, W4HospitalSections } from "./hospital-panels";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
 import { BEDS } from "./sim/map";
@@ -780,12 +782,14 @@ export function Inspector({
   selected,
   onSelect,
   onTimeline,
+  floors,
 }: {
   s: Sim;
   src: VitalsSource;
   selected: string | null;
   onSelect: (id: string | null) => void;
   onTimeline: () => void;
+  floors?: FloorSummary[];
 }) {
   if (selected === null) {
     return (
@@ -812,10 +816,15 @@ export function Inspector({
   const staff = s.staff.find((m) => m.id === selected);
   return (
     <aside className="panel command">
-      <button onClick={() => onSelect(null)}>Back to full ward</button>
+      <button onClick={() => onSelect(null)}>{s.hospital && isHospitalId(selected) ? "Close" : "Back to full ward"}</button>
       <div className="scroll">
-        {patient ? (
-          <PatientPanel s={s} src={src} p={patient} />
+        {s.hospital && isHospitalId(selected) ? (
+          <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} />
+        ) : patient ? (
+          <>
+            <PatientPanel s={s} src={src} p={patient} />
+            <W4HospitalSections s={s} p={patient} onSelect={onSelect} />
+          </>
         ) : staff ? (
           <StaffPanel s={s} src={src} m={staff} />
         ) : stay ? (
