@@ -110,7 +110,9 @@ Behaviour:
 - It uses a fixed client id, so a restart replaces its own run at once.
 - Ctrl+C or SIGTERM marks the run ended.
 - If the API is unreachable, rows stay queued and are retried.
-- A restart begins a new run at minute 0 with the same seed. The ward's state is not saved yet.
+- A restart continues the saved ward in the same run (see `WARD_STATE_FILE` above).
+
+Every 2 seconds it also reads what clinicians did on the dashboard (`GET /sim/runs/{run_id}/actions`) and applies it to the ward. An acknowledgement sends the patient's nurse to assess them, recorded vitals count at once and a recorded blood pressure is entered by the nurse at the bed, a note is logged, and an admitted patient is put in the bed that was typed and a nurse fits their patch. The last action applied is saved with the ward, so a restart does not apply one twice.
 
 While it runs, it also publishes the ward as it would be drawn (`src/sim/view.ts`) to `POST /sim/runs/{run_id}/view` every 2 seconds.
 

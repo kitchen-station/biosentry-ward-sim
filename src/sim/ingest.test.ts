@@ -2,6 +2,7 @@
 // The sim's writes to the database API. The fake-fetch tests always run; the parity tests need a
 // real API: BIOSENTRY_API=http://127.0.0.1:8123 BIOSENTRY_INGEST_KEY=dev-local BIOSENTRY_PASSPHRASE=... npx vitest run src/sim/ingest.test.ts
 import { describe, expect, it } from "vitest";
+import type { Action } from "./actions";
 import { createSim, detachPatch, injectDeterioration, minuteOf, recordBp, setSpeed, step, type Obs, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 import { createSync } from "./sync";
@@ -23,14 +24,18 @@ function run(s: Sim, src: VitalsSource, minutes: number) {
   while (s.clockS < until) step(s, src);
 }
 
-/** A fetch that records the requests, can be switched offline, and answers with a chosen status. */
+/** A fetch that records the requests, can be switched offline, and answers with a chosen status. `feed` is the actions route's rows. */
 function fake(clientId = "page-1") {
   const calls: { path: string; key: string | null; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const net = { offline: false, register: 201, batch: 204 };
+  const net = { offline: false, register: 201, batch: 204, actions: 200, feed: [] as Action[] };
   const f = (async (url: string, init: RequestInit) => {
     if (net.offline) throw new Error("offline");
     const path = url.replace("http://api", "");
-    calls.push({ path, key: (init.headers as Record<string, string>)["X-Ingest-Key"] ?? null, body: JSON.parse(init.body as string) });
+    calls.push({ path, key: (init.headers as Record<string, string>)["X-Ingest-Key"] ?? null, body: init.body ? JSON.parse(init.body as string) : null });
+    if (!init.method) {
+      const after = Number(new URL(url).searchParams.get("after"));
+      return new Response(JSON.stringify({ actions: net.feed.filter((a) => a.seq > after) }), { status: net.actions });
+    }
     return path === "/sim/runs"
       ? new Response(net.register === 201 ? '{"run_id":7}' : "{}", { status: net.register })
       : new Response(null, { status: net.batch });
@@ -227,7 +232,7 @@ describe("sync, with a fake fetch", () => {
     run(s, src, 10);
     const { calls, sync } = fake();
     await sync.resume(s, src, first.sync.run);
-    expect(first.sync.run).toEqual({ runId: 7, origin: first.calls[0].body.origin });
+    expect(first.sync.run).toEqual({ runId: 7, origin: first.calls[0].body.origin, cursor: 0 });
     expect(sync.run).toEqual(first.sync.run);
     expect(calls.map((c) => c.path)).toEqual(["/sim/runs/7/batch"]);
     expect(calls[0].body.minute).toBe(10);
@@ -256,7 +261,7 @@ describe("sync, with a fake fetch", () => {
   it("registers a ward that was saved before the API ever answered", async () => {
     const { s, src } = start();
     const { calls, sync } = fake();
-    await sync.resume(s, src, { runId: null, origin: "2026-11-11T00:00:00.000Z" });
+    await sync.resume(s, src, { runId: null, origin: "2026-11-11T00:00:00.000Z", cursor: 0 });
     expect(calls.map((c) => c.path)).toEqual(["/sim/runs", "/sim/runs/7/batch"]);
     expect(calls[0].body.origin).toBe("2026-11-11T00:00:00.000Z");
   });
@@ -269,6 +274,57 @@ describe("sync, with a fake fetch", () => {
     await sync.flush();
     expect(sync.stopped).toBe("bad_key");
     expect(calls).toHaveLength(1);
+  });
+
+  it("pulls the clinician actions after its cursor, and a resumed ward continues from it", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    expect(await sync.pull()).toEqual([]); // no run yet: nothing is asked
+    expect(calls).toHaveLength(0);
+    await sync.start(s, src);
+    const note = (seq: number) => ({ seq, kind: "add_note", patient_id: "p-001", clinician_id: "rn-reyes" }) as Action;
+    net.feed = [note(1), note(3)];
+    expect((await sync.pull()).map((a) => a.seq)).toEqual([1, 3]);
+    expect([calls.at(-1)!.path, calls.at(-1)!.key]).toEqual(["/sim/runs/7/actions?after=0", "k"]);
+    expect(sync.run.cursor).toBe(3);
+    net.feed.push(note(4));
+    net.offline = true;
+    expect(await sync.pull()).toEqual([]);
+    net.offline = false;
+    net.actions = 500;
+    expect(await sync.pull()).toEqual([]);
+    expect(sync.run.cursor).toBe(3);
+    net.actions = 200;
+    const both = [sync.pull(), sync.pull()]; // the second finds the first under way
+    expect((await both[0]).map((a) => a.seq)).toEqual([4]);
+    expect(await both[1]).toEqual([]);
+    expect(calls.filter((c) => c.path === "/sim/runs/7/actions?after=3")).toHaveLength(2); // the 500 and this one
+
+    const again = fake();
+    await again.sync.resume(s, src, sync.run);
+    expect(again.sync.run.cursor).toBe(4);
+    await again.sync.pull();
+    expect(again.calls.at(-1)!.path).toBe("/sim/runs/7/actions?after=4");
+  });
+
+  it("stops on 409 for a pull, and leaves a 404 to the next flush", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    await sync.start(s, src);
+    net.feed = [{ seq: 2, kind: "add_note", patient_id: "p-001", clinician_id: "rn-reyes" } as Action];
+    await sync.pull();
+    net.actions = 404;
+    expect(await sync.pull()).toEqual([]);
+    expect(sync.run).toMatchObject({ runId: 7, cursor: 2 }); // an API without the route answers 404 too: no new run
+    await sync.flush();
+    expect(calls.at(-1)!.path).toBe("/sim/runs/7/batch");
+    expect(calls.filter((c) => c.path === "/sim/runs")).toHaveLength(1);
+    net.actions = 409;
+    expect(await sync.pull()).toEqual([]);
+    expect(sync.stopped).toBe("superseded");
+    const sent = calls.length;
+    expect(await sync.pull()).toEqual([]);
+    expect(calls).toHaveLength(sent);
   });
 
   it("still retries on a 500, at registration and for a batch", async () => {

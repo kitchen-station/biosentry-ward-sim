@@ -5,6 +5,7 @@
 // The time the runner was down is not replayed. Delete the file to start a new ward.
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { applyAction } from "./sim/actions";
 import { loadWard, saveWard } from "./sim/persist";
 import { createSim, minuteOf, setSpeed, step, type Speed } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
@@ -64,6 +65,16 @@ setInterval(() => {
 }, 1000);
 // What the page in viewer mode draws. Every 2 s, as often as it polls.
 setInterval(() => void sync.publish(view(s)), 2000);
+// What clinicians did on the dashboard, applied to the ward. pull() answers nothing while one is under way or once the sync stopped.
+setInterval(async () => {
+  for (const a of await sync.pull()) {
+    try {
+      applyAction(s, src, a);
+    } catch (error) {
+      console.error(`Clinician action ${a.seq} (${a.kind}) was not applied:`, error); // one bad row must not stop the ward
+    }
+  }
+}, 2000);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
