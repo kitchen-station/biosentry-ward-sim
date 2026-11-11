@@ -335,7 +335,7 @@ describe("simulation", () => {
     });
     const mean = rates.reduce((a, b) => a + b) / rates.length;
     expect(mean).toBeLessThan(40); // these patients sit on NEWS2 band edges at full fitted size
-  });
+  }, 60_000); // four seeded runs: about 2 s alone, over the default 5 s on a busy machine
 });
 
 describe("explainer template", () => {
