@@ -128,6 +128,20 @@ describe("sync, with a fake fetch", () => {
     expect(calls).toHaveLength(4); // the next flush sends a batch even though only device rows repeat
   });
 
+  it("sends device readings at the precision NEWS2 scores them", async () => {
+    const { s, src } = start();
+    const { calls, sync } = fake();
+    await sync.start(s, src);
+    run(s, src, 30); // live samples, not just the fixture's round values
+    await sync.flush();
+    const sent = (calls.at(-1)!.body.observations as Obs[]).filter((o) => o.source === "device" && o.num !== undefined);
+    expect(sent.length).toBeGreaterThan(0);
+    for (const o of sent) {
+      const scaled = o.num! * (o.code === "temperature" ? 10 : 1);
+      expect(Math.abs(scaled - Math.round(scaled)), `${o.code} ${o.num}`).toBeLessThan(1e-9);
+    }
+  });
+
   it("keeps rows through a failed flush and sends them next time", async () => {
     const { s, src } = start();
     const { calls, net, sync } = fake();
