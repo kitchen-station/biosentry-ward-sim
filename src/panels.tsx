@@ -73,12 +73,18 @@ export function TopBar({
   src,
   notice,
   onReset,
+  hospital,
 }: {
   s: Sim;
   src: VitalsSource;
   notice: string | null;
   /** Left out in viewer mode, which has no clock of its own to change. */
   onReset?: () => void;
+  /** Hospital world only: the view tabs, the scenario picker and the Panel toggle. */
+  hospital?: {
+    view: number | null; onView: (view: number | null) => void; floors: { floor: number; label: string }[];
+    scenario: string; scenarios: string[]; onScenario: (name: string) => void; panel: boolean; onPanel: () => void;
+  };
 }) {
   const minute = minuteOf(s);
   return (
@@ -96,6 +102,24 @@ export function TopBar({
         </span>
       )}
       {s.ended && <span className="pill solid">Run ended</span>}
+      {hospital && (
+        <>
+          <div className="speeds" role="group" aria-label="View">
+            {[{ floor: null, label: "Building" }, ...[...hospital.floors].reverse()].map((v) => (
+              <button key={v.label} className={hospital.view === v.floor ? "on" : ""} aria-pressed={hospital.view === v.floor} onClick={() => hospital.onView(v.floor)}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <label>
+            Scenario{" "}
+            <select value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
+              {hospital.scenarios.map((n) => <option key={n}>{n}</option>)}
+            </select>
+          </label>
+          <button aria-pressed={hospital.panel} onClick={hospital.onPanel}>Panel</button>
+        </>
+      )}
       {onReset && (
         <div className="speeds right" role="group" aria-label="Simulation speed">
           {SPEEDS.map((speed) => (

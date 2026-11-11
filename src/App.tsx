@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { BuildingView, floorSummary, UnitBoard } from "./building";
 import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
+import { createHospitalSim } from "./sim/hospital/attach";
+import { parseScenario } from "./sim/hospital/scenario";
+import doh from "../scenarios/hospital/doh-standard.json?raw";
+import surge from "../scenarios/hospital/surge.json?raw";
+import typical from "../scenarios/hospital/typical.json?raw";
 import { createSim, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
@@ -16,9 +22,15 @@ type Point = { x: number; y: number };
 // Viewer mode's source: it reads nothing and has no inject, startAf or admit, so the panels offer none of them.
 const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
 
-function newWorld(): { s: Sim; src: VitalsSource } {
+const SCENARIOS: Record<string, string> = { typical, "doh-standard": doh, surge };
+const HOSPITAL_SEED = 101;
+// A hospital world needs no API and is never a viewer. Nothing is saved by the page, so a reload starts fresh.
+const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
+
+function newWorld(scenario = "typical"): { s: Sim; src: VitalsSource } {
   if (VIEW_API) return { s: createReader()({ shared: null, patients: [] }), src: VIEW_SOURCE }; // empty until the first answer
   const src = createSyntheticSource(FIXTURE_SEED, true);
+  if (HOSPITAL) return { s: createHospitalSim(src, parseScenario(SCENARIOS[scenario]), HOSPITAL_SEED), src };
   return { s: createSim(src), src };
 }
 
@@ -93,6 +105,12 @@ export function App() {
 
 function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () => void }) {
   const [world, setWorld] = useState(() => newWorld());
+  const [scenario, setScenario] = useState("typical");
+  const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else a floor
+  const [panel, setPanel] = useState(true);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const onCanvas = !HOSPITAL || view === 4;
   const [viewNotice, setViewNotice] = useState<string | null>(null);
   const clientId = useRef<string>(null);
   const syncRef = useRef<ReturnType<typeof createSync>>(null);
@@ -112,7 +130,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   // Writes each world to the database API, when one is configured.
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL;
-    if (!apiUrl || VIEW_API) return; // a viewer writes nothing
+    if (!apiUrl || VIEW_API || world.s.hospital) return; // a viewer writes nothing; a hospital world is never synced (attach.ts header)
     // Once per page load: a restart replaces its own run. Not randomUUID, which needs a secure context (plain-HTTP LAN fails).
     clientId.current ??= Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
     const sync = createSync({
@@ -182,9 +200,9 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
-    const observer = new ResizeObserver(() =>
-      renderer.resize(holder.clientWidth, holder.clientHeight, window.devicePixelRatio || 1),
-    );
+    const observer = new ResizeObserver(() => {
+      if (holder.clientWidth > 0) renderer.resize(holder.clientWidth, holder.clientHeight, window.devicePixelRatio || 1); // 0 while hidden
+    });
     observer.observe(holder);
 
     let raf = 0;
@@ -210,15 +228,15 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           [m.x, m.y] = [at.x, at.y];
         }
       }
-      renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
+      if (!HOSPITAL || viewRef.current === 4) renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     const panels = setInterval(() => refresh((n) => n + 1), 250);
     // The dashboard reads this ward from /api (vite.config.ts). A static host has no /api: ignore.
     const publish = setInterval(() => {
-      if (VIEW_API) return;
       const { s, src } = worldRef.current;
+      if (VIEW_API || s.hospital) return; // the dashboard feed is ward-only
       fetch("/api/snapshot", { method: "POST", body: JSON.stringify(wardSnapshot(s, src.synthetic)) }).catch(
         () => {},
       );
@@ -234,13 +252,17 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const select = (id: string | null) => {
     setSelected(id);
     setTimeline(false);
+    if (id !== null) setPanel(true); // selecting while the panel is collapsed reopens it
   };
 
-  const restart = () => {
+  const restart = (name = scenario) => {
     rendererRef.current?.reset();
     select(null);
-    setWorld(newWorld());
+    setWorld(newWorld(name));
   };
+
+  const floors = world.s.hospital ? floorSummary(world.s.hospital, Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null]))) : [];
+  const shown = view === null || view === 4 ? null : floors.find((f) => f.floor === view);
 
   const targetAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -255,10 +277,24 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         s={world.s}
         src={world.src}
         notice={viewNotice ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
-        onReset={VIEW_API ? undefined : restart}
+        onReset={VIEW_API ? undefined : () => restart()}
+        hospital={
+          world.s.hospital
+            ? {
+                view, onView: setView, floors, scenario, scenarios: Object.keys(SCENARIOS), panel,
+                onScenario: (name) => { setScenario(name); setView(null); restart(name); },
+                onPanel: () => setPanel((p) => !p),
+              }
+            : undefined
+        }
       />
-      <main className="main">
-        <div className="floor">
+      <main className={`main${world.s.hospital && !panel ? " collapsed" : ""}`}>
+        {world.s.hospital && view === null && <BuildingView floors={floors} onPick={setView} />}
+        {shown && <UnitBoard f={shown} onBack={() => setView(null)} />}
+        <div className="floor" hidden={!onCanvas}>
+          {world.s.hospital && view === 4 && (
+            <button className="backbtn" onClick={() => setView(null)}>Building</button>
+          )}
           <canvas
             ref={canvasRef}
             aria-label="Isometric view of ward W4. Use the list after this view to select by keyboard."
@@ -271,11 +307,14 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           <SelectList s={world.s} onSelect={select} />
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} />
+        {(!world.s.hospital || panel) && (
+          <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} />
+        )}
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
         <span>Staff loop: demo design, not a product feature.</span>
+        {world.s.hospital && <span>Hospital layer: synthetic. Staffing outside W4 is shown, not modelled.</span>}
       </footer>
     </div>
   );
