@@ -1,0 +1,14 @@
+{
+  "name": "surge",
+  "note": "Typical staffing with arrivals x1.5 (a judgement)",
+  "arrivalsPerDay": 90,
+  "startOccupancy": 1.0,
+  "transferOutAfterH": 72,
+  "er": { "bays": 10, "nurses": 2, "doctorsDay": 2, "doctorsNight": 2 },
+  "units": {
+    "ICU": { "beds": 10, "nurses": 3 },
+    "MED3A": { "beds": 30, "stretchers": 8, "nurses": 2 },
+    "MED3B": { "beds": 30, "stretchers": 8, "nurses": 2 },
+    "SURG5A": { "beds": 24, "stretchers": 6, "nurses": 1 }
+  }
+}

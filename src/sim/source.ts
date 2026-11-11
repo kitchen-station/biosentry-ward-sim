@@ -260,7 +260,7 @@ function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; c
   return out;
 }
 
-function mulberry32(seed: number) {
+export function mulberry32(seed: number) {
   let a = seed >>> 0;
   const next = () => {
     a = (a + 0x6d2b79f5) >>> 0;
