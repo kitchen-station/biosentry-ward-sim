@@ -16,8 +16,8 @@ const units = (ward: number, surgery: number, icu: number): Scenario["units"] =>
 // Design section 5, written out by hand so a wrong file cannot agree with itself.
 const EXPECTED: Record<string, Scenario> = {
   "doh-standard": {
-    name: "doh-standard", note: "DOH staffing standard: wards 1:12, ICU 1:3; arrivals sized for about 86% occupancy",
-    arrivalsPerDay: 45, startOccupancy: 0.85, transferOutAfterH: 72,
+    name: "doh-standard", note: "DOH staffing standard: wards 1:12, ICU 1:3; arrivals sized for about 87-89% medicine occupancy",
+    arrivalsPerDay: 40, startOccupancy: 0.85, transferOutAfterH: 72,
     er: { bays: 10, nurses: 3, doctorsDay: 3, doctorsNight: 2 }, units: units(3, 2, 4),
   },
   typical: {

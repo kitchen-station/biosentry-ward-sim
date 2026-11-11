@@ -173,7 +173,7 @@ export const PARAMS = {
   // (212 is over poisson()'s cap of 50).
   arrivals: {
     perDay: perScenario(
-      judgement(45, `[standard: about 86% medicine occupancy, near the DOH target 80-85%, PH §1.1 read ${LINK.pids}; the rate is derived through our admit rates and bed counts, which are judgements] Better: a PH ED monthly census.`),
+      judgement(40, `Calibrated so medicine occupancy lands near the DOH 80-85% target once ICU step-down inflow (about 1.6 patients a day) and the refit stay are counted; measured about 89% over seeds 101-103 (the seeds hospital.test.ts asserts) and 87.0% over seeds 201-208, 30 days; 45 gave 96.2%. [DOH target 80-85%, PH §1.1 read ${LINK.pids}; the rate is derived through our admit rates and bed counts, which are judgements] Better: a PH ED monthly census.`),
       judgement(60, `[typical: 8.7 medicine admissions a day x about 7.9 effective days = 69 patients, 116% of 60 beds, inside the 95-136% band, PH §1.1 read, §9; derived through our admit rates and bed counts, which are judgements] Better: a PH ED monthly census. Do not scale PGH's 121 a day by beds.`),
       judgement(90, "[surge x1.5 judgement] Better: a PH ED monthly census, PGH's Aug-Nov peak, PH §2.1 read."),
     ),
@@ -233,6 +233,11 @@ export const PARAMS = {
     { cardiac: ["W4"], trauma: ["SURG5A"], others: ["MED3A", "MED3B"] },
     "Admit to the group's unit bed (cardiac W4, trauma SURG5A, others MED3A then MED3B); ICU-indicated take a free ICU bed first [judgement]. Better: a PH hospital's admission routing policy.",
   ),
+  peopleCap: judgement(600, "Most people the house holds at once (beds, stretchers, the ER queue, boarders and bodies); about three times a full house, so it is reached only when something is wrong. An arrival beyond it is turned away at the door and recorded. Better: a PH hospital's peak census."),
+  bufferCap: {
+    events: judgement(5000, "Most event rows kept when no caller drains them; the oldest go first. A caller drains each hour. Better: n/a (a memory limit)."),
+    hourly: judgement(1500, "Most hourly rows kept when no caller drains them (7 a hour, so about 9 days); the oldest go first. Better: n/a (a memory limit)."),
+  },
   transferOutAfterH: judgement(72, "Boarding over 72 h ends in a transfer out [judgement; PH §2.2 snippet \"3 days to 3 weeks\", DOH asked 20 hospitals to take overflow] " + `${LINK.abscbn2023} https://www.sunstar.com.ph/manila/pgh-emergency-room-overwhelmed-by-patients Better: a PH median boarding time.`),
   stay: {
     // Two read facts (PH §6, PGH general medicine, 2019): the NORMAL-stay group has median 6 days, and 19.2% of admissions stay 14 days or more.
