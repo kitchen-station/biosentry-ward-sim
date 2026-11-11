@@ -85,6 +85,19 @@ export interface VitalsSource {
   dueForInitialPatient?(): number;
   /** Patient flow: a uniform random number, separate from any patient's readings. */
   flowRandom?(): number;
+  /** Synthetic only: the source's state for these patients as plain JSON, for createSyntheticSource to restore. */
+  save?(patientIds: string[]): SavedSource;
+}
+
+/** A synthetic source between runs. A generator is saved as its one number of state. */
+export interface SavedSource {
+  seed: number;
+  flow: boolean;
+  flowRng: number;
+  admitted: number;
+  af: string[];
+  anchors: Record<string, { vitals: Record<Vital, number>; cuff: Cuff }>; // admitted patients only: the fixture's are derived
+  streams: Record<string, object>;
 }
 
 const perVital = <T,>(value: T) =>
@@ -246,13 +259,16 @@ function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; c
 
 function mulberry32(seed: number) {
   let a = seed >>> 0;
-  return () => {
+  const next = () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  /** The whole state. mulberry32(state()) continues the same sequence. */
+  next.state = () => a;
+  return next;
 }
 
 function gaussian(rng: () => number) {
@@ -328,9 +344,10 @@ function drawStayMin(rng: () => number) {
   return { condition: c, stayMin: Math.min(MAX_STAY_DAYS, Math.exp(c.mu + c.sigma * gaussian(rng))) * DAY_MIN };
 }
 
-export function createSyntheticSource(seed: number, flow = false): VitalsSource {
+export function createSyntheticSource(seed: number, flow = false, saved?: SavedSource): VitalsSource {
   const afPatients = new Set(AF_PATIENTS);
   const anchors = anchorsFromFixture();
+  const fixtureAnchors = new Set(Object.keys(anchors));
   const streams = Object.fromEntries(
     Object.keys(anchors).map((id, i) => [
       id,
@@ -356,8 +373,14 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
     s.spread = Math.exp(fit.patientSpreadLog * gaussian(s.rng) - fit.patientSpreadLog ** 2); // keeps the mean variance
   };
   Object.values(streams).forEach(setSpread);
-  const flowRng = mulberry32(seed ^ 0x51ed270b);
-  let admitted = 0;
+  type SavedStream = Omit<Stream, "rng" | "bpRng"> & { rng: number; bpRng: number };
+  for (const [id, stream] of Object.entries((saved?.streams ?? {}) as Record<string, SavedStream>)) {
+    streams[id] = { ...stream, rng: mulberry32(stream.rng), bpRng: mulberry32(stream.bpRng) };
+  }
+  Object.assign(anchors, saved?.anchors);
+  saved?.af.forEach((id) => afPatients.add(id));
+  const flowRng = mulberry32(saved?.flowRng ?? seed ^ 0x51ed270b);
+  let admitted = saved?.admitted ?? 0;
 
   function admit(minute: number, occupied: { bed: string; rn: string; md: string }[]): PatientSeed | null {
     const taken = new Set(occupied.map((o) => o.bed));
@@ -542,5 +565,20 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
     },
 
     irregularAt: inAf,
+
+    save: (ids) => ({
+      seed,
+      flow,
+      flowRng: flowRng.state(),
+      admitted,
+      af: ids.filter((id) => afPatients.has(id)),
+      anchors: Object.fromEntries(ids.filter((id) => !fixtureAnchors.has(id)).map((id) => [id, anchors[id]])),
+      streams: Object.fromEntries(
+        ids.map((id): [string, SavedStream] => {
+          const s = streams[id];
+          return [id, { ...s, wander: { ...s.wander }, rng: s.rng.state(), bpRng: s.bpRng.state() }];
+        }),
+      ),
+    }),
   };
 }
