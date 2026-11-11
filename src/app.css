@@ -883,3 +883,21 @@ summary {
   border: 2px dashed var(--ink-900);
   background: var(--cream-200);
 }
+
+/* Zoom (DOM views): the holder scrolls, the sizer is the scaled layout box, the inner is scaled from its top-left. */
+.zsizer {
+  min-width: 0;
+}
+
+.zinner {
+  transform-origin: 0 0;
+}
+
+.zoompct {
+  min-width: 4ch;
+  text-align: center;
+}
+
+.floor canvas {
+  touch-action: none; /* a touch drag pans the ward instead of scrolling the page */
+}

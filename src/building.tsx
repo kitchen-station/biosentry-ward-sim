@@ -1,5 +1,7 @@
 // The hospital around W4 as a DOM screen: BuildingView (one strip per floor) and UnitBoard (one floor, larger cells).
 // floorSummary is the only place the numbers are computed, so the strips, the boards and the button names agree.
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { wheelZoom } from "./camera";
 import { RISK_LIGHT } from "./render/draw";
 import { PARAMS, type Group, type Triage, type UnitId } from "./sim/hospital/params";
 import type { Hospital, Person } from "./sim/hospital/types";
@@ -227,21 +229,69 @@ export function Legend() {
   );
 }
 
-/** Five strips, top floor first. A click opens that floor. */
-export function BuildingView({ floors, onPick, onSelect }: { floors: FloorSummary[]; onPick: (floor: number) => void; onSelect: (id: string) => void }) {
+/** The scrolling holder (scroll is the pan) around content scaled by a CSS transform. The sizer keeps the layout box at the scaled size. */
+function ZoomHolder({ label, zoom, onZoom, holderRef, children }: { label: string; zoom: number; onZoom?: (z: number) => void; holderRef?: Ref<HTMLElement>; children: ReactNode }) {
+  const own = useRef<HTMLElement | null>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(0); // the content's natural height, whatever the zoom
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  useEffect(() => {
+    const el = inner.current!;
+    setH(el.offsetHeight);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setH(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    // Pinch arrives as ctrl+wheel. Not passive, so the browser's own page zoom can be cancelled.
+    const el = own.current!;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey || !onZoom) return;
+      e.preventDefault();
+      onZoom(wheelZoom(zoomRef.current, e.deltaY, e.deltaMode));
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, [onZoom]);
+  const scaled = zoom !== 1;
   return (
-    <section className="building" aria-label="Hospital building, schematic, not to scale">
-      <ul className="strips">{floors.map((f) => <Strip key={f.floor} f={f} onPick={() => onPick(f.floor)} onSelect={onSelect} />)}</ul>
-      <Legend />
-      <p className="legend">Schematic, not to scale.</p>
+    <section
+      className="building"
+      aria-label={label}
+      ref={(el) => {
+        own.current = el;
+        if (typeof holderRef === "function") holderRef(el);
+        else if (holderRef) holderRef.current = el;
+      }}
+    >
+      <div className="zsizer" style={scaled ? { width: `${zoom * 100}%`, height: h * zoom } : undefined}>
+        <div ref={inner} className="zinner" style={scaled ? { width: `${100 / zoom}%`, transform: `scale(${zoom})` } : undefined}>
+          {children}
+        </div>
+      </div>
     </section>
   );
 }
 
-/** One floor, larger cells: rows of beds, a corridor row of stretchers. Initials and a group stripe per occupied cell. */
-export function UnitBoard({ f, onBack, onSelect }: { f: FloorSummary; onBack: () => void; onSelect: (id: string) => void }) {
+type ZoomProps = { zoom?: number; onZoom?: (z: number) => void; holderRef?: Ref<HTMLElement> };
+
+/** Five strips, top floor first. A click opens that floor. */
+export function BuildingView({ floors, onPick, onSelect, zoom = 1, onZoom, holderRef }: { floors: FloorSummary[]; onPick: (floor: number) => void; onSelect: (id: string) => void } & ZoomProps) {
   return (
-    <section className="building" aria-label={`${f.label} board, schematic, not to scale`}>
+    <ZoomHolder label="Hospital building, schematic, not to scale" zoom={zoom} onZoom={onZoom} holderRef={holderRef}>
+      <ul className="strips">{floors.map((f) => <Strip key={f.floor} f={f} onPick={() => onPick(f.floor)} onSelect={onSelect} />)}</ul>
+      <Legend />
+      <p className="legend">Schematic, not to scale.</p>
+    </ZoomHolder>
+  );
+}
+
+/** One floor, larger cells: rows of beds, a corridor row of stretchers. Initials and a group stripe per occupied cell. */
+export function UnitBoard({ f, onBack, onSelect, zoom = 1, onZoom, holderRef }: { f: FloorSummary; onBack: () => void; onSelect: (id: string) => void } & ZoomProps) {
+  return (
+    <ZoomHolder label={`${f.label} board, schematic, not to scale`} zoom={zoom} onZoom={onZoom} holderRef={holderRef}>
       <p className="boardhead">
         <button onClick={onBack}>Building</button>
         <b>{f.label}</b>
@@ -272,7 +322,7 @@ export function UnitBoard({ f, onBack, onSelect }: { f: FloorSummary; onBack: ()
       ))}
       <Legend />
       <p className="legend">Schematic, not to scale. Station: nurses and relatives gather here (not drawn).</p>
-    </section>
+    </ZoomHolder>
   );
 }
 

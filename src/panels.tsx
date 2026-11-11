@@ -76,14 +76,18 @@ export function TopBar({
   notice,
   onReset,
   hospital,
+  zoom,
 }: {
   s: Sim;
   src: VitalsSource;
   notice: string | null;
   /** Left out in viewer mode, which has no clock of its own to change. */
   onReset?: () => void;
-  /** Hospital world only: the view tabs, the scenario picker and the Panel toggle. */
+  /** The view's own zoom (the canvas or the DOM view, whichever shows). Display only: it never reaches the sim. */
+  zoom?: { pct: number; onZoom: (action: "in" | "out" | "fit") => void };
+  /** Hospital world only: the view tabs, the scenario picker, the Panel toggle and +1 day. */
   hospital?: {
+    skipping: boolean; onSkip: () => void;
     view: number | null; onView: (view: number | null) => void; floors: { floor: number; label: string }[];
     scenario: string; scenarios: string[]; onScenario: (name: string) => void; panel: boolean; onPanel: () => void;
   };
@@ -120,7 +124,16 @@ export function TopBar({
             </select>
           </label>
           <button aria-pressed={hospital.panel} onClick={hospital.onPanel}>Panel</button>
+          <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
         </>
+      )}
+      {zoom && (
+        <div className="speeds" role="group" aria-label="Zoom">
+          <button aria-label="Zoom out" title="Zoom out (-)" onClick={() => zoom.onZoom("out")}>-</button>
+          <span className="zoompct">{zoom.pct}%</span>
+          <button aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom.onZoom("in")}>+</button>
+          <button title="Fit: back to 100% (0)" onClick={() => zoom.onZoom("fit")}>Fit</button>
+        </div>
       )}
       {onReset && (
         <div className="speeds right" role="group" aria-label="Simulation speed">
@@ -129,6 +142,7 @@ export function TopBar({
               key={speed}
               className={s.speed === speed ? "on" : ""}
               aria-pressed={s.speed === speed}
+              disabled={hospital?.skipping}
               onClick={() => setSpeed(s, speed)}
             >
               {speed === 0 ? "Pause" : `${speed}x`}

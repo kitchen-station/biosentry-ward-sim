@@ -1,6 +1,7 @@
 // Isometric ward renderer: one Canvas 2D, sprites nearest-neighbour, text at full resolution.
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
+import { clampCam, fitCam, panBy, zoomAbout, type Cam } from "../camera";
 import { findPath, nurseStand, BEDS, CORRIDOR, MAP, MAP_H, MAP_W, ROOMS, STATIONS, bedByLabel, roomAt, type Floor, type Tile } from "../sim/map";
 import { staffById, staffStatus, type Sim } from "../sim/sim";
 import {
@@ -400,7 +401,8 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     };
   }
   const envelope = sprite(ENVELOPE, ENVELOPE_PALETTE);
-  const cam = { zoom: 1, x: LOGICAL_W / 2, y: LOGICAL_H / 2 }; // logical point at the view centre
+  const cam: Cam = fitCam(LOGICAL_W, LOGICAL_H); // logical point at the view centre
+  const user: Cam = fitCam(LOGICAL_W, LOGICAL_H); // where the camera rests with nothing selected; the default is today's view
   let trolleys: Trolley[] = [];
   let scale = 1; // CSS pixels per logical pixel
   let backing = 1; // device pixels per logical pixel, always a whole number
@@ -556,14 +558,16 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   function moveCamera(s: Sim, selected: string | null, dt: number) {
     const focus = selected ? focusPoint(s, selected) : null;
     const ease = 1 - Math.exp(-dt * 6);
-    cam.zoom += ((focus ? ZOOM : 1) - cam.zoom) * ease;
-    cam.x += ((focus ? focus[0] : LOGICAL_W / 2) - cam.x) * ease;
-    cam.y += ((focus ? focus[1] : LOGICAL_H / 2) - cam.y) * ease;
-    const halfW = LOGICAL_W / 2 / cam.zoom;
-    const halfH = LOGICAL_H / 2 / cam.zoom;
-    cam.x = Math.max(halfW, Math.min(LOGICAL_W - halfW, cam.x));
-    cam.y = Math.max(halfH, Math.min(LOGICAL_H - halfH, cam.y));
+    cam.zoom += ((focus ? ZOOM : user.zoom) - cam.zoom) * ease;
+    cam.x += ((focus ? focus[0] : user.x) - cam.x) * ease;
+    cam.y += ((focus ? focus[1] : user.y) - cam.y) * ease;
+    Object.assign(cam, clampCam(cam, LOGICAL_W, LOGICAL_H));
   }
+
+  const setUser = (c: Cam, instant: boolean) => {
+    Object.assign(user, c);
+    if (instant) Object.assign(cam, c);
+  };
 
   return {
     /** Draws at a whole-number scale so every art pixel is the same size, then lets CSS fit it. */
@@ -578,8 +582,25 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       canvas.style.top = `${(height - LOGICAL_H * scale) / 2}px`;
     },
 
+    /** The user's own zoom (1 is the whole ward), for the TopBar. */
+    userZoom: () => user.zoom,
+    /** At zoom 1 the whole ward is in view and there is nothing to pan. */
+    canPan: () => user.zoom > 1,
+    /** Zooms to z about a CSS point of the canvas; instant for the wheel, eased for the buttons. */
+    zoomAt(z: number, cssX: number, cssY: number, instant: boolean) {
+      setUser(zoomAbout(instant ? cam : user, z, cssX / scale - LOGICAL_W / 2, cssY / scale - LOGICAL_H / 2, LOGICAL_W, LOGICAL_H), instant);
+    },
+    /** Drags the picture by CSS pixels. */
+    pan(dx: number, dy: number) {
+      setUser(panBy(cam, dx / scale, dy / scale, LOGICAL_W, LOGICAL_H), true);
+    },
+    fit() {
+      setUser(fitCam(LOGICAL_W, LOGICAL_H), false);
+    },
+
     reset() {
-      Object.assign(cam, { zoom: 1, x: LOGICAL_W / 2, y: LOGICAL_H / 2 });
+      Object.assign(cam, fitCam(LOGICAL_W, LOGICAL_H));
+      Object.assign(user, fitCam(LOGICAL_W, LOGICAL_H));
       trolleys = [];
     },
 

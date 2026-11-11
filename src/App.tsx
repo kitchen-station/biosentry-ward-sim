@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { stepZoom, wheelZoom } from "./camera";
 import { BuildingView, floorSummary, UnitBoard } from "./building";
 import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
@@ -24,6 +25,8 @@ const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, see
 
 const SCENARIOS: Record<string, string> = { typical, "doh-standard": doh, surge };
 const HOSPITAL_SEED = 101;
+const DAY_STEPS = 1440 * 60; // sim.ts skipDay: MINUTES_PER_DAY (1440, not exported) x 60 steps a minute at speed 60
+const SKIP_CHUNK_MS = 12; // the page paints between chunks of this long
 // A hospital world needs no API and is never a viewer. Nothing is saved by the page, so a reload starts fresh.
 const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
 
@@ -108,6 +111,15 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const [scenario, setScenario] = useState("typical");
   const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else a floor
   const [panel, setPanel] = useState(true);
+  const [domZoom, setDomZoom] = useState(1); // the building and the floor boards
+  const holderRef = useRef<HTMLElement>(null);
+  const [skipping, setSkipping] = useState(false);
+  const skippingRef = useRef(false);
+  const skipTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => {
+    clearTimeout(skipTimer.current); // unmount: stop a skip in flight
+    skippingRef.current = false;
+  }, []);
   const viewRef = useRef(view);
   viewRef.current = view;
   const onCanvas = !HOSPITAL || view === 4;
@@ -214,7 +226,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
       spare += dt;
       const { s, src } = worldRef.current;
       while (spare >= TICK) {
-        if (!VIEW_API) step(s, src); // a viewer draws the runner's ward and never advances one
+        if (!VIEW_API && !skippingRef.current) step(s, src); // a viewer draws the runner's ward and never advances one
         spare -= TICK;
       }
       if (VIEW_API) {
@@ -264,6 +276,85 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const floors = world.s.hospital ? floorSummary(world.s.hospital, Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null]))) : [];
   const shown = view === null || view === 4 ? null : floors.find((f) => f.floor === view);
 
+  // The same steps as skipDay (sim.ts), in chunks so the page stays responsive. Hospital worlds only.
+  const skipDayChunked = () => {
+    const { s, src } = worldRef.current;
+    if (skippingRef.current || s.ended || !src.admit) return;
+    skippingRef.current = true;
+    setSkipping(true);
+    const speed = s.speed;
+    s.speed = 60;
+    let left = DAY_STEPS;
+    const run = () => {
+      if (worldRef.current.s !== s) { // the world was restarted meanwhile
+        skippingRef.current = false;
+        return setSkipping(false);
+      }
+      s.speed = 60;
+      const until = performance.now() + SKIP_CHUNK_MS;
+      while (left > 0 && performance.now() < until) {
+        for (let i = 0; i < 200 && left > 0; i += 1, left -= 1) step(s, src);
+      }
+      s.moves.length = 0; // as skipDay: a day of trolleys at once would only be noise
+      if (left > 0) return void (skipTimer.current = setTimeout(run, 0));
+      s.speed = speed;
+      skippingRef.current = false;
+      setSkipping(false);
+    };
+    skipTimer.current = setTimeout(run, 0);
+  };
+
+  const domView = HOSPITAL && view !== 4;
+  const canvasCentre = () => {
+    const c = canvasRef.current!;
+    return [c.clientWidth / 2, c.clientHeight / 2] as const;
+  };
+  const zoomBy = (action: "in" | "out" | "fit") => {
+    if (domView) {
+      if (action === "fit") holderRef.current?.scrollTo(0, 0);
+      return setDomZoom((z) => (action === "fit" ? 1 : stepZoom(z, action === "in" ? 1 : -1)));
+    }
+    const r = rendererRef.current;
+    if (!r) return;
+    if (selectedRef.current !== null) select(null); // the user takes the camera back from the selection
+    if (action === "fit") return r.fit();
+    const [cx, cy] = canvasCentre();
+    r.zoomAt(stepZoom(r.userZoom(), action === "in" ? 1 : -1), cx, cy, false);
+  };
+  const zoomByRef = useRef(zoomBy);
+  zoomByRef.current = zoomBy;
+
+  // + - 0, unless the key belongs to a form control.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, select, textarea, [contenteditable]")) return;
+      const action = e.key === "+" || e.key === "=" ? "in" : e.key === "-" ? "out" : e.key === "0" ? "fit" : null;
+      if (action) zoomByRef.current(action);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Canvas: ctrl+wheel and pinch zoom about the cursor. A drag of more than a few pixels pans and is not a click.
+  const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const justDragged = useRef(false);
+  useEffect(() => {
+    const canvas = canvasRef.current!;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const r = rendererRef.current;
+      if (!r) return;
+      if (selectedRef.current !== null) select(null);
+      const rect = canvas.getBoundingClientRect();
+      r.zoomAt(wheelZoom(r.userZoom(), e.deltaY, e.deltaMode), e.clientX - rect.left, e.clientY - rect.top, true);
+    };
+    canvas.addEventListener("wheel", wheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", wheel);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const targetAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return (
@@ -278,9 +369,11 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         src={world.src}
         notice={viewNotice ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onReset={VIEW_API ? undefined : () => restart()}
+        zoom={{ pct: Math.round((domView ? domZoom : (rendererRef.current?.userZoom() ?? 1)) * 100), onZoom: zoomBy }}
         hospital={
           world.s.hospital
             ? {
+                skipping, onSkip: skipDayChunked,
                 view, onView: setView, floors, scenario, scenarios: Object.keys(SCENARIOS), panel,
                 onScenario: (name) => { setScenario(name); setView(null); restart(name); },
                 onPanel: () => setPanel((p) => !p),
@@ -289,8 +382,8 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         }
       />
       <main className={`main${world.s.hospital && !panel ? " collapsed" : ""}`}>
-        {world.s.hospital && view === null && <BuildingView floors={floors} onPick={setView} onSelect={select} />}
-        {shown && <UnitBoard f={shown} onBack={() => setView(null)} onSelect={select} />}
+        {world.s.hospital && view === null && <BuildingView floors={floors} onPick={setView} onSelect={select} zoom={domZoom} onZoom={setDomZoom} holderRef={holderRef} />}
+        {shown && <UnitBoard f={shown} onBack={() => setView(null)} onSelect={select} zoom={domZoom} onZoom={setDomZoom} holderRef={holderRef} />}
         <div className="floor" hidden={!onCanvas}>
           {world.s.hospital && view === 4 && (
             <button className="backbtn" onClick={() => setView(null)}>Building</button>
@@ -298,7 +391,39 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           <canvas
             ref={canvasRef}
             aria-label="Isometric view of ward W4. Use the list after this view to select by keyboard."
-            onClick={(e) => select(targetAt(e))}
+            onClick={(e) => {
+              if (justDragged.current) return void (justDragged.current = false);
+              select(targetAt(e));
+            }}
+            onPointerDown={(e) => {
+              if (!e.isPrimary) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              dragRef.current = { x: e.clientX, y: e.clientY, moved: false };
+              justDragged.current = false;
+            }}
+            onPointerMove={(e) => {
+              const d = dragRef.current;
+              if (!d || !e.isPrimary) return;
+              if (e.buttons === 0) return void (dragRef.current = null); // the release was missed
+              const r = rendererRef.current;
+              if (!r?.canPan()) return; // at the default view a sloppy click is still a click
+              const [dx, dy] = [e.clientX - d.x, e.clientY - d.y];
+              if (!d.moved && Math.hypot(dx, dy) <= 4) return;
+              if (!d.moved) {
+                d.moved = true;
+                if (selectedRef.current !== null) select(null);
+              }
+              r.pan(dx, dy);
+              [d.x, d.y] = [e.clientX, e.clientY];
+            }}
+            onPointerUp={(e) => {
+              if (!e.isPrimary) return;
+              justDragged.current = dragRef.current?.moved ?? false;
+              dragRef.current = null;
+              // The click, if any, follows at once; a drag that ends without one must not eat the next.
+              if (justDragged.current) setTimeout(() => (justDragged.current = false), 0);
+            }}
+            onPointerCancel={() => (dragRef.current = null)}
             onMouseMove={(e) => {
               hoveredRef.current = targetAt(e);
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
