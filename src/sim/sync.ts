@@ -159,9 +159,20 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     await flush();
   }
 
+  /** Sends the ward as viewers draw it. Never queued: the next view replaces a missed one. */
+  async function publish(body: object) {
+    if (runId === null || stopped) return;
+    try {
+      await post(`/sim/runs/${runId}/view`, body);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 409) stop("superseded");
+    }
+  }
+
   return {
     start,
     flush,
+    publish,
     get stopped() {
       return stopped;
     },

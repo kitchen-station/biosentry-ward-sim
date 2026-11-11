@@ -91,7 +91,7 @@ const perVital = <T,>(value: T) =>
   Object.fromEntries(VITALS.map((v) => [v, value])) as Record<Vital, T>;
 
 // MIN_VALID_PER_BIN and STALE_AFTER_S from BioSentry. The 30-minute cutoff is a demo value.
-const SYNTHETIC_RULES: GateRules = {
+export const SYNTHETIC_RULES: GateRules = {
   sampleEveryMin: 1,
   warmupMin: 60,
   minValid: perVital(8),
