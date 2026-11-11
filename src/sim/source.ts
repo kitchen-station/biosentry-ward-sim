@@ -412,6 +412,7 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
     const count = (key: "rn" | "md", who: string) => occupied.filter((o) => o[key] === who).length;
     const fewer = (key: "rn" | "md", a: string, b: string) => (count(key, a) <= count(key, b) ? a : b);
     const pick = <T,>(xs: T[]) => xs[Math.floor(flowRng() * xs.length)];
+    const md = fewer("md", "md-santos", "md-aquino");
     return {
       id,
       name: `${pick(SURNAMES)}, ${pick(GIVEN[sex])}`,
@@ -421,8 +422,8 @@ export function createSyntheticSource(seed: number, flow = false): VitalsSource 
       context: condition.context,
       story: `New admission, ${condition.story} (synthetic patient)`,
       rn: fewer("rn", "rn-delacruz", "rn-reyes"),
-      md: fewer("md", "md-santos", "md-aquino"),
-      listMd: null,
+      md,
+      listMd: md,
       trend: "insufficient",
       history: {
         heart_rate: quiet(vitals.heart_rate),

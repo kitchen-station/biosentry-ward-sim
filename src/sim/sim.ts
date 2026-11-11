@@ -40,7 +40,7 @@ export interface Patient {
   story: string;
   rn: string;
   md: string; // who is called to the bedside
-  listMd: string | null; // whose list the patient is on: the fixture's physician, if it has one
+  listMd: string | null; // whose list the patient is on: null only for the fixture's two with no physician
   rules: GateRules;
   offsetS: number;
   nextMinute: number;
@@ -805,7 +805,7 @@ function seat(src: VitalsSource, seed: PatientSeed, i: number, startMinute = 0):
   for (let minute = startMinute + 1 - rules.warmupMin; minute <= startMinute; minute += 1) {
     if (minute % rules.sampleEveryMin !== 0) continue;
     const reading = src.read(seed.id, minute);
-    gate(p, p.patch && minute <= -seed.signalLostMin ? reading : null, minute);
+    gate(p, p.patch && minute <= startMinute - seed.signalLostMin ? reading : null, minute);
   }
   if (seed.signalLostMin > 0) p.patch = false;
   applyCharted(src, p, startMinute);
