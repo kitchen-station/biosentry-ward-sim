@@ -21,6 +21,7 @@ describe("patient stays", () => {
     const { s, src } = ward();
     for (let day = 0; day < 10; day += 1) skipDay(s, src);
     expect(s.flow.admitted).toBeGreaterThan(0);
+    for (const p of s.patients.filter((x) => x.stay.inMin > 0)) expect(p.listMd, p.id).toBe(p.md); // on their physician's list
     expect(s.stays.filter((x) => x.outMin !== null)).toHaveLength(s.flow.discharged + s.flow.transferred);
     const open = s.stays.filter((x) => x.outMin === null);
     expect(open.map((x) => x.id).sort()).toEqual(s.patients.map((p) => p.id).sort());
@@ -35,6 +36,15 @@ describe("patient stays", () => {
     expect(flowStats(s).averageStayMin).toBeGreaterThan(0);
     expect(s.moves).toHaveLength(0);
   }, 120_000);
+
+  it("ranks a new patient on arrival, from the warm-up readings", () => {
+    const { s, src } = ward();
+    while (s.flow.admitted === 0) step(s, src);
+    const p = s.patients.at(-1)!;
+    expect(p.stay.inMin).toBeGreaterThan(0);
+    expect(p.decision.kind).toBe("ranked");
+    expect(p.signal).toContain(1);
+  });
 
   it("does not skip on a ward without patient flow", () => {
     const src = createSyntheticSource(FIXTURE_SEED);

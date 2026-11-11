@@ -85,7 +85,7 @@ BIOSENTRY_API=http://127.0.0.1:8123 BIOSENTRY_INGEST_KEY=dev-local BIOSENTRY_PAS
 
 The tests always use one `client_id`, so consecutive runs replace each other. Another client's live run makes them fail with 409 until it ends or goes stale.
 
-The dev-server bridge above stays for now. A physician's list is the fixture's: p-004 and p-005 are stored with no physician.
+The dev-server bridge above stays for now. A physician's list starts as the fixture's: p-004 and p-005 are stored with no physician. A new admission goes on the list of the physician who is called to their bedside.
 
 ## What you can do
 
