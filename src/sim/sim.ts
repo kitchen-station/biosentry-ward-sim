@@ -5,7 +5,7 @@
 
 import { arbitrate, LEVEL, rankWard, type Decision } from "./arbiter";
 import { BEDS, bedByLabel, findPath, HOMES, nurseStand, physicianStand, type Tile } from "./map";
-import { scoreNews2, type Acvpu } from "./news2";
+import { roundHalfUp, scoreNews2, type Acvpu } from "./news2";
 import type { Risk } from "./news2";
 import {
   CLAMPS,
@@ -275,7 +275,8 @@ export function record(s: Sim, p: Patient, minute: number) {
   for (const v of VITALS) {
     const quality = vitalQuality(p, v, minute);
     const heldAt = p.heldAt[v];
-    const held = quality === "missing" ? null : p.held[v];
+    // Sent at the precision NEWS2 scores at (as src/bridge/snapshot.ts), so a shown value agrees with its points.
+    const held = quality === "missing" || p.held[v] === null ? null : roundHalfUp(p.held[v]!, v === "temperature" ? 1 : 0);
     // Wording as in src/bridge/snapshot.ts.
     const reason = heldAt === null ? "No usable reading yet" : `No usable reading for ${minute - heldAt} min`;
     if (held === null) put(v, "device", "missing", null, { absent_reason: reason });
