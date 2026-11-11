@@ -604,7 +604,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
         .sort((a, b) => a.depth - b.depth);
       let next = 0;
       const arriving = trolleys.filter((t) => t.kind === "in").map((t) => t.bed);
-      const taken = new Set(s.patients.map((p) => p.bed).filter((bed) => !arriving.includes(bed)));
+      const taken = new Set([...s.patients.map((p) => p.bed), ...(s.occupied ?? [])].filter((bed) => !arriving.includes(bed)));
       for (const item of items) {
         while (next < actors.length && actors[next].depth < item.depth) {
           drawStaff(s, actors[next].id);

@@ -1,13 +1,16 @@
 // The ward as viewers get it. The headless runner publishes it; the page in viewer mode draws it
 // and never makes a ward of its own. Pure: no browser or Node APIs.
-// `shared` goes to every signed-in clinician, so it holds ids and beds only: no names, context,
+// `shared` goes to every signed-in clinician, so it holds ids and bed labels only: no names, context,
 // story or log text. A patient's `view` goes only to the clinicians the server assigns them to.
 
-import type { Patient, Sim, Staff, Task } from "./sim";
+import { BEDS } from "./map";
+import { minuteOf, type Patient, type Sim, type Staff, type Stay, type StayOutcome, type Task } from "./sim";
 import { VITALS, type Vital } from "./source";
 
 const MAX_MOVES = 20; // as the sim keeps
 const MAX_SCORES = 200;
+const MAX_LOG = 200;
+const PLACE_TILES = 3; // a staff member further than this from where they were drawn is placed, not eased
 
 type Move = Sim["moves"][number] & { seq: number };
 // Nothing the page draws reads these.
@@ -24,6 +27,7 @@ export interface Shared {
   staff: Staff[];
   tasks: Task[];
   moves: Move[];
+  beds?: string[]; // labels of every occupied bed, nothing else. Absent from an older runner: none.
 }
 interface PatientEntry {
   id: string;
@@ -60,6 +64,7 @@ export function createPublisher() {
         staff: s.staff.map((m) => ({ ...m, task: m.task && bare(m.task) })),
         tasks: s.tasks.map(bare),
         moves,
+        beds: s.patients.map((p) => p.bed),
       },
       patients: s.patients.map((p) => {
         const { window, nextMinute, offsetS, nurseAt, totals, ackLevel, lastAssessed, dueMin, oxygenUntilMin, md, listMd, ...view } = p;
@@ -106,6 +111,16 @@ export function createReader() {
     }));
     // A clinician is sent only their own patients: work on anyone else's loses its patient rather than crash a panel.
     const mine = (task: Task | null) => (task && patients.some((p) => p.id === task.patient) ? task : null);
+    // Built here from the stays the viewer was sent: no ward-wide log text is published.
+    const seen = new Set<string>();
+    const log = patients
+      .flatMap((p) => p.stay.events)
+      .filter((line) => {
+        const key = `${line.minute} ${line.text}`; // one line can name two patients
+        return !seen.has(key) && seen.add(key);
+      })
+      .sort((a, b) => a.minute - b.minute)
+      .slice(-MAX_LOG);
     return {
       clockS: shared.clockS,
       speed: shared.speed,
@@ -115,10 +130,60 @@ export function createReader() {
       staff: shared.staff.map((m) => ({ ...m, task: mine(m.task) })),
       tasks: shared.tasks.filter(mine),
       mdCalls: [],
-      log: [],
+      log,
       stays: patients.map((p) => p.stay),
       moves,
       flow: { lastMinute: 0, admitted: 0, everOnOxygen: 0, discharged: 0, transferred: 0, turnedAway: 0 },
+      occupied: (shared.beds ?? []).filter((bed) => !patients.some((p) => p.bed === bed)),
     };
   };
+}
+
+/** A row of GET /wards/W4/stays. Times are ISO strings in served ward time. */
+export interface StayRow {
+  id: string;
+  name: string;
+  bed: string;
+  admitted_at: string | null;
+  left_at: string | null;
+  outcome: StayOutcome | null;
+}
+
+/**
+ * The finished stays among `rows`, oldest departure first, as the sim keeps them. What the API does not
+ * give (context, nurse, physician, peak, scores, events) stays empty: nothing is made up.
+ */
+export function finishedStays(rows: StayRow[], s: Sim, nowMs: number): Stay[] {
+  // Approximate: served ward time tracks the sim clock, so "that long ago" is counted back from the sim's minute.
+  const at = (iso: string) => Math.max(0, Math.round(minuteOf(s) - (nowMs - Date.parse(iso)) / 60000));
+  return rows
+    .filter((row) => row.left_at !== null && BEDS.some((bed) => bed.label === row.bed)) // the ward draws only its own beds
+    .map((row) => {
+      const inMin = row.admitted_at === null ? 0 : at(row.admitted_at); // 0: arrival unknown, as for patients present at the start
+      return {
+        id: row.id,
+        name: row.name,
+        bed: row.bed,
+        context: "",
+        rn: "",
+        md: null,
+        inMin,
+        outMin: Math.max(inMin, at(row.left_at!)),
+        outcome: row.outcome,
+        peak: null,
+        peakRisk: null,
+        scores: [],
+        events: [],
+      };
+    })
+    .sort((a, b) => a.outMin - b.outMin);
+}
+
+type Point = { x: number; y: number };
+
+/** Where a staff member is drawn `t` (0 to 1) of the way from `previous` to `next`. Placed at `next` when new or far (a restart). */
+export function ease(previous: Point | undefined, next: Point, t: number): Point {
+  if (!previous || Math.hypot(next.x - previous.x, next.y - previous.y) > PLACE_TILES) return { x: next.x, y: next.y };
+  const k = Math.max(0, Math.min(1, t));
+  return { x: previous.x + (next.x - previous.x) * k, y: previous.y + (next.y - previous.y) * k };
 }

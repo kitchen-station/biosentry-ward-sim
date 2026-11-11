@@ -4,7 +4,7 @@ import { explain } from "../explain";
 import { createSim, flowStats, minuteOf, recordBp, skipDay, staffStatus, step, vitalQuality, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED, VITALS } from "./source";
 import { createSync } from "./sync";
-import { createPublisher, createReader, type LiveView, type ViewBody } from "./view";
+import { createPublisher, createReader, ease, finishedStays, type LiveView, type ViewBody } from "./view";
 
 const LIMIT = 65_536;
 
@@ -43,7 +43,11 @@ describe("the published view", () => {
       );
       expect(sim.staff).toEqual(s.staff);
       expect(sim.stays).toHaveLength(sim.patients.length);
-      expect(sim.log).toEqual([]);
+      // The log is rebuilt from the stays: lines the sim said, in order, each once.
+      for (const line of sim.log) expect(s.log).toContainEqual(line);
+      expect(sim.log.map((line) => line.minute)).toEqual(sim.log.map((line) => line.minute).sort((a, b) => a - b));
+      expect(new Set(sim.log.map((line) => `${line.minute} ${line.text}`)).size).toBe(sim.log.length);
+      expect(sim.occupied).toEqual([]); // every patient is this viewer's
     }
   });
 
@@ -59,6 +63,13 @@ describe("the published view", () => {
         expect(shared).not.toContain(stay.context);
       }
       for (const p of s.patients) expect(shared).not.toContain(p.story);
+      // Bed labels and nothing else. (Patient ids are in `shared` only where staff work names them.)
+      const { beds } = publish(s).shared;
+      expect(beds).toEqual(s.patients.map((p) => p.bed));
+      for (const p of s.patients) {
+        expect(JSON.stringify(beds)).not.toContain(p.id);
+        expect(JSON.stringify(beds)).not.toContain(p.name);
+      }
       skipDay(s, src);
     }
   });
@@ -101,6 +112,64 @@ describe("the published view", () => {
     s.clockS = 60;
     s.moves.push({ bed: "W4-02", kind: "in" });
     expect(read(answer(fresh(s))).moves).toHaveLength(1);
+  });
+
+  it("marks a bed someone else's patient is in as occupied, and none for an older runner", () => {
+    const { s } = start();
+    const body = createPublisher()(s);
+    const mine = s.patients[0];
+    const sim = createReader()(answer(body, (id) => id === mine.id));
+    expect(sim.occupied).toEqual(s.patients.slice(1).map((p) => p.bed));
+    expect(flowStats(sim).occupied).toBe(s.patients.length);
+    const { beds, ...old } = body.shared;
+    expect(beds).toContain(mine.bed);
+    expect(createReader()(answer({ ...body, shared: old }, () => false)).occupied).toEqual([]);
+  });
+
+  it("merges the stays' events into one log: no duplicates, by minute, the last 200", () => {
+    const { s } = start();
+    const body = answer(createPublisher()(s));
+    const [a, b] = body.patients;
+    a.view.stay.events = [{ minute: 9, text: "both" }, { minute: 12, text: "late" }];
+    b.view.stay.events = [{ minute: 3, text: "early" }, { minute: 9, text: "both" }];
+    for (const p of body.patients.slice(2)) p.view.stay.events = [];
+    expect(createReader()(body).log).toEqual([{ minute: 3, text: "early" }, { minute: 9, text: "both" }, { minute: 12, text: "late" }]);
+    a.view.stay.events = Array.from({ length: 250 }, (_, minute) => ({ minute, text: "x" }));
+    expect(createReader()(body).log).toHaveLength(200);
+    expect(createReader()(body).log.at(-1)!.minute).toBe(249);
+  });
+
+  it("turns the API's finished stays into Stays on the sim's clock, and makes nothing up", () => {
+    const { s } = start();
+    s.clockS = 600 * 60;
+    const now = Date.parse("2026-09-04T01:00:00Z");
+    const ago = (minutes: number) => new Date(now - minutes * 60000).toISOString();
+    const bed = s.patients[0].bed;
+    const stays = finishedStays(
+      [
+        { id: "a", name: "A", bed, admitted_at: ago(300), left_at: ago(100), outcome: "discharged" },
+        { id: "b", name: "B", bed, admitted_at: null, left_at: ago(200), outcome: "higher_care" },
+        { id: "c", name: "C", bed, admitted_at: ago(50), left_at: null, outcome: null }, // still on the ward
+        { id: "d", name: "D", bed: "no such bed", admitted_at: ago(50), left_at: ago(10), outcome: null },
+      ],
+      s,
+      now,
+    );
+    expect(stays.map((x) => [x.id, x.inMin, x.outMin, x.outcome])).toEqual([
+      ["b", 0, 400, "higher_care"],
+      ["a", 300, 500, "discharged"],
+    ]);
+    expect(stays[0]).toMatchObject({ context: "", rn: "", md: null, peak: null, peakRisk: null, scores: [], events: [] });
+    s.stays = stays;
+    expect(() => flowStats(s)).not.toThrow();
+  });
+
+  it("eases staff between two answers, and places one who is new or far away", () => {
+    expect(ease({ x: 2, y: 4 }, { x: 4, y: 4 }, 0.5)).toEqual({ x: 3, y: 4 });
+    expect(ease({ x: 2, y: 4 }, { x: 4, y: 4 }, 7)).toEqual({ x: 4, y: 4 });
+    expect(ease({ x: 2, y: 4 }, { x: 4, y: 4 }, -1)).toEqual({ x: 2, y: 4 });
+    expect(ease(undefined, { x: 4, y: 4 }, 0)).toEqual({ x: 4, y: 4 });
+    expect(ease({ x: 0, y: 0 }, { x: 9, y: 9 }, 0.1)).toEqual({ x: 9, y: 9 });
   });
 
   it("draws an empty ward when nothing is published", () => {

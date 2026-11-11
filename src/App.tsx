@@ -2,13 +2,16 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
-import { createSim, STAFF, step, type Sim } from "./sim/sim";
+import { createSim, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
-import { createReader, type LiveView } from "./sim/view";
+import { createReader, ease, finishedStays, type LiveView, type StayRow } from "./sim/view";
 
 const TICK = 1 / 60;
 const POLL_MS = 2000; // as often as the runner publishes
+const STAYS_MS = 30_000; // slower: each read of the stays writes an audit row
+
+type Point = { x: number; y: number };
 
 // Viewer mode's source: it reads nothing and has no inject, startAf or admit, so the panels offer none of them.
 const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
@@ -103,6 +106,8 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ReturnType<typeof createRenderer>>(null);
   const hoveredRef = useRef<string | null>(null);
+  // Viewer mode: where each staff member is drawn, was drawn at the last answer, and is heading.
+  const glideRef = useRef({ at: 0, from: new Map<string, Point>(), to: new Map<string, Point>(), drawn: new Map<string, Point>() });
 
   // Writes each world to the database API, when one is configured.
   useEffect(() => {
@@ -126,11 +131,20 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   }, [world]);
 
   // Viewer mode: each answer replaces the drawn ward.
-  // shortcut: staff jump to where they were 2 s ago, ease x and y between two answers when that looks wrong
   useEffect(() => {
     if (!VIEW_API) return;
     const read = createReader();
     let off = false;
+    let finished: Stay[] = [];
+    let staysAt = -Infinity;
+    const pollStays = async (sim: Sim) => {
+      try {
+        const response = await fetch(`${VIEW_API}/wards/W4/stays`, { headers: { Authorization: `Bearer ${token}` } });
+        if (response.ok) finished = finishedStays((await response.json()) as StayRow[], sim, Date.now());
+      } catch {
+        // the last list stays
+      }
+    };
     const poll = async () => {
       try {
         const response = await fetch(`${VIEW_API}/wards/W4/live`, { headers: { Authorization: `Bearer ${token}` } });
@@ -139,7 +153,16 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const live = (await response.json()) as LiveView;
         if (off) return;
-        setWorld({ s: read(live), src: VIEW_SOURCE });
+        const sim = read(live);
+        // Not awaited: the stays show from the next answer, and a slow read never holds the ward back.
+        if (live.shared && performance.now() - staysAt >= STAYS_MS) {
+          staysAt = performance.now();
+          void pollStays(sim);
+        }
+        sim.stays = [...finished.filter((x) => !sim.patients.some((p) => p.id === x.id)), ...sim.stays];
+        const glide = glideRef.current;
+        glideRef.current = { ...glide, at: performance.now(), from: new Map(glide.drawn), to: new Map(sim.staff.map((m) => [m.id, { x: m.x, y: m.y }])) };
+        setWorld({ s: sim, src: VIEW_SOURCE });
         setViewNotice(live.shared ? null : "No live ward yet");
       } catch {
         if (!off) setViewNotice("Not updating"); // the last ward stays drawn
@@ -175,6 +198,17 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
       while (spare >= TICK) {
         if (!VIEW_API) step(s, src); // a viewer draws the runner's ward and never advances one
         spare -= TICK;
+      }
+      if (VIEW_API) {
+        // Staff glide from where they are drawn to their newest answer. Only the reader's own Sim is written.
+        const glide = glideRef.current;
+        for (const m of s.staff) {
+          const to = glide.to.get(m.id);
+          if (!to) continue;
+          const at = ease(glide.from.get(m.id), to, (now - glide.at) / POLL_MS);
+          glide.drawn.set(m.id, at);
+          [m.x, m.y] = [at.x, at.y];
+        }
       }
       renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
       raf = requestAnimationFrame(loop);
