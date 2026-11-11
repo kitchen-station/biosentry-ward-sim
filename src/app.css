@@ -500,6 +500,27 @@ summary {
   font-size: 15px;
 }
 
+.signin {
+  place-self: start center;
+  width: 300px;
+  margin: 4px;
+  padding: 12px;
+}
+
+.signin label {
+  flex-basis: 100%;
+}
+
+.signin select,
+.signin input {
+  width: 100%;
+  padding: 2px 4px;
+  font: inherit;
+  color: inherit;
+  background: var(--cream-50);
+  border: 2px solid var(--ink-900);
+}
+
 .key {
   display: grid;
   gap: 2px;

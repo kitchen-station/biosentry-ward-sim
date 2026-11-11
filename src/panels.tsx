@@ -26,6 +26,9 @@ import {
 } from "./sim/sim";
 import type { Vital, VitalsSource } from "./sim/source";
 
+/** The build draws the headless runner's ward from this API and changes nothing on it. */
+export const VIEW_API: string | undefined = import.meta.env.VITE_VIEW_API_URL;
+
 const SPEEDS: Speed[] = [0, 1, 10, 60];
 const SYSTOLIC_BOUNDS = { min: 20, max: 300 };
 const DIASTOLIC_BOUNDS = { min: 10, max: 200 };
@@ -74,7 +77,8 @@ export function TopBar({
   s: Sim;
   src: VitalsSource;
   notice: string | null;
-  onReset: () => void;
+  /** Left out in viewer mode, which has no clock of its own to change. */
+  onReset?: () => void;
 }) {
   const minute = minuteOf(s);
   return (
@@ -92,19 +96,21 @@ export function TopBar({
         </span>
       )}
       {s.ended && <span className="pill solid">Run ended</span>}
-      <div className="speeds right" role="group" aria-label="Simulation speed">
-        {SPEEDS.map((speed) => (
-          <button
-            key={speed}
-            className={s.speed === speed ? "on" : ""}
-            aria-pressed={s.speed === speed}
-            onClick={() => setSpeed(s, speed)}
-          >
-            {speed === 0 ? "Pause" : `${speed}x`}
-          </button>
-        ))}
-        <button onClick={onReset}>Reset</button>
-      </div>
+      {onReset && (
+        <div className="speeds right" role="group" aria-label="Simulation speed">
+          {SPEEDS.map((speed) => (
+            <button
+              key={speed}
+              className={s.speed === speed ? "on" : ""}
+              aria-pressed={s.speed === speed}
+              onClick={() => setSpeed(s, speed)}
+            >
+              {speed === 0 ? "Pause" : `${speed}x`}
+            </button>
+          ))}
+          <button onClick={onReset}>Reset</button>
+        </div>
+      )}
     </header>
   );
 }
@@ -405,7 +411,7 @@ function PatientPanel({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) 
             {p.irregular ? "In AF" : "Start AF"}
           </button>
         )}
-        {p.patch ? (
+        {VIEW_API ? null : p.patch ? (
           <button onClick={() => detachPatch(s, id)}>Detach patch</button>
         ) : (
           <button disabled={patchRequested} onClick={() => applyPatch(s, id)}>
@@ -413,7 +419,7 @@ function PatientPanel({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) 
           </button>
         )}
       </div>
-      {p.bp === null && <BpForm key={id} s={s} src={src} p={p} />}
+      {!VIEW_API && p.bp === null && <BpForm key={id} s={s} src={src} p={p} />}
       <Activity src={src} lines={p.stay.events.slice(-5).reverse()} />
       <details>
         <summary>ECG and score details</summary>
@@ -635,7 +641,7 @@ function EntrancePanel({
       </div>
       <h3>Who came and went</h3>
       {recent.length === 0 ? (
-        <p className="empty">Nobody yet. Stays last days: try Skip 1 day.</p>
+        <p className="empty">Nobody yet.{VIEW_API ? "" : " Stays last days: try Skip 1 day."}</p>
       ) : (
         <StayRows s={s} src={src} stays={recent} onSelect={onSelect} />
       )}

@@ -1,20 +1,96 @@
-import { useEffect, useRef, useState } from "react";
-import { BedTimeline, Inspector, SelectList, TopBar } from "./panels";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer } from "./render/draw";
-import { createSim, step, type Sim } from "./sim/sim";
-import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./sim/source";
+import { createSim, STAFF, step, type Sim } from "./sim/sim";
+import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
+import { createReader, type LiveView } from "./sim/view";
 
 const TICK = 1 / 60;
+const POLL_MS = 2000; // as often as the runner publishes
+
+// Viewer mode's source: it reads nothing and has no inject, startAf or admit, so the panels offer none of them.
+const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
 
 function newWorld(): { s: Sim; src: VitalsSource } {
+  if (VIEW_API) return { s: createReader()({ shared: null, patients: [] }), src: VIEW_SOURCE }; // empty until the first answer
   const src = createSyntheticSource(FIXTURE_SEED, true);
   return { s: createSim(src), src };
 }
 
+function SignIn({ onToken }: { onToken: (token: string) => void }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget); // read once, so the passphrase is never kept in state
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${VIEW_API}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clinician_id: form.get("clinician"), passphrase: form.get("passphrase") }),
+      });
+      const token = response.ok ? ((await response.json()) as { token?: unknown }).token : null;
+      if (typeof token === "string") return onToken(token);
+      setError(
+        response.status === 401
+          ? "Sign-in failed"
+          : response.status === 429
+            ? "Too many attempts. Try again later."
+            : "Sign-in is not available",
+      );
+    } catch {
+      setError("Cannot reach the ward");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <h1>BioSentry ward sim</h1>
+        <span className="pill">W4</span>
+      </header>
+      <form className="panel bp signin" onSubmit={submit}>
+        <label>
+          Clinician
+          <select name="clinician">
+            {STAFF.map(([id, name, title]) => (
+              <option key={id} value={id}>
+                {name}, {title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Passphrase
+          <input type="password" name="passphrase" autoComplete="current-password" required />
+        </label>
+        <button type="submit" disabled={busy}>
+          Sign in
+        </button>
+        <p className="error" role="alert">
+          {error}
+        </p>
+      </form>
+    </div>
+  );
+}
+
 export function App() {
+  // In memory only: a reload signs out.
+  const [token, setToken] = useState<string | null>(null);
+  if (VIEW_API && token === null) return <SignIn onToken={setToken} />;
+  return <Ward token={token} onSignedOut={() => setToken(null)} />;
+}
+
+function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () => void }) {
   const [world, setWorld] = useState(() => newWorld());
+  const [viewNotice, setViewNotice] = useState<string | null>(null);
   const clientId = useRef<string>(null);
   const syncRef = useRef<ReturnType<typeof createSync>>(null);
   const worldRef = useRef(world);
@@ -31,7 +107,7 @@ export function App() {
   // Writes each world to the database API, when one is configured.
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL;
-    if (!apiUrl) return;
+    if (!apiUrl || VIEW_API) return; // a viewer writes nothing
     // Once per page load: a restart replaces its own run. Not randomUUID, which needs a secure context (plain-HTTP LAN fails).
     clientId.current ??= Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
     const sync = createSync({
@@ -48,6 +124,34 @@ export function App() {
       syncRef.current = null;
     };
   }, [world]);
+
+  // Viewer mode: each answer replaces the drawn ward.
+  // shortcut: staff jump to where they were 2 s ago, ease x and y between two answers when that looks wrong
+  useEffect(() => {
+    if (!VIEW_API) return;
+    const read = createReader();
+    let off = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`${VIEW_API}/wards/W4/live`, { headers: { Authorization: `Bearer ${token}` } });
+        if (off) return;
+        if (response.status === 401) return onSignedOut();
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const live = (await response.json()) as LiveView;
+        if (off) return;
+        setWorld({ s: read(live), src: VIEW_SOURCE });
+        setViewNotice(live.shared ? null : "No live ward yet");
+      } catch {
+        if (!off) setViewNotice("Not updating"); // the last ward stays drawn
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), POLL_MS);
+    return () => {
+      off = true;
+      clearInterval(timer);
+    };
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -69,7 +173,7 @@ export function App() {
       spare += dt;
       const { s, src } = worldRef.current;
       while (spare >= TICK) {
-        step(s, src);
+        if (!VIEW_API) step(s, src); // a viewer draws the runner's ward and never advances one
         spare -= TICK;
       }
       renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
@@ -79,6 +183,7 @@ export function App() {
     const panels = setInterval(() => refresh((n) => n + 1), 250);
     // The dashboard reads this ward from /api (vite.config.ts). A static host has no /api: ignore.
     const publish = setInterval(() => {
+      if (VIEW_API) return;
       const { s, src } = worldRef.current;
       fetch("/api/snapshot", { method: "POST", body: JSON.stringify(wardSnapshot(s, src.synthetic)) }).catch(
         () => {},
@@ -115,8 +220,8 @@ export function App() {
       <TopBar
         s={world.s}
         src={world.src}
-        notice={syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null}
-        onReset={restart}
+        notice={viewNotice ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
+        onReset={VIEW_API ? undefined : restart}
       />
       <main className="main">
         <div className="floor">

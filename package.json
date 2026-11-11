@@ -10,7 +10,8 @@
     "test": "vitest run",
     "fit": "node scripts/fit-generator.mjs",
     "fit:calibration": "node scripts/fit-eicu.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ward": "vite build --ssr src/headless.ts --outDir dist/ward --logLevel warn && node dist/ward/headless.js"
   },
   "dependencies": {
     "react": "19.2.8",

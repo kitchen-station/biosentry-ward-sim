@@ -87,6 +87,45 @@ The tests always use one `client_id`, so consecutive runs replace each other. An
 
 The dev-server bridge above stays for now. A physician's list starts as the fixture's: p-004 and p-005 are stored with no physician. A new admission goes on the list of the physician who is called to their bedside.
 
+## Run the ward without a browser
+
+`npm run ward` builds `src/headless.ts` and runs the same sim engine as a Node process. It writes to the BioSentry API, so the ward keeps running with no tab open.
+
+```bash
+BIOSENTRY_API_URL=http://127.0.0.1:8000 BIOSENTRY_INGEST_KEY=dev-local npm run ward
+```
+
+The key `dev-local` is the one `make api-dev` sets in the BioSentry-Intelligence repo.
+
+- `BIOSENTRY_API_URL`: the API's address. Required.
+- `BIOSENTRY_INGEST_KEY`: the ingest key. Required.
+- `WARD_SPEED`: 1, 10 or 60. Default 1, which is real time. At 60x one ward writes about 7 million observations a day.
+
+Behaviour:
+
+- One shared ward. If a browser sim is live, the API refuses the run, and the runner exits with code 1 and the reason.
+- It uses a fixed client id, so a restart replaces its own run at once.
+- Ctrl+C or SIGTERM marks the run ended.
+- If the API is unreachable, rows stay queued and are retried.
+- A restart begins a new run at minute 0 with the same seed. The ward's state is not saved yet.
+
+While it runs, it also publishes the ward as it would be drawn (`src/sim/view.ts`) to `POST /sim/runs/{run_id}/view` every 2 seconds.
+
+## Watch the runner's ward in the browser
+
+A build with `VITE_VIEW_API_URL` set is a viewer. It never makes a ward: a clinician signs in, and the page draws what the headless runner publishes, read from `GET /wards/W4/live` every 2 seconds.
+
+```bash
+VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
+```
+
+- `VITE_VIEW_API_URL`: the API's address. It turns viewer mode on, and `VITE_API_URL` and `VITE_INGEST_KEY` are then ignored. It is inlined into the shipped JavaScript like they are, but it is an address and not a secret.
+- The API sends a staff nurse only their own patients; the charge nurse sees all. Other beds draw empty.
+- Nothing on the ward can be changed: no speed, Reset, deterioration, AF, patch, BP entry or Skip 1 day.
+- Not shown: the ward log (staff cards have no recent activity) and finished stays (empty beds, the entrance and the bed timeline list only patients on the ward now).
+- Staff move in 2-second jumps.
+- The session token is kept in memory only, so a reload signs out.
+
 ## What you can do
 
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.

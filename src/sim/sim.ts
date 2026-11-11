@@ -189,7 +189,7 @@ export interface Sim {
   outbox?: Outbox;
 }
 
-const STAFF: [string, string, string, Staff["role"]][] = [
+export const STAFF: [string, string, string, Staff["role"]][] = [
   ["rn-delacruz", "Dela Cruz", "Staff nurse", "rn"],
   ["rn-reyes", "Reyes", "Staff nurse", "rn"],
   ["rn-manalo", "Manalo", "Charge nurse", "charge_rn"],
