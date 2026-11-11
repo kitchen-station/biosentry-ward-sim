@@ -307,7 +307,7 @@ describe("sync, with a fake fetch", () => {
     expect(again.calls.at(-1)!.path).toBe("/sim/runs/7/actions?after=4");
   });
 
-  it("stops on 409 for a pull, and registers again from cursor 0 on 404", async () => {
+  it("stops on 409 for a pull, and leaves a 404 to the next flush", async () => {
     const { s, src } = start();
     const { calls, net, sync } = fake();
     await sync.start(s, src);
@@ -315,9 +315,10 @@ describe("sync, with a fake fetch", () => {
     await sync.pull();
     net.actions = 404;
     expect(await sync.pull()).toEqual([]);
-    expect(sync.run).toMatchObject({ runId: null, cursor: 0 });
+    expect(sync.run).toMatchObject({ runId: 7, cursor: 2 }); // an API without the route answers 404 too: no new run
     await sync.flush();
-    expect(calls.slice(-2).map((c) => c.path)).toEqual(["/sim/runs", "/sim/runs/7/batch"]);
+    expect(calls.at(-1)!.path).toBe("/sim/runs/7/batch");
+    expect(calls.filter((c) => c.path === "/sim/runs")).toHaveLength(1);
     net.actions = 409;
     expect(await sync.pull()).toEqual([]);
     expect(sync.stopped).toBe("superseded");

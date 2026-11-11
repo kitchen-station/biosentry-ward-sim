@@ -203,8 +203,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       return actions;
     } catch (error) {
       if (error instanceof HttpError && error.status === 409) stop("superseded");
-      // As a batch 404. A flush under way meets the same 404 and registers itself.
-      else if (error instanceof HttpError && error.status === 404 && run === runId && !busy) register(s);
+      // A 404 is left to the next flush: an API without this route answers 404 too, and registering on that would start a run every poll.
       return [];
     } finally {
       pulling = false;
