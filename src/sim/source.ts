@@ -51,6 +51,9 @@ export interface PatientSeed {
   oxygenUntilMin?: number; // patient flow: the minute oxygen comes off
 }
 
+/** What is already known of a patient admitted from outside the sim. It replaces what admit would draw. */
+export type GivenSeed = Partial<PatientSeed> & Pick<PatientSeed, "id" | "bed">;
+
 /** Nurse-charted state at a minute. Each value holds until the next entry. */
 export interface Charted {
   bp: Cuff | null;
@@ -77,8 +80,8 @@ export interface VitalsSource {
   startAf?(patientId: string, minute: number): number;
   /** Synthetic only: whether the rhythm is AF now. */
   irregularAt?(patientId: string, minute: number): boolean;
-  /** Patient flow: a new patient for a free bed, or null when the ward is full. */
-  admit?(minute: number, occupied: { bed: string; rn: string; md: string }[]): PatientSeed | null;
+  /** Patient flow: a new patient for a free bed, or null when the ward is full. `given` names the patient and the bed. */
+  admit?(minute: number, occupied: { bed: string; rn: string; md: string }[], given?: GivenSeed): PatientSeed | null;
   /** Patient flow: chance of an admission in one minute. */
   admissionChance?: number;
   /** Patient flow: when a patient already on the ward at the start is due to leave. */
@@ -382,16 +385,18 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
   const flowRng = mulberry32(saved?.flowRng ?? seed ^ 0x51ed270b);
   let admitted = saved?.admitted ?? 0;
 
-  function admit(minute: number, occupied: { bed: string; rn: string; md: string }[]): PatientSeed | null {
+  function admit(minute: number, occupied: { bed: string; rn: string; md: string }[], given?: GivenSeed): PatientSeed | null {
     const taken = new Set(occupied.map((o) => o.bed));
     const sex = flowRng() < 0.5 ? "F" : "M";
     const free = (zone: string) => BEDS.filter((b) => b.zone === zone && !taken.has(b.label));
     const onOxygen = flowRng() < EVER_ON_OXYGEN;
-    const bed = [...(onOxygen ? free("H") : []), ...free(sex === "F" ? "A" : "B"), ...free("S"), ...free("H")][0];
+    const bed = given
+      ? BEDS.find((b) => b.label === given.bed && !taken.has(b.label))
+      : [...(onOxygen ? free("H") : []), ...free(sex === "F" ? "A" : "B"), ...free("S"), ...free("H")][0];
     if (!bed) return null;
 
     admitted += 1;
-    const id = `n-${String(admitted).padStart(4, "0")}`;
+    const id = given?.id ?? `n-${String(admitted).padStart(4, "0")}`; // a given patient still uses up a number: it seeds their stream
     const { condition, stayMin } = drawStayMin(flowRng);
     const systolic = drawFrom(fit.baseline.systolic, flowRng);
     const vitals: Record<Vital, number> = {
@@ -436,7 +441,7 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
     const fewer = (key: "rn" | "md", a: string, b: string) => (count(key, a) <= count(key, b) ? a : b);
     const pick = <T,>(xs: T[]) => xs[Math.floor(flowRng() * xs.length)];
     const md = fewer("md", "md-santos", "md-aquino");
-    return {
+    const drawn: PatientSeed = {
       id,
       name: `${pick(SURNAMES)}, ${pick(GIVEN[sex])}`,
       age: 45 + Math.floor(flowRng() * 40), // shortcut: no ward age data fitted, a plain adult cardiology range
@@ -465,6 +470,7 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
       dueMin: dueAt(minute, stayMin, flowRng),
       oxygenUntilMin: onOxygen ? minute + stayMin * OXYGEN_SHARE_OF_STAY : undefined,
     };
+    return given ? { ...drawn, ...given } : drawn;
   }
 
   const flowParts: Partial<VitalsSource> = flow

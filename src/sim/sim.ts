@@ -214,7 +214,7 @@ export const minuteOf = (s: Sim) => Math.floor(s.clockS / 60);
 export const staffById = (s: Sim, id: string) => s.staff.find((m) => m.id === id)!;
 export const patientById = (s: Sim, id: string) => s.patients.find((p) => p.id === id)!;
 
-function say(s: Sim, text: string) {
+export function say(s: Sim, text: string) {
   s.log.push({ minute: minuteOf(s), text });
   for (const p of s.patients) {
     if (!text.includes(p.name)) continue;
@@ -600,17 +600,22 @@ function movePatients(s: Sim, src: VitalsSource, minute: number) {
       s.flow.turnedAway += 1;
       return;
     }
-    const admitted = seat(src, seed, s.patients.length, minute);
-    s.patients.push(admitted);
-    s.stays.push(admitted.stay);
-    s.outbox?.admissions.push({ ...patientRow(admitted, [], minute - (minute % 15)), minute });
-    record(s, admitted, minute);
-    s.moves.push({ bed: admitted.bed, kind: "in" });
-    if (s.moves.length > 20) s.moves.shift();
-    s.flow.admitted += 1;
-    if (seed.onOxygen) s.flow.everOnOxygen += 1;
-    say(s, `${seed.name} admitted to ${seed.bed}: ${seed.context}`);
+    place(s, src, seed, minute);
   }
+}
+
+/** Puts a new patient in their bed. `known`: the API already has this patient, so it is not sent the admission. */
+export function place(s: Sim, src: VitalsSource, seed: PatientSeed, minute: number, known = false) {
+  const admitted = seat(src, seed, s.patients.length, minute);
+  s.patients.push(admitted);
+  s.stays.push(admitted.stay);
+  if (!known) s.outbox?.admissions.push({ ...patientRow(admitted, [], minute - (minute % 15)), minute });
+  record(s, admitted, minute);
+  s.moves.push({ bed: admitted.bed, kind: "in" });
+  if (s.moves.length > 20) s.moves.shift();
+  s.flow.admitted += 1;
+  if (seed.onOxygen) s.flow.everOnOxygen += 1;
+  say(s, `${seed.name} admitted to ${seed.bed}: ${seed.context}`);
 }
 
 export function step(s: Sim, src: VitalsSource) {
@@ -641,7 +646,7 @@ export function step(s: Sim, src: VitalsSource) {
   }
 }
 
-// --- Commands: called from the UI between ticks ---------------------------------------------
+// --- Commands: called from the UI or the runner between ticks ---------------------------------------------
 
 export function injectDeterioration(s: Sim, src: VitalsSource, id: string) {
   const p = patientById(s, id);
@@ -680,6 +685,18 @@ export function recordBp(s: Sim, id: string, bp: Cuff) {
   if (s.tasks.some((t) => t.patient === id && t.kind === "record_bp")) return;
   s.tasks.push({ kind: "record_bp", patient: id, rn: p.rn, bp });
   say(s, `BP entry requested for ${p.name}`);
+}
+
+/** Values charted away from the bedside: they count at once, with no walk to the bed. */
+export function chart(s: Sim, id: string, values: Partial<Pick<Patient, "consciousness" | "onOxygen" | "spo2Scale">>) {
+  const p = patientById(s, id);
+  const minute = minuteOf(s);
+  Object.assign(p, values);
+  const before = p.decision;
+  decide(p, minute);
+  record(s, p, minute);
+  rerank(s);
+  logDecisionChange(s, p, before);
 }
 
 /** Runs a whole sim day now, at 60x fidelity. Only a ward with patient flow has anything to skip to. */

@@ -3,6 +3,8 @@
 // next flush and never reaches the sim. A refusal (another sim is live, this run was replaced, a
 // wrong key) stops the sync for good: the sim carries on locally and `stopped` says why.
 
+import type { Action } from "./actions";
+import type { Run } from "./persist";
 import { minuteOf, patientRow, record, signalQuality, type Patient, type Sim } from "./sim";
 import { FIXTURE_SEED, type VitalsSource } from "./source";
 
@@ -42,8 +44,10 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   let registration: object | null = null;
   let runId: number | null = null;
   let origin = "";
+  let cursor = 0; // the highest clinician action read
   let sentEnded = false;
   let busy = false;
+  let pulling = false;
   let dropped = 0;
   let stopped: StopReason | null = null;
 
@@ -146,6 +150,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   function register(world: Sim) {
     const minute = minuteOf(world);
     runId = null;
+    cursor = 0;
     world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
     for (const p of world.patients) record(world, p, minute);
     const initial = world.outbox.observations.splice(0);
@@ -170,15 +175,40 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   }
 
   /** Continues a saved ward in its run: keeps the queue it was saved with and registers nothing. */
-  async function resume(world: Sim, src: VitalsSource, run: { runId: number | null; origin: string }) {
+  async function resume(world: Sim, src: VitalsSource, run: Run) {
     s = src.synthetic ? world : null;
     if (!s) return;
     sentEnded = false;
     stopped = null;
     origin = run.origin;
     if (run.runId === null || !world.outbox) register(world); // saved before the API ever answered
-    else runId = run.runId;
+    else {
+      runId = run.runId;
+      cursor = run.cursor;
+    }
     await flush();
+  }
+
+  /** Reads what clinicians did on the dashboard since the last pull. One request at a time; a failure is retried by the next call. */
+  async function pull(): Promise<Action[]> {
+    const run = runId;
+    if (pulling || !s || run === null || stopped) return [];
+    pulling = true;
+    try {
+      const response = await send(`${apiUrl}/sim/runs/${run}/actions?after=${cursor}`, { headers: { "X-Ingest-Key": key } });
+      if (!response.ok) throw new HttpError(response.status);
+      const { actions } = (await response.json()) as { actions: Action[] };
+      if (run !== runId || stopped) return []; // a flush replaced or stopped the run meanwhile
+      for (const a of actions) cursor = Math.max(cursor, a.seq);
+      return actions;
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 409) stop("superseded");
+      // As a batch 404. A flush under way meets the same 404 and registers itself.
+      else if (error instanceof HttpError && error.status === 404 && run === runId && !busy) register(s);
+      return [];
+    } finally {
+      pulling = false;
+    }
   }
 
   /** Sends the ward as viewers draw it. Never queued: the next view replaces a missed one. */
@@ -195,10 +225,11 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     start,
     resume,
     flush,
+    pull,
     publish,
     /** What a saved ward needs to continue this run. */
     get run() {
-      return { runId, origin };
+      return { runId, origin, cursor };
     },
     get stopped() {
       return stopped;
