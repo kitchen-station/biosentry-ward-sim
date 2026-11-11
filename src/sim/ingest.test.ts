@@ -220,6 +220,47 @@ describe("sync, with a fake fetch", () => {
     expect(calls).toHaveLength(3); // registration, the first batch, the refused one
   });
 
+  it("continues a saved ward in its run without registering", async () => {
+    const { s, src } = start();
+    const first = fake();
+    await first.sync.start(s, src);
+    run(s, src, 10);
+    const { calls, sync } = fake();
+    await sync.resume(s, src, first.sync.run);
+    expect(first.sync.run).toEqual({ runId: 7, origin: first.calls[0].body.origin });
+    expect(sync.run).toEqual(first.sync.run);
+    expect(calls.map((c) => c.path)).toEqual(["/sim/runs/7/batch"]);
+    expect(calls[0].body.minute).toBe(10);
+    expect(calls[0].body.observations.length).toBeGreaterThan(0); // the queue it was saved with
+  });
+
+  it("registers a resumed ward as it is now when the API no longer has its run", async () => {
+    const { s, src } = start();
+    const first = fake();
+    await first.sync.start(s, src);
+    run(s, src, 40);
+    const { calls, net, sync } = fake();
+    net.batch = 404;
+    await sync.resume(s, src, first.sync.run);
+    expect(sync.stopped).toBeNull();
+    net.batch = 204;
+    await sync.flush();
+    expect(calls.map((c) => c.path)).toEqual(["/sim/runs/7/batch", "/sim/runs", "/sim/runs/7/batch"]);
+    const { body } = calls[1];
+    expect(body.origin).toBe(first.sync.run.origin); // minute 40 stays the same wall time
+    expect(body.patients).toHaveLength(12);
+    expect(new Set(body.patients.flatMap((p: { observations: Obs[] }) => p.observations.map((o) => o.minute)))).toEqual(new Set([40]));
+    expect(calls[2].body.minute).toBe(40);
+  });
+
+  it("registers a ward that was saved before the API ever answered", async () => {
+    const { s, src } = start();
+    const { calls, sync } = fake();
+    await sync.resume(s, src, { runId: null, origin: "2026-11-11T00:00:00.000Z" });
+    expect(calls.map((c) => c.path)).toEqual(["/sim/runs", "/sim/runs/7/batch"]);
+    expect(calls[0].body.origin).toBe("2026-11-11T00:00:00.000Z");
+  });
+
   it.each([403, 503])("stops on %i at registration", async (status) => {
     const { s, src } = start();
     const { calls, net, sync } = fake();

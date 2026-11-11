@@ -41,6 +41,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   let s: Sim | null = null;
   let registration: object | null = null;
   let runId: number | null = null;
+  let origin = "";
   let sentEnded = false;
   let busy = false;
   let dropped = 0;
@@ -133,29 +134,50 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       await drain();
     } catch (error) {
       if (error instanceof HttpError && error.status === 409) stop("superseded");
+      // The database no longer has this run (it was reset): the next flush registers the ward as it is now.
+      else if (error instanceof HttpError && error.status === 404 && runId !== null) register(s);
       // Otherwise the rows stay queued.
     } finally {
       busy = false;
     }
   }
 
-  /** Begins a run for this world: queues the sim's changes and registers its minute-0 state. */
-  async function start(world: Sim, src: VitalsSource) {
-    s = src.synthetic ? world : null; // only the synthetic ward is stored; a real dataset must never register
-    if (!s) return;
+  /** Prepares a new run for the ward as it is now: every patient's current state, and an empty queue. */
+  function register(world: Sim) {
+    const minute = minuteOf(world);
     runId = null;
-    sentEnded = false;
-    stopped = null;
     world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
-    for (const p of world.patients) record(world, p, 0);
+    for (const p of world.patients) record(world, p, minute);
     const initial = world.outbox.observations.splice(0);
     registration = {
       client_id: clientId,
       source: "synthetic",
       seed: FIXTURE_SEED,
-      origin: new Date().toISOString(),
-      patients: world.patients.map((p) => patientRow(p, initial.filter((o) => o.patient_id === p.id), 0)),
+      origin,
+      patients: world.patients.map((p) => patientRow(p, initial.filter((o) => o.patient_id === p.id), minute - (minute % 15))),
     };
+  }
+
+  /** Begins a run for this world: queues the sim's changes and registers its minute-0 state. */
+  async function start(world: Sim, src: VitalsSource) {
+    s = src.synthetic ? world : null; // only the synthetic ward is stored; a real dataset must never register
+    if (!s) return;
+    sentEnded = false;
+    stopped = null;
+    origin = new Date().toISOString();
+    register(world);
+    await flush();
+  }
+
+  /** Continues a saved ward in its run: keeps the queue it was saved with and registers nothing. */
+  async function resume(world: Sim, src: VitalsSource, run: { runId: number | null; origin: string }) {
+    s = src.synthetic ? world : null;
+    if (!s) return;
+    sentEnded = false;
+    stopped = null;
+    origin = run.origin;
+    if (run.runId === null || !world.outbox) register(world); // saved before the API ever answered
+    else runId = run.runId;
     await flush();
   }
 
@@ -171,8 +193,13 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
 
   return {
     start,
+    resume,
     flush,
     publish,
+    /** What a saved ward needs to continue this run. */
+    get run() {
+      return { runId, origin };
+    },
     get stopped() {
       return stopped;
     },

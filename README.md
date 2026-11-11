@@ -100,6 +100,9 @@ The key `dev-local` is the one `make api-dev` sets in the BioSentry-Intelligence
 - `BIOSENTRY_API_URL`: the API's address. Required.
 - `BIOSENTRY_INGEST_KEY`: the ingest key. Required.
 - `WARD_SPEED`: 1, 10 or 60. Default 1, which is real time. At 60x one ward writes about 7 million observations a day.
+- `WARD_STATE_FILE`: where the ward is saved. Default `ward-state.json` in the folder you run from.
+
+The runner saves the ward every 10 seconds and when it is stopped. Started again, it continues the same ward: same patients, same clock, same run in the API. The time it was down is not replayed. To start a new ward, delete the state file.
 
 Behaviour:
 
