@@ -265,6 +265,7 @@ describe("hits on a focused floor", () => {
     expect(firsts.map((t) => t[2]).sort()).toEqual(expect.arrayContaining(floor === 0
       ? ["ER spot", "MORGUE spot", "empty drawer", "full drawer", "label", "nurse", "occupied bed", "seated", "standing", "+N"]
       : ["label", "nurse", "occupied bed"]));
+    s.speed = 0; // staff pace their loops while the hospital runs; this table is of where the scene puts them
     for (const [id, [x, y]] of firsts) {
       for (let i = 0; i < 300; i += 1) st.frame(s, id, null, 0.05, i);
       const [fx, fy] = f.focusPoint(scene, id) ?? [328, 191];
