@@ -1,10 +1,12 @@
 // Inspector panels for the hospital layer (H6). Synthetic people: names show only here, never in a log, a URL or storage.
 // The helpers are pure and read the hospital's capped event and hourly buffers without draining them.
+import { useMemo } from "react";
 import { Sparkline } from "./chart";
 import { icuFlag, seeingOrder, slotName, type FloorSummary, type UnitSummary } from "./building";
 
 export { seeingOrder };
 import { PARAMS, type UnitId } from "./sim/hospital/params";
+import { noticedLateMin, overdueRounds } from "./sim/hospital/step";
 import type { EventKind, Hospital, Person } from "./sim/hospital/types";
 import type { Patient, Sim } from "./sim/sim";
 
@@ -114,6 +116,19 @@ export function complications(h: Hospital, p: Person): string[] {
   return out;
 }
 
+/** "Rounds overdue: 9 of 28 patients. Longest wait: 7 h 20 min.", or null where rounds are not modelled (ICU, W4, morgue). */
+export function overdueLine(h: Hospital, id: UnitId, census: number): string | null {
+  const o = overdueRounds(h, id, now(h));
+  return o ? (o.count === 0 ? `Rounds overdue: none of ${census} patients.` : `Rounds overdue: ${o.count} of ${census} patients. Longest wait: ${dur(o.longestMin)}.`) : null;
+}
+export const ROUNDS_CAPTION = "These figures are a model output that rests on judgement numbers, not evidence about real wards.";
+
+/** One line once a deterioration was noticed late; null while it is unnoticed, so the panel cannot tell what nobody knows. */
+export function noticedLateLine(p: Person): string | null {
+  const d = noticedLateMin(p);
+  return d === null ? null : `Deterioration noticed ${dur(d)} after it began, ${p.unit === "ICU" ? "on arrival in the ICU" : "at the next observation round"}.`;
+}
+
 const findPerson = (h: Hospital, n: number) => h.people.find((p) => p.n === n) ?? h.gone.find((p) => p.n === n);
 
 function whereNow(h: Hospital, p: Person): string {
@@ -171,6 +186,7 @@ function PersonPanel({ h, p, onSelect }: { h: Hospital; p: Person; onSelect: (id
   const alive = h.people.includes(p);
   const status = personStatus(h, p);
   const comps = complications(h, p);
+  const late = noticedLateLine(p);
   const d2d = p.arrivedMin <= 0 ? "not recorded" : p.seenMin !== null ? dur(p.seenMin - p.arrivedMin) : alive && (p.where === "waiting") ? `not seen yet (${dur(now(h) - p.arrivedMin)} so far)` : "not seen";
   const boarded = p.boardedMin + (alive && p.where === "boarding" ? now(h) - p.sinceMin : 0);
   return (
@@ -193,6 +209,7 @@ function PersonPanel({ h, p, onSelect }: { h: Hospital; p: Person; onSelect: (id
       <h3>Where now</h3>
       <p className="story">{whereNow(h, p)}.</p>
       {status.line && <p className="story">{status.line}</p>}
+      {late && <p className="story">{late}</p>}
       <h3>Complications</h3>
       {comps.length === 0 ? <p className="story">None recorded.</p> : <ul className="plist">{comps.map((c) => <li key={c}>{c}</li>)}</ul>}
       <Path h={h} p={p} />
@@ -218,6 +235,10 @@ function BedPanel({ h, unit, slot, onSelect }: { h: Hospital; unit: UnitId; slot
 function UnitPanel({ h, id, floors }: { h: Hospital; id: UnitId; floors: FloorSummary[] }) {
   const u = h.units.find((x) => x.id === id);
   const sum: UnitSummary | undefined = floors.flatMap((f) => f.units).find((x) => x.id === id);
+  // Scans every person: once per sim minute, not per render.
+  const minute = now(h);
+  const census = sum?.census ?? 0;
+  const rounds = useMemo(() => overdueLine(h, id, census), [h, id, minute, census]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!u || !sum) return <p className="empty">Unknown unit.</p>;
   const t = todayCounts(h, id);
   const series = censusSeries(h, id);
@@ -244,8 +265,9 @@ function UnitPanel({ h, id, floors }: { h: Hospital; id: UnitId; floors: FloorSu
           <p className="mono">now {series.at(-1)} · low {Math.min(...series)} · high {Math.max(...series)}</p>
         </>
       )}
+      {rounds && <><p className="story">{rounds}</p><p className="tiny">{ROUNDS_CAPTION}</p></>}
       {sum.bodies > 0 && <p className="story">{sum.bodies} awaiting transfer to the morgue (hold a bed, not counted).</p>}
-      <p className="story">Hospital layer: synthetic.{display && " Staffing outside W4 is shown, not modelled."}</p>
+      <p className="story">Hospital layer: synthetic.{display && " Staffing outside W4 drives observation rounds only; care there is not modelled."}</p>
     </>
   );
 }

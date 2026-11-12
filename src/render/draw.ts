@@ -609,6 +609,7 @@ export function createFloor(spec: FloorSpec) {
         if (!b.cell) continue;
         const [x, y] = bedPoint(b.bed);
         cellTag(ctx, b.cell, x, y - 8);
+        if (b.late) tag(ctx, "late", x, y - 19); // steady: it never blinks
       }
       for (const p of scene.spots) {
         const [x, y] = tilePoint(p.tile, 0);
@@ -627,6 +628,10 @@ export function createFloor(spec: FloorSpec) {
       for (const m of scene.more) {
         const [x, y] = tilePoint(m.tile, 4);
         tag(ctx, m.text, x, y, undefined, marked(m.id) !== null);
+      }
+      for (const o of scene.overdue) {
+        const [x, y] = tilePoint(o.tile, 24);
+        tag(ctx, o.text, x, y);
       }
       for (const room of spec.rooms) {
         if (!room.sel || !marked(room.sel)) continue;
