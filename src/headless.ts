@@ -6,11 +6,10 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { applyAction } from "./sim/actions";
-import { applyCommand, clinicianName } from "./sim/commands";
+import { applyCommand, clinicianName, freshWard } from "./sim/commands";
 import { refuseHospitalState } from "./sim/hospital/attach";
 import { loadWard, saveWard } from "./sim/persist";
-import { createSim, minuteOf, say, setSpeed, step, type Speed } from "./sim/sim";
-import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
+import { minuteOf, say, step, type Speed } from "./sim/sim";
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { createPublisher } from "./sim/view";
 
@@ -33,9 +32,8 @@ if (refused) {
   console.error(refused); // before sync starts: nothing is sent
   process.exit(2);
 }
-const src = saved?.src ?? createSyntheticSource(FIXTURE_SEED, true);
-let s = saved?.s ?? createSim(src);
-if (!saved) setSpeed(s, speed); // WARD_SPEED is the starting speed: a saved ward resumes at the speed it had, which a clinician may have changed
+// WARD_SPEED is the starting speed: a saved ward resumes at the speed it had, which a clinician may have changed.
+let { s, src } = saved ?? freshWard(speed);
 // A fixed client id: a runner that begins a new ward replaces its own run at once instead of waiting out the old one.
 const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch });
 const view = createPublisher();
@@ -58,10 +56,24 @@ async function flush() {
   process.exit(1);
 }
 
+// Registered before the sync starts, so a stop during startup ends the process: as PID 1 in a container node ignores a signal with no handler.
+let started = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, async () => {
+    // A stop is a pause, not the end of the run: the API shows the ward as not sending after 30 s.
+    if (started) {
+      await sync.flush();
+      if (!sync.stopped) save();
+    } // before then there is nothing of this run to save, and the file on disk is the last whole one
+    process.exit(0);
+  });
+}
+
 let last = performance.now();
 let spare = 0;
 if (saved) await sync.resume(s, src, saved.run);
 else await sync.start(s, src);
+started = true;
 console.log(`Ward ${saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, writing to ${apiUrl}`);
 setInterval(() => {
   const now = performance.now();
@@ -74,10 +86,9 @@ setInterval(() => {
 setInterval(() => void sync.publish(view(s)), 2000);
 // A new ward at the current speed, in a new run. start() registers it before this returns to the timers, so no tick or save sees the old world with the new run.
 async function reset(by: string) {
-  const fresh = createSim(src);
-  setSpeed(fresh, s.speed);
-  const starting = sync.start(fresh, src);
-  s = fresh;
+  const fresh = freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
+  const starting = sync.start(fresh.s, fresh.src);
+  [s, src] = [fresh.s, fresh.src];
   say(s, `${clinicianName(by)} reset the ward`);
   await starting;
   save();
@@ -104,12 +115,3 @@ setInterval(async () => {
     }
   }
 }, 2000);
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, async () => {
-    // A stop is a pause, not the end of the run: the API shows the ward as not sending after 30 s.
-    await sync.flush();
-    if (!sync.stopped) save();
-    process.exit(0);
-  });
-}

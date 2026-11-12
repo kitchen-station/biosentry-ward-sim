@@ -208,7 +208,8 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       for (const row of rows) cursor[feed] = Math.max(cursor[feed], row.seq);
       return rows;
     } catch (error) {
-      if (error instanceof HttpError && error.status === 409) stop("superseded");
+      // Only if the answer is for the run still current: one for a run start() has since replaced says nothing about the new one.
+      if (error instanceof HttpError && error.status === 409 && run === runId) stop("superseded");
       // A 404 is left to the next flush: an API without this route answers 404 too, and registering on that would start a run every poll.
       return [];
     } finally {
@@ -224,11 +225,12 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
 
   /** Sends the ward as viewers draw it. Never queued: the next view replaces a missed one. */
   async function publish(body: object) {
-    if (runId === null || stopped) return;
+    const run = runId;
+    if (run === null || stopped) return;
     try {
-      await post(`/sim/runs/${runId}/view`, body);
+      await post(`/sim/runs/${run}/view`, body);
     } catch (error) {
-      if (error instanceof HttpError && error.status === 409) stop("superseded");
+      if (error instanceof HttpError && error.status === 409 && run === runId) stop("superseded");
     }
   }
 

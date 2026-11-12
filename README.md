@@ -110,10 +110,12 @@ The `Dockerfile` builds the runner into a `node:22-slim` image that runs as a no
 
 ```bash
 docker build -t biosentry-ward-sim:local .
-docker run --rm -v ward-state:/state \
+docker run --rm -v ward-state:/state --add-host=host.docker.internal:host-gateway \
   -e BIOSENTRY_API_URL=http://host.docker.internal:8000 -e BIOSENTRY_INGEST_KEY=dev-local \
   biosentry-ward-sim:local
 ```
+
+`--add-host` is what makes `host.docker.internal` resolve on Linux; Docker Desktop has it already. In the team deployment the compose file in the dashboard repository runs the image, and it reaches the API as `http://api:8000`.
 
 Behaviour:
 
@@ -125,7 +127,7 @@ Behaviour:
 
 Every 2 seconds it also reads what clinicians did on the dashboard (`GET /sim/runs/{run_id}/actions`) and applies it to the ward. An acknowledgement sends the patient's nurse to assess them, recorded vitals count at once and a recorded blood pressure is entered by the nurse at the bed, a note is logged, and an admitted patient is put in the bed that was typed and a nurse fits their patch. The last action applied is saved with the ward, so a restart does not apply one twice.
 
-It reads a second feed the same way, `GET /sim/runs/{run_id}/commands`: what a clinician sent from the viewer (see below). `set_speed` sets the speed (pause, 1, 10 or 60), `inject_deterioration`, `start_arrhythmia`, `detach_patch` and `apply_patch` do what the buttons in the patient panel do, and each is written to the ward log with the clinician's name. A command for a patient who has left is logged and skipped. `reset` replaces the ward with a new one at the current speed and starts a new run, so the commands and actions feeds begin again from 0 and the old ward's unsent rows are dropped. The last command applied is saved with the ward too.
+It reads a second feed the same way, `GET /sim/runs/{run_id}/commands`: what a clinician sent from the viewer (see below). `set_speed` sets the speed (pause, 1, 10 or 60), `inject_deterioration`, `start_arrhythmia`, `detach_patch` and `apply_patch` do what the buttons in the patient panel do, and each is written to the ward log with the clinician's name. A command for a patient who has left is logged and skipped. `reset` replaces the ward with a new one at the current speed and starts a new run, so the commands and actions feeds begin again from 0 and the old ward's unsent rows are dropped. The new ward has its own vitals source: nothing the old one was told (a deterioration, an AF episode) carries over. A command sent in the second or so between a reset and the new run registering can be lost. The last command applied is saved with the ward too.
 
 While it runs, it also publishes the ward as it would be drawn (`src/sim/view.ts`) to `POST /sim/runs/{run_id}/view` every 2 seconds.
 
@@ -139,7 +141,7 @@ VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
 
 - `VITE_VIEW_API_URL`: the API's address. It turns viewer mode on, and `VITE_API_URL` and `VITE_INGEST_KEY` are then ignored. It is inlined into the shipped JavaScript like they are, but it is an address and not a secret.
 - The API sends a staff nurse only their own patients; the charge nurse sees all. Other beds draw empty.
-- A physician or the charge nurse can control the runner's ward: when `GET /wards/W4/live` answers `can_control: true`, the top bar's Pause, 1x, 10x, 60x and Reset and a patient's Start deterioration, Start AF, Detach patch and Apply patch are on. Each sends `POST /wards/W4/sim/commands` and the runner does it. The buttons show the speed the runner published, not the one just clicked, so a change appears on the next answer. A refusal (403 role, 404 unknown ward or patient, 409 ward not live) shows as a short line in the top bar; 401 signs out.
+- A physician or the charge nurse can control the runner's ward: when `GET /wards/W4/live` answers `can_control: true`, the top bar's Pause, 1x, 10x, 60x and Reset and a patient's Start deterioration, Start AF, Detach patch and Apply patch are on. Each sends `POST /wards/W4/sim/commands` and the runner does it. The buttons show the speed the runner published, not the one just clicked, so a change appears on the next answer. A refusal (403 role, 404 unknown ward or patient, 409 ward not live, which also covers a ward that was just replaced by a reset) shows as a short line in the top bar; 401 signs out.
 - Everyone else, and an API that does not send `can_control`, gets a read-only page: no speed, Reset, deterioration, AF, patch or BP entry. BP entry and Skip 1 day are never offered, and the hospital scenario picker belongs to the public build.
 - Not shown: the ward log (staff cards have no recent activity) and finished stays (empty beds, the entrance and the bed timeline list only patients on the ward now).
 - Staff move in 2-second jumps.

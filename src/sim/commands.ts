@@ -2,8 +2,8 @@
 // posts a command (sendCommand); the runner reads the feed (src/sim/sync.ts) and calls applyCommand
 // between ticks. Reset is the runner's own: it replaces the whole world (src/headless.ts).
 
-import { applyPatch, detachPatch, injectDeterioration, say, setSpeed, startArrhythmia, STAFF, type Sim, type Speed } from "./sim";
-import type { VitalsSource } from "./source";
+import { applyPatch, createSim, detachPatch, injectDeterioration, say, setSpeed, startArrhythmia, STAFF, type Sim, type Speed } from "./sim";
+import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 
 /** One row of GET /sim/runs/{run_id}/commands. `speed` is set only for set_speed, `patient_id` only for the patient kinds. */
 export interface Command {
@@ -19,6 +19,14 @@ export type CommandBody = Pick<Command, "kind" | "patient_id" | "speed">;
 
 const SPEEDS = [0, 1, 10, 60];
 
+/** A new ward and its own source, as the runner starts one. The source holds per-patient state, so a world never shares it with another. */
+export function freshWard(speed: Speed): { s: Sim; src: VitalsSource } {
+  const src = createSyntheticSource(FIXTURE_SEED, true);
+  const s = createSim(src);
+  setSpeed(s, speed);
+  return { s, src };
+}
+
 export const clinicianName = (id: string) => STAFF.find(([staffId]) => staffId === id)?.[1] ?? id;
 
 export function applyCommand(s: Sim, src: VitalsSource, c: Command) {
@@ -31,19 +39,15 @@ export function applyCommand(s: Sim, src: VitalsSource, c: Command) {
   if (c.kind === "reset") return; // the runner replaces the world itself
   const p = s.patients.find((x) => x.id === c.patient_id);
   if (!p) return say(s, `${clinician} sent ${c.kind} for ${c.patient_id}, who is not on the ward`); // already left, or never here
-  // The same calls as the buttons in the patient panel, which are off in the same cases.
+  // The same calls as the buttons in the patient panel, which are off in the same cases. Each logs its own line, so none is added here.
   const requested = s.tasks.some((t) => t.patient === p.id && t.kind === "apply_patch") || s.staff.some((m) => m.task?.patient === p.id && m.task.kind === "apply_patch");
   if (c.kind === "inject_deterioration" && src.inject && !p.injected) {
-    say(s, `${clinician} started deterioration for ${p.name}`);
     injectDeterioration(s, src, p.id);
   } else if (c.kind === "start_arrhythmia" && src.startAf && !p.irregular) {
-    say(s, `${clinician} started atrial fibrillation for ${p.name}`);
     startArrhythmia(s, src, p.id);
   } else if (c.kind === "detach_patch" && p.patch) {
-    say(s, `${clinician} detached the patch for ${p.name}`);
     detachPatch(s, p.id);
   } else if (c.kind === "apply_patch" && !p.patch && !requested) {
-    say(s, `${clinician} asked for a patch for ${p.name}`);
     applyPatch(s, p.id);
   }
 }

@@ -28,10 +28,11 @@ function run(s: Sim, src: VitalsSource, minutes: number) {
 /** A fetch that records the requests, can be switched offline, and answers with a chosen status. `feed` and `commandFeed` are the actions and commands routes' rows. */
 function fake(clientId = "page-1") {
   const calls: { path: string; key: string | null; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const net = { offline: false, register: 201, batch: 204, actions: 200, feed: [] as Action[], commands: 200, commandFeed: [] as Command[] };
+  const net = { offline: false, register: 201, run: 7, batch: 204, actions: 200, feed: [] as Action[], commands: 200, commandFeed: [] as Command[], hold: null as { suffix: string; until: Promise<void> } | null };
   const f = (async (url: string, init: RequestInit) => {
     if (net.offline) throw new Error("offline");
     const path = url.replace("http://api", "");
+    if (net.hold && path.split("?")[0].endsWith(net.hold.suffix)) await net.hold.until; // an answer that arrives late
     calls.push({ path, key: (init.headers as Record<string, string>)["X-Ingest-Key"] ?? null, body: init.body ? JSON.parse(init.body as string) : null });
     if (!init.method) {
       const after = Number(new URL(url).searchParams.get("after"));
@@ -39,7 +40,7 @@ function fake(clientId = "page-1") {
       return new Response(JSON.stringify({ actions: net.feed.filter((a) => a.seq > after) }), { status: net.actions });
     }
     return path === "/sim/runs"
-      ? new Response(net.register === 201 ? '{"run_id":7}' : "{}", { status: net.register })
+      ? new Response(net.register === 201 ? `{"run_id":${net.run}}` : "{}", { status: net.register })
       : new Response(null, { status: net.batch });
   }) as unknown as typeof fetch;
   return { calls, net, sync: createSync({ apiUrl: "http://api", key: "k", clientId, fetch: f }) };
@@ -385,6 +386,25 @@ describe("sync, with a fake fetch", () => {
     expect(sync.stopped).toBe("superseded");
   });
 
+  it("ignores a 409 that answers a run the sync has since replaced", async () => {
+    for (const route of ["commands", "actions", "view"] as const) {
+      const { s, src } = start();
+      const { net, sync } = fake();
+      await sync.start(s, src);
+      let release!: () => void;
+      net.hold = { suffix: route === "view" ? "/view" : `/${route}`, until: new Promise<void>((resolve) => (release = resolve)) };
+      const late = route === "commands" ? sync.pullCommands() : route === "actions" ? sync.pull() : sync.publish({});
+      net.hold = null;
+      net.run = 8;
+      const fresh = createSim(src);
+      await sync.start(fresh, src); // run 8 now
+      net.commands = net.actions = net.batch = 409; // what run 7 is told
+      release();
+      await late;
+      expect([route, sync.stopped, fresh.outbox !== undefined, sync.run.runId]).toEqual([route, null, true, 8]);
+    }
+  });
+
   it("starts a second run for a new world: cursors back to 0, the old world's queue dropped", async () => {
     const { s, src } = start();
     const { calls, net, sync } = fake();
@@ -408,6 +428,21 @@ describe("sync, with a fake fetch", () => {
     await sync.flush();
     expect(calls.at(-1)!.body.minute).toBe(5); // the new world's, not the old world's
     expect(s.outbox!.observations.length).toBeGreaterThan(0); // never sent
+  });
+
+  it("does not go on sending the old world's rows once the sync has another world", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    let release!: () => void;
+    net.hold = { suffix: "/batch", until: new Promise<void>((resolve) => (release = resolve)) };
+    const first = sync.start(s, src);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // registered, and the first batch is on its way
+    run(s, src, 10); // rows queued behind it
+    net.hold = null;
+    await sync.start(createSim(src), src); // the sync is busy: this flush is skipped
+    release();
+    await first;
+    expect(calls.filter((c) => c.path.includes("null") || c.body?.minute === 10)).toEqual([]);
   });
 
   it("does not let a flush in flight for the old world register or send over the new one", async () => {

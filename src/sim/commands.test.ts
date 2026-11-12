@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyCommand, commandNotice, sendCommand, type Command } from "./commands";
-import { createSim, patientById, step } from "./sim";
+import { applyCommand, commandNotice, freshWard, sendCommand, type Command } from "./commands";
+import { createSim, patientById, step, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./source";
 
 function ward() {
@@ -17,7 +17,7 @@ const command = (kind: Command["kind"], patient_id: string | null, rest: Partial
   speed: null,
   ...rest,
 });
-const lastLog = (s: ReturnType<typeof ward>["s"]) => s.log.at(-1)!.text;
+const lastLog = (s: Sim) => s.log.at(-1)!.text;
 
 describe("a viewer command applied to the ward", () => {
   it("set_speed: sets the speed, pause included, and says who", () => {
@@ -37,18 +37,18 @@ describe("a viewer command applied to the ward", () => {
     expect(JSON.stringify(s)).toBe(before);
   });
 
-  it("inject_deterioration and start_arrhythmia: start once, as the buttons do", () => {
+  it("inject_deterioration and start_arrhythmia: start once, as the buttons do, with one log line each", () => {
     const { s, src } = ward();
     const p = s.patients[0];
     applyCommand(s, src, command("inject_deterioration", p.id));
     expect([p.injected, lastLog(s)]).toEqual([true, `Deterioration started for ${p.name}`]);
-    expect(s.log.at(-2)!.text).toBe(`Dr. Santos started deterioration for ${p.name}`);
     const logged = s.log.length;
+    expect(logged).toBe(1);
     applyCommand(s, src, command("inject_deterioration", p.id));
     expect(s.log).toHaveLength(logged); // already deteriorating: the button is off
     applyCommand(s, src, command("start_arrhythmia", p.id));
     expect(p.irregular).toBe(true);
-    expect(s.log.at(-2)!.text).toBe(`Dr. Santos started atrial fibrillation for ${p.name}`);
+    expect(s.log).toHaveLength(2);
     expect(lastLog(s)).toMatch(/^Atrial fibrillation for /);
     applyCommand(s, { ...src, inject: undefined, startAf: undefined }, command("start_arrhythmia", s.patients[1].id));
     expect(s.patients[1].irregular).toBe(false); // a source with no AF has no button
@@ -61,9 +61,9 @@ describe("a viewer command applied to the ward", () => {
     expect(s.tasks.some((t) => t.patient === p.id && t.kind === "apply_patch")).toBe(false); // already fitted
     applyCommand(s, src, command("detach_patch", p.id, { clinician_id: "rn-reyes" }));
     expect(p.patch).toBe(false);
-    expect(s.log.at(-2)!.text).toBe(`Reyes detached the patch for ${p.name}`);
+    expect(s.log.map((l) => l.text)).toEqual([`Patch detached for ${p.name}`]);
     applyCommand(s, src, command("detach_patch", p.id));
-    expect(lastLog(s)).toBe(`Patch detached for ${p.name}`); // nothing new: it was off
+    expect(s.log).toHaveLength(1); // nothing new: it was off
     applyCommand(s, src, command("apply_patch", p.id));
     applyCommand(s, src, command("apply_patch", p.id));
     expect(s.tasks.filter((t) => t.patient === p.id && t.kind === "apply_patch")).toHaveLength(1);
@@ -101,6 +101,25 @@ describe("a viewer command applied to the ward", () => {
     const before = JSON.stringify(s);
     applyCommand(s, src, command("reset", null));
     expect(JSON.stringify(s)).toBe(before);
+  });
+});
+
+describe("a new ward", () => {
+  const minutes = (s: Sim, src: ReturnType<typeof ward>["src"], n: number) => {
+    for (let tick = 0; tick < n * 60; tick += 1) step(s, src);
+    return s.patients.map((p) => [p.id, p.held, p.injected]);
+  };
+
+  it("has its own source: a patient deteriorated in the old ward does not deteriorate again in it", () => {
+    const old = freshWard(60);
+    applyCommand(old.s, old.src, command("inject_deterioration", old.s.patients[0].id));
+    minutes(old.s, old.src, 60);
+    const fresh = freshWard(10);
+    expect(fresh.s.speed).toBe(10);
+    expect(fresh.src).not.toBe(old.src);
+    fresh.s.speed = 60;
+    const reference = freshWard(60);
+    expect(minutes(fresh.s, fresh.src, 600)).toEqual(minutes(reference.s, reference.src, 600)); // as a ward nobody clicked on
   });
 });
 
