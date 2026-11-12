@@ -4,6 +4,8 @@
 // cutoff, and the whole staff response loop. BioSentry itself only ranks and displays.
 
 import { arbitrate, LEVEL, rankWard, type Decision } from "./arbiter";
+import { stepHospital } from "./hospital/step";
+import type { Hospital, W4Port } from "./hospital/types";
 import { BEDS, bedByLabel, findPath, HOMES, nurseStand, physicianStand, type Tile } from "./map";
 import { roundHalfUp, scoreNews2, type Acvpu } from "./news2";
 import type { Risk } from "./news2";
@@ -188,6 +190,7 @@ export interface Sim {
   ended: boolean;
   outbox?: Outbox;
   occupied?: string[]; // viewer only: beds someone else's patient is in, labels and nothing more
+  hospital?: Hospital; // hospital mode only (src/sim/hospital/attach.ts): W4 is one unit of it
 }
 
 export const STAFF: [string, string, string, Staff["role"]][] = [
@@ -577,7 +580,11 @@ function leave(s: Sim, p: Patient, minute: number, outcome: StayOutcome, text: s
   s.outbox?.departures.push({ patient_id: p.id, minute, outcome });
   s.moves.push({ bed: p.bed, kind: outcome });
   if (s.moves.length > 20) s.moves.shift();
-  if (s.stays.length > MAX_STAYS) s.stays.splice(s.stays.findIndex((x) => x.outMin !== null), 1);
+  if (s.stays.length > MAX_STAYS) {
+    // Hospital mode: the stay that just ended is kept, as the hospital reads it this minute (w4Port's left).
+    const old = s.stays.findIndex((x) => x.outMin !== null && !(s.hospital && x === p.stay));
+    if (old >= 0) s.stays.splice(old, 1);
+  }
   say(s, text);
 }
 
@@ -592,11 +599,15 @@ function movePatients(s: Sim, src: VitalsSource, minute: number) {
     if (busy) continue;
     const unwell = p.decision.kind === "ranked" && p.decision.news2.total >= 5;
     if (unwell && minute < p.dueMin + HOLD_IF_UNWELL_MIN) continue;
+    if (unwell && s.hospital) { // hospital mode: waits on W4 until the ICU has a bed, and holds it (stepHospital recounts)
+      if (s.hospital.icuFree <= 0) continue;
+      s.hospital.icuFree -= 1;
+    }
     if (unwell) s.flow.transferred += 1;
     else s.flow.discharged += 1;
     leave(s, p, minute, unwell ? "higher_care" : "discharged", unwell ? `${p.name} moved to higher care from ${p.bed}` : `${p.name} discharged from ${p.bed}`);
   }
-  if (src.admit && src.flowRandom!() < src.admissionChance!) {
+  if (!s.hospital && src.admit && src.flowRandom!() < src.admissionChance!) { // hospital mode: admissions come through the ER
     const seed = src.admit(minute, s.patients);
     if (!seed) {
       s.flow.turnedAway += 1;
@@ -620,6 +631,26 @@ export function place(s: Sim, src: VitalsSource, seed: PatientSeed, minute: numb
   say(s, `${seed.name} admitted to ${seed.bed}: ${seed.context}`);
 }
 
+/** W4 as the hospital sees it. A full ward refuses before any draw: a cardiac boarder asks every minute. */
+export function w4Port(s: Sim, src: VitalsSource): W4Port {
+  // v1: the API accepts only discharged and higher_care, so hospital mode never runs with an outbox.
+  if (s.outbox) throw new Error("Hospital mode and API sync never run together");
+  return {
+    admit(person, minute) {
+      if (s.patients.length >= BEDS.length) return null;
+      const seed = src.admit!(minute, s.patients, undefined, person);
+      if (!seed) return null;
+      place(s, src, seed, minute);
+      return seed.id;
+    },
+    left(id) {
+      if (s.patients.some((p) => p.id === id)) return null;
+      const stay = s.stays.find((x) => x.id === id);
+      return stay ? { outcome: stay.outcome!, minute: stay.outMin! } : null; // no crash; leave() keeps the stay, so not reached
+    },
+  };
+}
+
 export function step(s: Sim, src: VitalsSource) {
   if (s.speed === 0 || s.ended) return;
   s.clockS += s.speed / 60;
@@ -632,6 +663,7 @@ export function step(s: Sim, src: VitalsSource) {
     while (s.flow.lastMinute < minuteOf(s)) {
       s.flow.lastMinute += 1;
       movePatients(s, src, s.flow.lastMinute);
+      if (s.hospital) stepHospital(s.hospital, w4Port(s, src), s.flow.lastMinute);
     }
     rerank(s);
   }

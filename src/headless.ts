@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { applyAction } from "./sim/actions";
+import { refuseHospitalState } from "./sim/hospital/attach";
 import { loadWard, saveWard } from "./sim/persist";
 import { createSim, minuteOf, setSpeed, step, type Speed } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
@@ -26,6 +27,11 @@ const stateFile = process.env.WARD_STATE_FILE ?? "ward-state.json";
 const SAVE_EVERY_MS = 10_000;
 // A state file that cannot be read stops the runner: starting a new ward over it would lose the old one.
 const saved = existsSync(stateFile) ? loadWard(readFileSync(stateFile, "utf8")) : null;
+const refused = saved && refuseHospitalState(saved.s);
+if (refused) {
+  console.error(refused); // before sync starts: nothing is sent
+  process.exit(2);
+}
 const src = saved?.src ?? createSyntheticSource(FIXTURE_SEED, true);
 const s = saved?.s ?? createSim(src);
 setSpeed(s, speed);

@@ -11,7 +11,8 @@
     "fit": "node scripts/fit-generator.mjs",
     "fit:calibration": "node scripts/fit-eicu.mjs",
     "preview": "vite preview",
-    "ward": "vite build --ssr src/headless.ts --outDir dist/ward --logLevel warn && node dist/ward/headless.js"
+    "ward": "vite build --ssr src/headless.ts --outDir dist/ward --logLevel warn && node dist/ward/headless.js",
+    "hospital-trial": "vite build --ssr src/hospital-trial.ts --outDir dist/hospital-trial --logLevel warn && node dist/hospital-trial/hospital-trial.js"
   },
   "dependencies": {
     "react": "19.2.8",

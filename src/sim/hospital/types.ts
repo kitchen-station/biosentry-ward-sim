@@ -1,0 +1,69 @@
+// The hospital's state is plain JSON: numbers, strings, booleans, null, arrays and plain objects. No Map, Set, class
+// instance, function or undefined-valued key, so JSON.parse(JSON.stringify(h)) continues identically.
+import type { Group, Triage, UnitId } from "./params";
+import type { Scenario } from "./scenario";
+
+export type { Group, Triage, UnitId };
+export type Sex = "F" | "M";
+export type Where = "waiting" | "consult" | "workup" | "boarding" | "bed" | "stretcher" | "awaiting_morgue" | "morgue";
+
+// Floor is a plain number: do not export a type named Floor (map.ts has one for room colours).
+export interface Unit { id: UnitId; name: string; floor: number; beds: number; stretchers: number; nurses: number; residents: number }
+
+/** Everything person n will ever need, drawn at arrival from the stream `person:${n}` in a fixed order. */
+export interface PersonDraw {
+  id: string; n: number; name: string; age: number; sex: Sex; group: Group; complaint: string; triage: Triage;
+  patienceMin: number | null;      // null for emergent: they never leave unseen
+  admit: boolean; icuU: number; icuIndicated: boolean; // icuIndicated is only meaningful when admit
+  decisionMin: number;             // consult end to decision, minutes
+  stayMin: number; icuStayMin: number; dischargeHour: number; // ward stay, ICU stay, clock hour of a ward discharge
+  erDeathAfterMin: number | null;  // pre-drawn ER-phase fate, minutes after arrival
+  deathU: number; deathF: number;  // pre-drawn in-stay fate: dies when deathU < P(group), at fraction deathF of the stay
+}
+
+/** Section 7's record plus the few drawn numbers a stay needs. No vitals, no per-minute series. */
+export interface Person extends PersonDraw {
+  arrivedMin: number; unit: UnitId; where: Where; sinceMin: number;
+  slot: number | null;             // ER: bay (>= bays is a trolley or chair); wards: bed, then stretcher; morgue: drawer; null in a queue or on W4
+  wants: UnitId | null; seenMin: number | null; decideMin: number | null; dueMin: number | null; dieMin: number | null;
+  boardedMin: number;              // total minutes spent boarding so far
+  w4Id: string | null;             // set while the person is a W4 patient; W4 holds the clinical record
+  fromW4: boolean;                 // left W4 needing higher care: only the ICU will do, never back to W4
+}
+
+export type EventKind =
+  | "arrive" | "triage" | "consult" | "decide_home" | "decide_admit" | "board" | "place" | "transfer" | "discharge"
+  | "lwbs" | "transfer_out" | "died" | "to_morgue" | "released"
+  | "turned_away"; // not in the design's list: an arrival the house could not hold (people cap)
+
+export interface EventRow { minute: number; person: string; w4_id: string | null; unit: UnitId; kind: EventKind; detail: string; news2_independent: boolean }
+
+// transferred_in/out count moves between units (ICU step-down, W4 to ICU) and, for the ER, transfers out to another hospital.
+// er_boarding_hours is boarding person-hours accrued during the hour. morgue is every body in the house (drawers and awaiting), on the MORGUE row.
+export interface HourRow {
+  hour: number; unit: UnitId; census: number; beds: number; stretchers_used: number; occupancy_pct: number;
+  arrivals: number; admitted_in: number; discharged: number; transferred_in: number; transferred_out: number; died: number;
+  nurses: number; patients_per_nurse: number | null;
+  er_waiting: number | null; er_consult: number | null; er_workup: number | null; er_boarding: number | null;
+  er_boarding_hours: number | null; er_lwbs: number | null; door_to_doctor_median_min: number | null;
+  icu_indicated_not_in_icu: number | null; morgue: number | null;
+}
+
+export interface Counters { admittedIn: number; discharged: number; transferredIn: number; transferredOut: number; died: number }
+export interface Acc { by: Record<UnitId, Counters>; arrivals: number; lwbs: number; boardMin: number; d2d: number[] }
+
+export interface Hospital {
+  seed: number; scenario: Scenario; units: Unit[]; arrivalRng: number; nextN: number; lastMinute: number;
+  people: Person[]; gone: Person[]; // gone: the last 300
+  goneCount: number; createdCount: number; turnedAway: number; peopleCap: number;
+  doctorsFreeAt: number[]; icuFree: number;
+  events: EventRow[]; hourly: HourRow[]; // a caller drains them each hour with takeRows
+  acc: Acc;
+}
+
+// Same two words as the ward's own StayOutcome; H8 adds "died" there. Not imported: this code never reads sim.ts.
+export type StayOutcome = "discharged" | "higher_care";
+export interface W4Port {
+  admit(person: { name: string; age: number; sex: Sex }, minute: number): string | null; // W4 id, or null when full
+  left(w4Id: string): { outcome: StayOutcome; minute: number } | null;
+}

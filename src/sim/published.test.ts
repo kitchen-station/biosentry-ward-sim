@@ -73,14 +73,17 @@ beforeAll(() => {
   }
 }, 240000);
 
+// Each check sorts the whole run several times: up to 3 s on a quiet machine, and it crossed the default 5 s
+// (6.2 s measured) when other suites were running.
+const WELCH_TIMEOUT_MS = 60_000;
 const expectWelch = (series: Series) => {
   const { values, tolerance } = WELCH[series];
   PERCENTILES.forEach((p, i) => expect(Math.abs(percentile(seen[series], p) - values[i])).toBeLessThanOrEqual(tolerance));
 };
 
 describe("published ward values", () => {
-  it("respiratory rate matches Welch percentiles", () => expectWelch("respiratory_rate"));
-  it("systolic matches Welch percentiles", () => expectWelch("systolic"));
+  it("respiratory rate matches Welch percentiles", () => expectWelch("respiratory_rate"), WELCH_TIMEOUT_MS);
+  it("systolic matches Welch percentiles", () => expectWelch("systolic"), WELCH_TIMEOUT_MS);
   it("no two patients ever share a bed", () => expect(bedClash).toBe(false));
   it("oxygen on 18-19% of observation sets (Pimentel 2019)", () => {
     expect(Math.abs(pct(setsOnOxygen, sets) - 18.7)).toBeLessThanOrEqual(5);
@@ -88,8 +91,8 @@ describe("published ward values", () => {
 
   // Known misses, measured after the starting patients have left. Patients spend about 15% of time at NEWS2 5+;
   // sampling sick patients at the policy cadence lifts that in observation sets, and real wards often fall short of it.
-  it("heart rate matches Welch percentiles", () => expectWelch("heart_rate"));
-  it.fails("SpO2 matches Welch percentiles", () => expectWelch("spo2"));
+  it("heart rate matches Welch percentiles", () => expectWelch("heart_rate"), WELCH_TIMEOUT_MS);
+  it.fails("SpO2 matches Welch percentiles", () => expectWelch("spo2"), WELCH_TIMEOUT_MS);
   it.fails("about 20% of observation sets at NEWS 5+ (RCP 2012, medical wards)", () => {
     expect(Math.abs(pct(setsAt5, sets) - 20)).toBeLessThanOrEqual(7);
   });

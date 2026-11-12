@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Sparkline } from "./chart";
 import { EcgStrip } from "./ecg";
 import { explain } from "./explain";
+import { floorSummary, type FloorSummary } from "./building";
+import { HospitalPanel, isHospitalId, W4HospitalSections } from "./hospital-panels";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
 import { BEDS } from "./sim/map";
@@ -73,12 +75,22 @@ export function TopBar({
   src,
   notice,
   onReset,
+  hospital,
+  zoom,
 }: {
   s: Sim;
   src: VitalsSource;
   notice: string | null;
   /** Left out in viewer mode, which has no clock of its own to change. */
   onReset?: () => void;
+  /** The view's own zoom (the canvas or the DOM view, whichever shows). Display only: it never reaches the sim. */
+  zoom?: { pct: number; onZoom: (action: "in" | "out" | "fit") => void };
+  /** Hospital world only: the view tabs, the scenario picker, the Panel toggle and +1 day. */
+  hospital?: {
+    skipping: boolean; onSkip: () => void;
+    view: number | null; onView: (view: number | null) => void; floors: { floor: number; label: string }[];
+    scenario: string; scenarios: string[]; onScenario: (name: string) => void; panel: boolean; onPanel: () => void;
+  };
 }) {
   const minute = minuteOf(s);
   return (
@@ -96,6 +108,33 @@ export function TopBar({
         </span>
       )}
       {s.ended && <span className="pill solid">Run ended</span>}
+      {hospital && (
+        <>
+          <div className="speeds" role="group" aria-label="View">
+            {[{ floor: null, label: "Building" }, ...[...hospital.floors].reverse()].map((v) => (
+              <button key={v.label} className={hospital.view === v.floor ? "on" : ""} aria-pressed={hospital.view === v.floor} onClick={() => hospital.onView(v.floor)}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <label>
+            Scenario{" "}
+            <select value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
+              {hospital.scenarios.map((n) => <option key={n}>{n}</option>)}
+            </select>
+          </label>
+          <button aria-pressed={hospital.panel} onClick={hospital.onPanel}>Panel</button>
+          <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
+        </>
+      )}
+      {zoom && (
+        <div className="speeds" role="group" aria-label="Zoom">
+          <button aria-label="Zoom out" title="Zoom out (-)" onClick={() => zoom.onZoom("out")}>-</button>
+          <span className="zoompct">{zoom.pct}%</span>
+          <button aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom.onZoom("in")}>+</button>
+          <button title="Fit: back to 100% (0)" onClick={() => zoom.onZoom("fit")}>Fit</button>
+        </div>
+      )}
       {onReset && (
         <div className="speeds right" role="group" aria-label="Simulation speed">
           {SPEEDS.map((speed) => (
@@ -103,6 +142,7 @@ export function TopBar({
               key={speed}
               className={s.speed === speed ? "on" : ""}
               aria-pressed={s.speed === speed}
+              disabled={hospital?.skipping}
               onClick={() => setSpeed(s, speed)}
             >
               {speed === 0 ? "Pause" : `${speed}x`}
@@ -756,12 +796,14 @@ export function Inspector({
   selected,
   onSelect,
   onTimeline,
+  floors,
 }: {
   s: Sim;
   src: VitalsSource;
   selected: string | null;
   onSelect: (id: string | null) => void;
   onTimeline: () => void;
+  floors?: FloorSummary[];
 }) {
   if (selected === null) {
     return (
@@ -788,10 +830,15 @@ export function Inspector({
   const staff = s.staff.find((m) => m.id === selected);
   return (
     <aside className="panel command">
-      <button onClick={() => onSelect(null)}>Back to full ward</button>
+      <button onClick={() => onSelect(null)}>{s.hospital && isHospitalId(selected) ? "Close" : "Back to full ward"}</button>
       <div className="scroll">
-        {patient ? (
-          <PatientPanel s={s} src={src} p={patient} />
+        {s.hospital && isHospitalId(selected) ? (
+          <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} />
+        ) : patient ? (
+          <>
+            <PatientPanel s={s} src={src} p={patient} />
+            <W4HospitalSections s={s} p={patient} onSelect={onSelect} />
+          </>
         ) : staff ? (
           <StaffPanel s={s} src={src} m={staff} />
         ) : stay ? (
