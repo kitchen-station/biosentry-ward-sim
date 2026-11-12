@@ -34,7 +34,7 @@ export function createHospitalSim(src: VitalsSource, scenario: Scenario, seed: n
     h.people.push({
       ...d, name: p.name, age: typeof p.age === "number" ? p.age : d.age, sex: p.sex as Sex, admit: true, icuIndicated: false,
       arrivedMin: 0, unit: "W4", where: "bed", sinceMin: 0, slot: null, wants: null, seenMin: null, decideMin: null,
-      dueMin: null, dieMin: null, boardedMin: 0, w4Id: p.id, fromW4: false, obsDueMin: null, obsLastMin: null, course: null, // W4: no rounds model, its own episodes
+      dueMin: null, dieMin: null, boardedMin: 0, w4Id: p.id, fromW4: false, obsDueMin: null, obsLastMin: null, course: null, visit: 1, history: [], // W4: no rounds model, its own episodes
     });
     h.createdCount += 1;
   }

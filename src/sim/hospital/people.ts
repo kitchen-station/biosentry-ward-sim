@@ -1,9 +1,9 @@
 // Person n: every draw it will ever need, made once at arrival from the stream `person:${n}`, always in this order and
 // always the same number of draws, so the same seed gives the same people under every scenario.
-import { GIVEN, INITIALS, SURNAMES } from "./names";
+import { BLOCKED_PAIRS, GIVEN, INITIALS, LEGACY, SURNAMES } from "./names";
 import { PARAMS, type Group, type Triage } from "./params";
 import { exponential, lognormal, normal, stream, weightedPick } from "./rng";
-import type { Course, PersonDraw } from "./types";
+import type { Course, PersonDraw, Sex } from "./types";
 
 export const GROUPS: Group[] = ["cardiac", "stroke", "hypertensive", "respiratory", "infection", "trauma", "minor"];
 export const TRIAGES: Triage[] = ["emergent", "urgent", "non_urgent"];
@@ -34,14 +34,38 @@ export function stayDeathP(group: Group, icuIndicated: boolean): number {
   return d.medicine.value;
 }
 
-export function drawPerson(seed: number, n: number): PersonDraw {
-  const r = stream(seed, `person:${n}`);
+/** Slice A3: three small integers a screen can draw: skin 0-3, hair 0-4 (0-2 under 60; 3 grey and 4 white from 60), shirt 0-5. Own stream, so no other draw moves. */
+export function lookOf(seed: number, n: number, age: number): [number, number, number] {
+  const r = stream(seed, `person:${n}:look`);
+  const [skin, hair, shirt] = [Math.floor(r() * 4), r(), Math.floor(r() * 6)];
+  return [skin, age >= 60 ? 3 + Math.floor(hair * 2) : Math.floor(hair * 3), shirt];
+}
+
+const BLOCKED = new Set(BLOCKED_PAIRS);
+/** The given-name index to use for a drawn one: the next given name while "surname, given" is a blocked pair (new pool only). */
+export function givenIndex(surname: string, sex: Sex, i: number): number {
+  const list = GIVEN[sex];
+  let j = i;
+  while (BLOCKED.has(`${surname}, ${list[j]}`)) j = (j + 1) % list.length;
+  return j;
+}
+
+/** Who a person is, carried from the first visit: a return keeps all of it (W4's first patients take name, age and sex from the W4 source). */
+export type Same = Pick<PersonDraw, "name" | "sex" | "age" | "group" | "look">;
+
+/** Visit 1 draws from `person:${n}`; a return (visit 2 and on) draws every visit number from `person:${n}:v${visit}`, but keeps `same`
+ *  (sex, name, age, group, look; the wording of the complaint is redrawn inside the group), so the same person comes back. */
+export function drawPerson(seed: number, n: number, visit = 1, same?: Same): PersonDraw {
+  const index = same ?? null;
+  const r = stream(seed, visit === 1 ? `person:${n}` : `person:${n}:v${visit}`);
   const P = PARAMS.people;
-  const sex = r() < P.maleShare.value ? "M" : "F";
+  const drawnSex = r() < P.maleShare.value ? "M" : "F";
+  const sex = index ? index.sex : drawnSex;
   const ageZ = normal(r, P.ageMean.value, P.ageSd.value);
   const cardiacAgeU = r();
   const [surname, given, initial] = [r(), r(), r()];
-  const group = GROUPS[weightedPick(r, GROUPS.map((g) => PARAMS.complaint[g].value))];
+  const drawnGroup = GROUPS[weightedPick(r, GROUPS.map((g) => PARAMS.complaint[g].value))];
+  const group = index ? index.group : drawnGroup;
   const phrases = PHRASES[group];
   const complaint = phrases[Math.floor(r() * phrases.length)];
   const triage = TRIAGES[weightedPick(r, TRIAGES.map((t) => PARAMS.triage[t].value))];
@@ -61,12 +85,17 @@ export function drawPerson(seed: number, n: number): PersonDraw {
   const [erU, erF, deathU, deathF] = [r(), r(), r(), r()];
   const [lo, hi] = P.cardiacAgeRange.value;
   const [alo, ahi] = P.ageRange.value;
-  const age = group === "cardiac" ? lo + Math.floor(cardiacAgeU * (hi - lo + 1)) : Math.min(ahi, Math.max(alo, Math.round(ageZ)));
+  // shortcut: a return is within 30 days, so no whole year passes and it keeps the index age; upgrade if returns ever span years
+  const age = index ? index.age : group === "cardiac" ? lo + Math.floor(cardiacAgeU * (hi - lo + 1)) : Math.min(ahi, Math.max(alo, Math.round(ageZ)));
   const admit = admitU < PARAMS.admitRate[group].value;
+  const fresh = PARAMS.returns.enabled.value;
+  const pool = fresh ? { SURNAMES, GIVEN } : LEGACY;
+  const sur = pool.SURNAMES[Math.floor(surname * pool.SURNAMES.length)];
+  const gi = Math.floor(given * pool.GIVEN[sex].length);
   return {
     id: `h-${String(n).padStart(6, "0")}`, n,
-    name: `${SURNAMES[Math.floor(surname * SURNAMES.length)]}, ${GIVEN[sex][Math.floor(given * GIVEN[sex].length)]} ${INITIALS[Math.floor(initial * 26)]}.`,
-    age, sex, group, complaint, triage,
+    name: index ? index.name : `${sur}, ${pool.GIVEN[sex][fresh ? givenIndex(sur, sex, gi) : gi]} ${INITIALS[Math.floor(initial * 26)]}.`,
+    age, sex, group, complaint, triage, look: index ? index.look : lookOf(seed, n, age),
     patienceMin: triage === "emergent" ? null : patience,
     admit, icuU, icuIndicated: admit && icuU < PARAMS.icuIndicated[group].value,
     decisionMin, stayMin, icuStayMin, dischargeHour,
@@ -78,8 +107,8 @@ export function drawPerson(seed: number, n: number): PersonDraw {
 /** Slice A2: person n's course for an admission decided at `decidedMin`, from its own stream `person:${n}:course` (three draws, in
  *  this order), so no draw of `person:${n}` moves and nobody else's fate shifts. Whether and when relative to the decision is the
  *  same under every scenario; where the person is at onset, and when the next round comes, are not. */
-export function drawCourse(seed: number, n: number, group: Group, stayMin: number, decidedMin: number): Course {
-  const r = stream(seed, `person:${n}:course`);
+export function drawCourse(seed: number, n: number, group: Group, stayMin: number, decidedMin: number, visit = 1): Course {
+  const r = stream(seed, visit === 1 ? `person:${n}:course` : `person:${n}:v${visit}:course`);
   const [detU, detF, excessU] = [r(), r(), r()];
   const R = PARAMS.course.ratePerDay;
   const rate = (group === "stroke" || group === "cardiac" || group === "trauma" || group === "minor" ? R[group] : R.medicine).value;

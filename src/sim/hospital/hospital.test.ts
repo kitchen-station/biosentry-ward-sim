@@ -3,9 +3,9 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import dohStandard from "../../../scenarios/hospital/doh-standard.json?raw";
 import surge from "../../../scenarios/hospital/surge.json?raw";
 import typical from "../../../scenarios/hospital/typical.json?raw";
-import { GIVEN, SURNAMES } from "./names";
+import { GIVEN, INITIALS, LEGACY, SURNAMES } from "./names";
 import { PARAMS } from "./params";
-import { drawCourse, drawPerson, GROUPS, stayDeathP, TRIAGES } from "./people";
+import { drawCourse, drawPerson, givenIndex, GROUPS, lookOf, stayDeathP, TRIAGES } from "./people";
 import { parseScenario, type Scenario } from "./scenario";
 import { stream } from "./rng";
 import { createHospital, noticedLateMin, overdueRounds, stepHospital, takeRows } from "./step";
@@ -75,8 +75,8 @@ describe("person n", () => {
     expect(drawPerson(7, 3)).not.toEqual(drawPerson(8, 3));
     expect(drawPerson(7, 3)).not.toEqual(drawPerson(7, 4));
     expect(SURNAMES).toHaveLength(PARAMS.people.namePool.value.surnames);
-    expect(GIVEN.F).toHaveLength(PARAMS.people.namePool.value.givenPerSex);
-    expect(GIVEN.M).toHaveLength(PARAMS.people.namePool.value.givenPerSex);
+    expect(GIVEN.F).toHaveLength(PARAMS.people.namePool.value.givenFemale);
+    expect(GIVEN.M).toHaveLength(PARAMS.people.namePool.value.givenMale);
     const N = 20000;
     const ps = Array.from({ length: N }, (_, i) => drawPerson(5, i + 1));
     const share = (f: (p: (typeof ps)[number]) => boolean) => ps.filter(f).length / N;
@@ -213,6 +213,7 @@ describe("state", () => {
     const KINDS: Record<EventKind, true> = {
       arrive: true, triage: true, consult: true, decide_home: true, decide_admit: true, board: true, place: true, transfer: true, discharge: true,
       lwbs: true, transfer_out: true, died: true, to_morgue: true, released: true, turned_away: true, deteriorate: true, noticed: true, unnoticed: true,
+      return_scheduled: true, return: true, return_dropped: true,
     };
     const UNIT_IDS: Record<UnitId, true> = { ER: true, MORGUE: true, ICU: true, MED3A: true, MED3B: true, W4: true, SURG5A: true };
     const events: EventRow[] = [];
@@ -224,6 +225,9 @@ describe("state", () => {
     scan(createHospital(54, { ...SC.typical, startOccupancy: 0, er: { ...SC.typical.er, bays: 2 } }, 40), 4); // the people cap
     const noRounds = (u: Scenario["units"]["MED3A"]) => ({ ...u, nurses: 0 });
     scan(createHospital(55, { ...tight, units: { ...tight.units, MED3A: noRounds(tight.units.MED3A), MED3B: noRounds(tight.units.MED3B), SURG5A: noRounds(tight.units.SURG5A) } }), 8); // no rounds: unnoticed
+    const keepCap = PARAMS.returns.cap.value;
+    PARAMS.returns.cap.value = 0; // every return is dropped: the third A3 kind
+    try { scan(createHospital(56, SC.typical), 6); } finally { PARAMS.returns.cap.value = keepCap; }
     expect([...new Set(events.map((e) => e.kind))].sort()).toEqual(Object.keys(KINDS).sort());
     expect([...new Set(hourly.map((r) => r.unit))].sort()).toEqual(Object.keys(UNIT_IDS).sort());
     const names = new RegExp(`\\b(${[...SURNAMES, ...GIVEN.F, ...GIVEN.M].join("|")})\\b`);
@@ -398,7 +402,7 @@ describe("the hospital's rules, checked every hour", () => {
     const craft = (n: number, o: Partial<Person>): Person => ({
       ...drawPerson(1, n), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
       deathU: 1, deathF: 0.5, stayMin: 5 * DAY, arrivedMin: 0, unit: "ER", where: "boarding", sinceMin: 0, slot: n, wants: "MED3A", seenMin: 0,
-      decideMin: 10, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 1e9, obsLastMin: null, course: null, ...o,
+      decideMin: 10, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 1e9, obsLastMin: null, course: null, visit: 1, history: [], ...o,
     });
     const house = (beds: [number, number], people: Person[]) => {
       const sc: Scenario = { ...SC.typical, startOccupancy: 0, er: { ...SC.typical.er, bays: 0 }, units: { ...SC.typical.units, MED3A: { beds: beds[0], stretchers: 0, nurses: 2 }, MED3B: { beds: beds[1], stretchers: 0, nurses: 2 } } };
@@ -610,12 +614,22 @@ const A1_KEYS = new Set([
 // unscaled) and these taken out too, the run must still hash to ae80706's value: courses are drawn and recorded, nothing else moves.
 const A2_KEYS = new Set(["course", "deteriorated", "noticed", "noticedLate", "delays", "noticed_late", "unnoticed_now", "recognition_delay_median_min"]);
 const A2_KINDS = new Set<string>(["deteriorate", "noticed", "unnoticed"]);
-const withoutA1A2 = (x: unknown) => JSON.stringify(x, (k, v) => (A1_KEYS.has(k) || A2_KEYS.has(k) ? undefined : v));
+// Every key and event kind A3 adds (state, event rows, hourly rows). With returns off, the old name lists and these taken out, nothing else moves.
+const A3_KEYS = new Set(["visit", "history", "look", "returning", "returns"]);
+const A3_KINDS = new Set<string>(["return_scheduled", "return", "return_dropped"]);
+const withoutA1A2 = (x: unknown) => JSON.stringify(x, (k, v) => (A1_KEYS.has(k) || A2_KEYS.has(k) || A3_KEYS.has(k) ? undefined : v));
+const withoutA3 = (x: unknown) => JSON.stringify(x, (k, v) => (A3_KEYS.has(k) ? undefined : v));
+/** Runs `f` with A3 off (no returns, the old name lists). */
+function a3Off<T>(f: () => T): T {
+  const keep = PARAMS.returns.enabled.value;
+  PARAMS.returns.enabled.value = false;
+  try { return f(); } finally { PARAMS.returns.enabled.value = keep; }
+}
 /** Runs `f` with A2's response switched off, then puts the values back. */
 function a2Off<T>(f: () => T): T {
   const C = PARAMS.course, keep = [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] as const;
   C.escalate.value = false; PARAMS.obs.excessDeathPerHour.value = 0; C.stayDeathScale.value = 1;
-  try { return f(); } finally { [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] = keep; }
+  try { return a3Off(f); } finally { [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] = keep; }
 }
 
 describe("A1 and A2 leave every old output as it was", () => {
@@ -648,7 +662,7 @@ describe("observation rounds (A1)", () => {
   const resident = (unit: UnitId, slot: number, o: Partial<Person> = {}): Person => ({
     ...drawPerson(1, (k += 1)), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
     deathU: 1, deathF: 0.5, arrivedMin: 0, unit, where: "bed", sinceMin: 0, slot, wants: null, seenMin: 0, decideMin: 0, dueMin: 1e9, dieMin: null,
-    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 0, obsLastMin: null, course: null, ...o,
+    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 0, obsLastMin: null, course: null, visit: 1, history: [], ...o,
   });
   const fill = (h: Hospital, people: Person[]) => { h.people = people; h.createdCount = people.length; };
 
@@ -812,7 +826,7 @@ describe("late recognition (A2)", () => {
   const resident = (unit: UnitId, slot: number | null, o: Partial<Person> = {}): Person => ({
     ...drawPerson(1, (k += 1)), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
     deathU: 1, deathF: 0.5, arrivedMin: 0, unit, where: "bed", sinceMin: 0, slot, wants: null, seenMin: 0, decideMin: 0, dueMin: 1e9, dieMin: null,
-    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: unit === "ICU" || unit === "W4" ? null : 0, obsLastMin: null, course: null, ...o,
+    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: unit === "ICU" || unit === "W4" ? null : 0, obsLastMin: null, course: null, visit: 1, history: [], ...o,
   });
   const go = (h: Hospital, people: Person[], to: number) => {
     h.people = people; h.createdCount = people.length;
@@ -985,4 +999,285 @@ describe("late recognition (A2)", () => {
     expect(med(starved)).toBeGreaterThan(1.5 * med(well));
     expect(well.at(-1)!).toBeLessThanOrEqual(O.intervalMin.routine.value + O.graceMin.routine.value); // well staffed: never past the band
   }, 120_000);
+});
+
+
+// ---- A3: returning people and more varied people ----
+describe("A3 leaves every v3 output as it was when returns are off", () => {
+  // Recorded from origin/main 8616326 (A2, no A3 code): 6 days, seeds 101-103, three scenarios, A2's response on, the hospital-level harness.
+  it("hashes events, hourly rows and the final state as on main", () => {
+    const hash = createHash("sha256");
+    a3Off(() => {
+      for (const k of ["standard", "typical", "surge"] as const) {
+        for (const seed of [101, 102, 103]) {
+          const h = createHospital(seed, SC[k]);
+          const { events, hourly } = run(h, acceptingPort(), 0, 6 * DAY);
+          expect(events.some((e) => A3_KINDS.has(e.kind))).toBe(false);
+          hash.update(withoutA3({ events, hourly, h }));
+        }
+      }
+    });
+    expect(hash.digest("hex").slice(0, 16)).toBe("b64d6ecc52607896");
+  }, 240_000);
+});
+
+describe("names and look (A3)", () => {
+  const VULGAR = ["Puto", "Tae", "Bobo", "Gago", "Tanga", "Ulol", "Pwet", "Puki", "Titi", "Shit", "Fuck", "Dick", "Cock", "Ass", "Bitch", "Whore"];
+  const OFFICE_FAMILIES = ["Marcos", "Aquino", "Duterte", "Estrada", "Arroyo", "Roxas", "Binay", "Pacquiao", "Rizal"];
+  const FAMOUS_PAIRS = [
+    "Ramos, Fidel", "Bonifacio, Andres", "Marcos, Ferdinand", "Aquino, Corazon", "Duterte, Rodrigo", "Estrada, Joseph", "Pacquiao, Manny",
+    "Yulo, Carlos", "Balagtas, Francisco", "Tagle, Luis", "Ruiz, Lorenzo", "Santos, Vilma", "Reyes, Efren", "Villanueva, Joel", "Teodoro, Gilberto",
+    "Tan, Lucio", "Pineda, Arnel", "Montano, Cesar", "Padilla, Dennis", "Ongpin, Jaime",
+  ];
+  const DROPPED_SURNAMES = ["Yulo", "Balagtas", "Tagle", "Ongpin", "Gatchalian", "Escudero", "Pimentel", "Teodoro"];
+  const DROPPED_GIVEN = ["Vilma", "Efren", "Lucio", "Joel", "Arnel", "Dennis"];
+  const STAGE = ["Vice", "Pokwang", "Sharon", "Dolphy", "Aga", "Kris", "Bossing", "Madonna", "Beyonce", "Rihanna", "Cher", "Prince", "Sting"];
+  const given = [...GIVEN.F, ...GIVEN.M];
+
+  it("holds 392 surnames, 149 female and 145 male given names, with no duplicates, letters only", () => {
+    expect([SURNAMES.length, GIVEN.F.length, GIVEN.M.length]).toEqual([392, 149, 145]);
+    for (const list of [SURNAMES, GIVEN.F, GIVEN.M]) {
+      expect(new Set(list).size).toBe(list.length);
+      expect(list.every((w) => /^[A-Z][a-z]+$/.test(w))).toBe(true);
+    }
+    expect(GIVEN.F.filter((w) => GIVEN.M.includes(w))).toEqual([]); // a name belongs to one sex
+  });
+
+  it("holds no office holder's family name, no famous full pair, no vulgar word, no single stage name", () => {
+    expect(SURNAMES.filter((w) => OFFICE_FAMILIES.includes(w))).toEqual([]);
+    expect(SURNAMES.filter((w) => DROPPED_SURNAMES.includes(w))).toEqual([]);
+    expect(given.filter((w) => DROPPED_GIVEN.includes(w))).toEqual([]);
+    // Every producible name: each surname with each given-name draw, after the generator's skip. None may be a blocked pair.
+    const made = new Set<string>();
+    for (const s of SURNAMES) for (const sex of ["F", "M"] as const) for (let i = 0; i < GIVEN[sex].length; i += 1) made.add(`${s}, ${GIVEN[sex][givenIndex(s, sex, i)]}`);
+    expect(made.size).toBeGreaterThan(100_000);
+    expect(FAMOUS_PAIRS.filter((x) => made.has(x))).toEqual([]);
+    // the skip is real: these two pairs are in the pools and are passed over
+    for (const [s, g, sex] of [["Ruiz", "Lorenzo", "M"], ["Montano", "Cesar", "M"]] as const) {
+      expect(GIVEN[sex]).toContain(g);
+      expect(GIVEN[sex][givenIndex(s, sex, GIVEN[sex].indexOf(g))]).not.toBe(g);
+    }
+    // and drawn people never carry one
+    for (let n = 1; n <= 3000; n += 1) expect(FAMOUS_PAIRS.some((x) => drawPerson(3, n).name.startsWith(x))).toBe(false);
+    const bad = new Set([...VULGAR, ...STAGE].map((w) => w.toLowerCase()));
+    expect([...SURNAMES, ...given].filter((w) => bad.has(w.toLowerCase()))).toEqual([]);
+  });
+
+  it("keeps the old 80 x 40 lists for the switch-off, and draws from them only then", () => {
+    expect([LEGACY.SURNAMES.length, LEGACY.GIVEN.F.length, LEGACY.GIVEN.M.length]).toEqual([80, 40, 40]);
+    const old = a3Off(() => Array.from({ length: 300 }, (_, i) => drawPerson(5, i + 1)));
+    expect(old.every((p) => LEGACY.SURNAMES.includes(p.name.split(", ")[0]))).toBe(true);
+    const now = Array.from({ length: 300 }, (_, i) => drawPerson(5, i + 1));
+    expect(now.some((p) => !LEGACY.SURNAMES.includes(p.name.split(", ")[0]))).toBe(true);
+    expect(now.every((p) => SURNAMES.includes(p.name.split(", ")[0]) && p.name.endsWith(".") && INITIALS.includes(p.name.at(-2)!))).toBe(true);
+    // only the strings move: every other draw is the same with the old lists
+    for (let i = 0; i < 300; i += 1) expect({ ...old[i], name: "" , look: null }).toEqual({ ...now[i], name: "", look: null });
+  });
+
+  it("gives few shared names among 600 live people", () => {
+    let shared = 0, pairsSeen = 0;
+    for (const seed of [101, 102, 103]) {
+      const names = Array.from({ length: 600 }, (_, i) => drawPerson(seed, i + 1).name);
+      const count = new Map<string, number>();
+      for (const x of names) count.set(x, (count.get(x) ?? 0) + 1);
+      shared += names.filter((x) => count.get(x)! > 1).length;
+      pairsSeen += names.length;
+    }
+    console.log(`name collision rate among 600 people: ${shared} of ${pairsSeen} share a name (${((shared / pairsSeen) * 100).toFixed(3)}%)`);
+    expect(shared / pairsSeen).toBeLessThan(0.005);
+  });
+
+  it("draws a look from its own stream: skin 0-3, hair 0-4 (grey or white from 60), shirt 0-5, the same on every visit", () => {
+    for (let n = 1; n <= 400; n += 1) {
+      const p = drawPerson(9, n);
+      const [skin, hair, shirt] = p.look;
+      expect([skin >= 0 && skin <= 3, shirt >= 0 && shirt <= 5, p.age >= 60 ? hair >= 3 && hair <= 4 : hair >= 0 && hair <= 2]).toEqual([true, true, true]);
+      expect(p.look).toEqual(lookOf(9, n, p.age));
+      expect(drawPerson(9, n, 2, p).look).toEqual(p.look);
+    }
+    expect(new Set(Array.from({ length: 400 }, (_, i) => drawPerson(9, i + 1).look.join())).size).toBeGreaterThan(30);
+  });
+
+  it("makes a return the same person: sex, name, age, group and look kept, the rest redrawn", () => {
+    let redrawn = 0;
+    for (let n = 1; n <= 300; n += 1) {
+      const a = drawPerson(4, n), b = drawPerson(4, n, 2, a), c = drawPerson(4, n, 3, a);
+      for (const x of [b, c]) expect([x.id, x.name, x.sex, x.age, x.group, x.look]).toEqual([a.id, a.name, a.sex, a.age, a.group, a.look]);
+      if (b.stayMin !== a.stayMin && b.deathU !== a.deathU) redrawn += 1;
+      expect(drawCourse(4, n, a.group, 5000, 0, 2)).not.toEqual(drawCourse(4, n, a.group, 5000, 0, 1));
+    }
+    expect(redrawn).toBeGreaterThan(280);
+  });
+});
+
+describe("returning people (A3)", () => {
+  const R = PARAMS.returns;
+  const month = (seed: number, sc: Scenario = SC.typical, port: () => FakePort = acceptingPort) => {
+    const h = createHospital(seed, sc);
+    return { h, ...run(h, port(), 0, 30 * DAY) };
+  };
+  const wardDischarges = (events: EventRow[]) => events.filter((e) => e.kind === "discharge" && e.unit !== "ER").length;
+
+  it("brings back the same person as visit 2, in the same id lineage, after 1 to 30 days", () => {
+    const { h, events } = month(101);
+    const back = events.filter((e) => e.kind === "return");
+    expect(back.length).toBeGreaterThan(10);
+    for (const e of back.slice(0, 30)) {
+      const a = drawPerson(101, nOf(e.person));
+      const now = [...h.people, ...h.gone].find((p) => p.id === e.person && p.visit === e.visit)!;
+      expect(e.visit).toBeGreaterThanOrEqual(2);
+      if (now) expect([now.name, now.sex, now.age, now.group, now.look]).toEqual([a.name, a.sex, a.age, a.group, a.look]);
+      const mine = events.filter((x) => x.person === e.person && x.minute <= e.minute);
+      const sched = mine.filter((x) => x.kind === "return_scheduled" && x.visit === e.visit - 1).at(-1)!;
+      const days = Number(/^in (\d+) d$/.exec(sched.detail)![1]);
+      expect(days).toBeGreaterThanOrEqual(1);
+      expect(days).toBeLessThanOrEqual(30);
+      expect(e.minute).toBeGreaterThanOrEqual(sched.minute + 1); // never before it was scheduled
+      expect(mine.some((x) => x.kind === "discharge" && x.visit === e.visit - 1 && x.minute === sched.minute)).toBe(true);
+      expect(mine.filter((x) => x.kind === "arrive" && x.visit === e.visit)).toHaveLength(1);
+    }
+    const live = h.people.filter((p) => p.visit > 1);
+    expect(live.length).toBeGreaterThan(0);
+    expect(live.every((p) => p.history.length === p.visit - 1 && p.history.every((v) => v.outcome === "discharged"))).toBe(true);
+  }, 120_000);
+
+  it("keeps one record per person: a returner's earlier visit leaves `gone` when they come back", () => {
+    const { h } = month(102);
+    const ids = [...h.people, ...h.gone].map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(h.createdCount).toBe(h.people.length + h.goneCount);
+  }, 120_000);
+
+  it("puts returns inside arrivalsPerDay: the same arrival slots are used with returns on or off", () => {
+    for (const seed of [101, 102, 103]) {
+      const on = month(seed).events, off = a3Off(() => month(seed).events);
+      const slots = (ev: EventRow[]) => ev.filter((e) => e.kind === "arrive" || (e.kind === "turned_away" && e.minute > 0)).length;
+      expect(on.filter((e) => e.kind === "return").length).toBeGreaterThan(0);
+      expect(slots(on)).toBe(slots(off)); // a return takes a slot, it adds none
+      expect(on.filter((e) => e.kind === "arrive").length / 30).toBeLessThan(SC.typical.arrivalsPerDay * 1.2); // inside the calibration window
+    }
+  }, 240_000);
+
+  it("never brings back the dead, and every return was scheduled by a live discharge", () => {
+    const { events } = month(103);
+    const died = new Map<string, number>();
+    for (const e of events) if (e.kind === "died") died.set(e.person, e.minute);
+    expect(died.size).toBeGreaterThan(20);
+    for (const e of events) if (e.kind === "return_scheduled" || e.kind === "return") expect(died.has(e.person) && died.get(e.person)! <= e.minute).toBe(false);
+    const sched = new Set(events.filter((e) => e.kind === "return_scheduled").map((e) => `${e.person}.${e.visit}`));
+    for (const e of events.filter((x) => x.kind === "return")) expect(sched.has(`${e.person}.${e.visit - 1}`)).toBe(true);
+  }, 120_000);
+
+  it("lands near 18% of ward discharges over seeds 101-103 (typical, standard, surge)", () => {
+    const out: string[] = [];
+    for (const [name, sc] of [["doh-standard", SC.standard], ["typical", SC.typical], ["surge", SC.surge]] as const) {
+      let sched = 0, disc = 0, back = 0, arrive = 0;
+      for (const seed of [101, 102, 103]) {
+        const { events } = month(seed, sc);
+        sched += events.filter((e) => e.kind === "return_scheduled").length; disc += wardDischarges(events);
+        back += events.filter((e) => e.kind === "return").length; arrive += events.filter((e) => e.kind === "arrive").length;
+      }
+      out.push(`${name}: scheduled ${(100 * sched / disc).toFixed(1)}% of ${disc} ward discharges, ${back} returns = ${(100 * back / arrive).toFixed(1)}% of ${arrive} arrivals`);
+      expect(sched / disc).toBeGreaterThan(0.14);
+      expect(sched / disc).toBeLessThan(0.22);
+    }
+    console.log(out.join("\n"));
+  }, 600_000);
+
+  it("decides each return from the person's own stream: the same person and visit give the same fate under any scenario", () => {
+    const fate = (sc: Scenario) => {
+      const m = new Map<string, string>();
+      const { events } = month(101, sc);
+      for (const e of events) if (e.kind === "discharge" && e.unit !== "ER") m.set(`${e.person}.${e.visit}`, "none");
+      for (const e of events) if (e.kind === "return_scheduled") m.set(`${e.person}.${e.visit}`, e.detail);
+      return m;
+    };
+    const a = fate(SC.standard), b = fate(SC.surge);
+    const shared = [...a.keys()].filter((k) => b.has(k));
+    expect(shared.length).toBeGreaterThan(100);
+    expect(shared.filter((k) => a.get(k) !== b.get(k))).toEqual([]);
+  }, 240_000);
+
+  it("caps the waiting list and records what it drops; the house cap holds with returners in it", () => {
+    const keep = R.cap.value;
+    R.cap.value = 3;
+    try {
+      const h = createHospital(101, SC.typical);
+      let most = 0;
+      const { events } = run(h, acceptingPort(), 0, 20 * DAY, (hh) => { most = Math.max(most, hh.returning.length); });
+      expect(most).toBeLessThanOrEqual(3);
+      expect(events.filter((e) => e.kind === "return_dropped").length).toBeGreaterThan(5);
+    } finally { R.cap.value = keep; }
+    const tiny = createHospital(101, SC.typical, 60);
+    let top = 0;
+    const { events } = run(tiny, acceptingPort(), 0, 20 * DAY, (hh) => { top = Math.max(top, hh.people.length); });
+    expect(top).toBeLessThanOrEqual(60);
+    expect(events.filter((e) => e.kind === "return").length).toBeGreaterThan(0);
+    const ids = [...tiny.people, ...tiny.gone].map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  }, 240_000);
+
+  it("keeps the last five visits in `history`", () => {
+    const keep = [R.readmit30.medicine.value, R.readmit30.other.value];
+    R.readmit30.medicine.value = 1; R.readmit30.other.value = 1;
+    try {
+      const h = createHospital(103, SC.standard);
+      run(h, acceptingPort(), 0, 200 * DAY);
+      const most = Math.max(...[...h.people, ...h.gone].map((p) => p.visit));
+      expect(most).toBeGreaterThanOrEqual(7);
+      expect(Math.max(...[...h.people, ...h.gone].map((p) => p.history.length))).toBe(5);
+      for (const p of [...h.people, ...h.gone]) {
+        expect(p.history.length).toBe(Math.min(5, p.visit - 1));
+        if (p.visit > 1) expect(p.history.at(-1)!.visit).toBe(p.visit - 1);
+      }
+    } finally { [R.readmit30.medicine.value, R.readmit30.other.value] = keep as [number, number]; }
+  }, 240_000);
+
+  it("continues identically after a JSON round trip with a return waiting", () => {
+    const a = createHospital(102, SC.typical), port = fullPort(); // W4 never discharges: its test double holds state a clone would not share
+    run(a, port, 0, 12 * DAY);
+    expect(a.returning.length).toBeGreaterThan(0);
+    const b = JSON.parse(JSON.stringify(a)) as Hospital;
+    const ra = run(a, port, 12 * DAY, 20 * DAY), rb = run(b, port, 12 * DAY, 20 * DAY);
+    expect(rb).toEqual(ra);
+    expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+    expect(ra.events.some((e) => e.kind === "return")).toBe(true);
+  }, 240_000);
+  it("draws a return's wait as 1 to 30 days: both ends reachable, nothing else", () => {
+    const keep = [R.readmit30.medicine.value, R.readmit30.other.value];
+    R.readmit30.medicine.value = 1; R.readmit30.other.value = 1;
+    try {
+      const { events } = month(101, SC.surge);
+      const days = new Set(events.filter((e) => e.kind === "return_scheduled").map((e) => Number(/^in (\d+) d$/.exec(e.detail)![1])));
+      expect([...days].sort((a, b) => a - b)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    } finally { [R.readmit30.medicine.value, R.readmit30.other.value] = keep as [number, number]; }
+  }, 240_000);
+
+  it("gives a due return the slot of the minute it falls due (due now counts)", () => {
+    const first = (h: Hospital) => { const { events } = run(h, fullPort(), 0, 3 * 60); return events.find((e) => e.kind === "arrive")!.minute; };
+    const m = first(createHospital(101, SC.typical));
+    const h = createHospital(101, SC.typical);
+    h.returning = [{ n: 7, visit: 2, atMin: m, history: [], same: drawPerson(101, 7) }];
+    const { events } = run(h, fullPort(), 0, m + 1);
+    expect([...events, ...h.events].filter((e) => e.kind === "return").map((e) => e.minute)).toEqual([m]); // rows are drained only on the hour
+  });
+
+  it("brings a W4-initial patient back as the same person: name, sex, age and look come from W4's record, not the draw", () => {
+    const keep = [R.readmit30.medicine.value, R.readmit30.other.value];
+    R.readmit30.medicine.value = 1; R.readmit30.other.value = 1;
+    try {
+      const h = createHospital(101, { ...SC.typical, startOccupancy: 0 });
+      let d = drawPerson(101, 2_000_001);
+      for (let k = 2_000_002; d.group !== "cardiac"; k += 1) d = drawPerson(101, k);
+      const w4: Person = { ...d, name: "Dela Cruz, Rosa M.", age: 71, sex: "F", look: [3, 4, 5], admit: true, icuIndicated: false, arrivedMin: 0, unit: "W4", where: "bed", sinceMin: 0, slot: null,
+        wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: "w4-x", fromW4: false, obsDueMin: null, obsLastMin: null, course: null, visit: 1, history: [] };
+      h.people.push(w4); h.createdCount += 1;
+      const port: FakePort = { now: 0, calls: [], admit: () => null, left: (id) => (id === "w4-x" && port.now >= 10 ? { outcome: "discharged", minute: port.now } : null) };
+      const seen: Person[] = [];
+      run(h, port, 0, 45 * DAY, (hh) => { const q = hh.people.find((p) => p.n === d.n && p.visit === 2); if (q && seen.length === 0) seen.push({ ...q }); });
+      const back = seen[0];
+      expect(back).toBeDefined();
+      expect([back.name, back.sex, back.age, back.look, back.group]).toEqual(["Dela Cruz, Rosa M.", "F", 71, [3, 4, 5], d.group]);
+    } finally { [R.readmit30.medicine.value, R.readmit30.other.value] = keep as [number, number]; }
+  }, 240_000);
 });

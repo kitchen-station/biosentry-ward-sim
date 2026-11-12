@@ -32,7 +32,7 @@ describe("hospital-trial command", () => {
     expect(readdirSync(root).filter((n) => n.includes(".tmp-"))).toEqual([]);
     expect(readdirSync(out).sort()).toEqual(["events.csv", "hourly.csv", "manifest.json", "summary.json"]);
     const m = JSON.parse(readFileSync(join(out, "manifest.json"), "utf8"));
-    expect(m).toMatchObject({ format_version: 3, synthetic: true, seed: 101, days: 1, speed: 60, warm_up_days: 3, sim_commit: "abc1234", hourly_rows: 168 });
+    expect(m).toMatchObject({ format_version: 4, synthetic: true, seed: 101, days: 1, speed: 60, warm_up_days: 3, sim_commit: "abc1234", hourly_rows: 168 });
     expect(m.scenario_sha256).toMatch(/^[0-9a-f]{64}$/);
     const out2 = join(root, "ok2");
     run(good(out2), { TRIAL_SIM_COMMIT: "ABC" });

@@ -8,21 +8,21 @@ import typical from "../scenarios/hospital/typical.json?raw";
 import type { EventKind, EventRow, HourRow, Person, Where } from "./sim/hospital/types";
 import type { Group, Triage, UnitId } from "./sim/hospital/params";
 
-const base = { arrivedMin: 100, sinceMin: 100, wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: null, obsLastMin: null, course: null } as const;
+const base = { arrivedMin: 100, sinceMin: 100, wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: null, obsLastMin: null, course: null, visit: 1, history: [] as never[], look: [0, 0, 0] as [number, number, number] } as const;
 let n = 0;
 function person(unit: UnitId, where: Where, slot: number | null, o: Partial<Person> = {}): Person {
   n += 1;
   return { ...base, id: `p${n}`, n, name: `Ana Reyes`, age: 50, sex: "F", group: "minor" as Group, complaint: "x", triage: "urgent" as Triage, patienceMin: null,
     admit: true, icuU: 0, icuIndicated: false, decisionMin: 0, stayMin: 0, icuStayMin: 0, dischargeHour: 0, erDeathAfterMin: null, deathU: 1, deathF: 0, unit, where, slot, ...o };
 }
-const ev = (person: string, minute: number, kind: EventKind, unit: UnitId = "ER", detail = ""): EventRow => ({ minute, person, w4_id: null, unit, kind, detail, news2_independent: true });
+const ev = (person: string, minute: number, kind: EventKind, unit: UnitId = "ER", detail = ""): EventRow => ({ minute, person, visit: 1, w4_id: null, unit, kind, detail, news2_independent: true });
 const row = (hour: number, unit: UnitId, census: number, o: Partial<HourRow> = {}): HourRow => ({
   hour, unit, census, beds: 10, stretchers_used: 0, occupancy_pct: 0, arrivals: 0, admitted_in: 0, discharged: 0, transferred_in: 0, transferred_out: 0, died: 0,
   nurses: 2, patients_per_nurse: null, er_waiting: null, er_consult: null, er_workup: null, er_boarding: null, er_boarding_hours: null, er_lwbs: null,
   door_to_doctor_median_min: null, icu_indicated_not_in_icu: null, morgue: null,
   obs_due: null, obs_done: null, obs_late: null, obs_overdue_now: null, obs_longest_overdue_min: null, care_min_demanded: null, care_min_available: null,
   obs_longest_since_round_min: null, obs_rel_late_median: null,
-  deteriorated: null, noticed: null, noticed_late: null, unnoticed_now: null, recognition_delay_median_min: null, ...o,
+  deteriorated: null, noticed: null, noticed_late: null, unnoticed_now: null, recognition_delay_median_min: null, returns: null, ...o,
 });
 
 function fixed() {
@@ -57,6 +57,15 @@ describe("personPath", () => {
     expect(personPath(h, late).note).toMatch(/Earlier events not kept/);
     expect(personPath(h, late).lines).toHaveLength(1);
     expect(personPath(h, res).note).toMatch(/when the run began/);
+  });
+
+  it("shows a return and never the sim's foreknowledge of one", () => {
+    const h = fixed();
+    const p = person("MED3A", "bed", 0, { arrivedMin: 10 });
+    h.events = [ev(p.id, 10, "arrive"), ev(p.id, 200, "discharge"), ev(p.id, 200, "return_scheduled", "MED3A", "in 12 d"), ev(p.id, 900, "return", "ER", "visit 2"), ev(p.id, 950, "return_dropped", "MED3A", "visit 3")];
+    const path = personPath(h, p);
+    expect(path.lines.map((l) => l.kind)).toEqual(["arrive", "discharge", "return"]);
+    expect(path.lines[2].text).toBe("Came back to the emergency room (visit 2)");
   });
 });
 
