@@ -3,7 +3,10 @@ import { spawnSync, execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// Every test here starts real node processes: a few seconds alone, far more on a busy machine. Only the time limit is raised.
+vi.setConfig({ testTimeout: 60_000 });
 
 let root: string, bin: string;
 const SCEN = "scenarios/hospital/typical.json";
