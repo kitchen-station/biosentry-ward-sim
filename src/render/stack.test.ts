@@ -11,7 +11,7 @@ import typical from "../../scenarios/hospital/typical.json?raw";
 import { backingFor, createRenderer, iso, LOGICAL_H, LOGICAL_W, onSlab } from "./draw";
 import { BUILDING, ease, lift, litCount, segments, storeyAt, storeyLit, STOREY } from "./facade";
 import { FLOORS } from "./floors";
-import { slabTag } from "./scene";
+import { floorScene, slabTag } from "./scene";
 import { CAMERA_AT, createStackRenderer, GAP, nextLevel, OPEN_S, slabIndex, slabTop, storeyY, WORLD_H, type Level, type LevelEvent } from "./stack";
 
 beforeAll(() => {
@@ -558,5 +558,58 @@ describe("the open stack's two layers", () => {
       expect(recomposed[0]).toBeLessThanOrEqual(repaints[0]);
       expect(recomposed[1]).toBeLessThanOrEqual(repaints[1]);
       expect(recomposed[0] + recomposed[1]).toBeLessThanOrEqual(5 * 4 * 3); // five ghosts at most four times a second, 3 s
+    }));
+});
+
+describe("an open floor paints only when what it shows changed", () => {
+  it("paused and settled, a frame repeats the last: hover, selection, a resize, redraw and W4's quarter-second paint again", () =>
+    openStack(() => 3, ({ st, frame }) => {
+      const drew = (now = 0, selected: string | null = null, hovered: string | null = null) => frame(now, selected, hovered).drew;
+      expect([drew(), drew(), drew()]).toEqual([false, false, false]);
+      expect([drew(0, null, "unit:MED3A"), drew(0, null, "unit:MED3A"), drew(0, null, null), drew()]).toEqual([true, false, true, false]);
+      const sel = Array.from({ length: 300 }, () => drew(0, "unit:MED3A")); // the camera eases onto it, then rests
+      expect(sel[0]).toBe(true);
+      expect(sel.slice(-10)).toEqual(Array(10).fill(false));
+      expect(drew(0, null)).toBe(true);
+      Array.from({ length: 300 }, () => drew());
+      expect(drew()).toBe(false);
+      st.resize(1000, 382, 1);
+      expect([drew(), drew()]).toEqual([true, false]);
+      st.redraw(); // every ghost is repainted again, one a frame, and each repaint shows
+      const again = Array.from({ length: FLOORS.length + 1 }, () => drew());
+      expect(again[0]).toBe(true);
+      expect(again.slice(-1)).toEqual([false]);
+      expect([drew(0.25), drew(0.25), drew(0.3)]).toEqual([true, false, false]); // W4's ghost, above, repainted once
+    }));
+
+  it("a running hospital paints every frame; W4 focused is never skipped, paused or not", () => {
+    openStack(() => 3, ({ s, frame }) => {
+      s.speed = 1;
+      expect(Array.from({ length: 60 }, () => frame(0).drew).every(Boolean)).toBe(true); // the clock moves the staff
+      s.speed = 0;
+    });
+    openStack(() => 4, ({ frame }) => {
+      expect(Array.from({ length: 60 }, () => frame(0).drew).every(Boolean)).toBe(true);
+    });
+  });
+
+  it("a full drawer's blink on the focused floor paints the frame it turns, live", () =>
+    openStack(() => 0, ({ s, st, main, frame }) => {
+      const src = createSyntheticSource(FIXTURE_SEED, true);
+      s.speed = 60;
+      const gf = FLOORS[slabIndex(0)];
+      while (!floorScene(s.hospital!, gf).drawers.some((d) => d.full)) step(s, src);
+      s.speed = 0;
+      for (let i = 0; i < 300; i += 1) st.frame(s, null, null, 1 / 60, 0.1); // the new minute settles
+      expect(frame(0.1).drew).toBe(false);
+      // The blink turns on the half-second; the drawer's light is cream for one of every six.
+      const cream = (now: number) => {
+        main.log.length = 0;
+        const drew = frame(now).drew;
+        return drew && main.log.includes('fillStyle="#FFF8E7"');
+      };
+      const turns = [0.6, 1.1, 1.6, 2.1, 2.6, 3.1].map(cream);
+      expect(turns.some(Boolean)).toBe(true);
+      expect(frame(3.1).drew).toBe(false);
     }));
 });

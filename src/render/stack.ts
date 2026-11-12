@@ -275,7 +275,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
           return false;
         }
         painted = key;
-      } else painted = null;
+      } else if (open === 0) painted = null; // open, the frame's own key is below
 
       const stage = () => {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -341,6 +341,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       if (open < 1 || focus < 0 || !settled) {
         // Opening, closing or the camera easing: everything changes every frame, so paint it all here, as before.
         layerKey = [null, null];
+        painted = null;
         stage();
         toWorld(ctx);
         if (e < 1) {
@@ -373,6 +374,13 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       };
       compose(0, FLOORS.map((_, i) => i).filter((i) => i < focus));
       compose(1, FLOORS.map((_, i) => i).filter((i) => i > focus));
+      // Everything the focused floor draws: its scene (a new object each minute), the clock (staff and movers; it stands
+      // still only while the hospital is paused or ended), the selection, the hover and its drawers' blink. The layers are
+      // new arrays whenever recomposed. W4 is never skipped: its machines and alarms blink from now even when paused.
+      const scene = live.scenes[focus];
+      const key = [layerKey[0], layerKey[1], scene, clock, selected, hovered, blink(scene, now)];
+      if (FLOORS[focus] !== W4 && same(painted, key)) return false;
+      painted = key;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(layers[0], 0, 0);
       toWorld(ctx);
