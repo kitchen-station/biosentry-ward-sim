@@ -2,9 +2,11 @@
 // Three levels: STACK (every slab), FLOOR (one slab live, the others ghosted) and THING (zoomed onto one thing on it).
 // Reads the sim, never changes it. Time comes only from frame(dt, now).
 import { clampCam, fitCam, panBy, zoomAbout, ZOOM_MIN, type Cam } from "../camera";
+import { floorSummary, type FloorSummary } from "../building";
 import type { Sim } from "../sim/sim";
-import { createSlab, createW4, iso, LOGICAL_H, LOGICAL_W, onSlab, roomCentre, tag, ZOOM, type Renderer } from "./draw";
-import { FLOORS, W4, type FloorSpec } from "./floors";
+import { createFloor, createW4, iso, LOGICAL_H, LOGICAL_W, onSlab, tag, ZOOM, type Renderer } from "./draw";
+import { FLOORS, W4 } from "./floors";
+import { EMPTY, floorScene, slabTag, type Scene } from "./scene";
 
 export const GAP = 200; // logical px from one floor to the next; a slab's diamond is 324 px tall, so the one above hides only a strip of its back wall
 export const WORLD_H = LOGICAL_H + (FLOORS.length - 1) * GAP;
@@ -15,7 +17,6 @@ const GHOST_BACKING = 2;
 const top = FLOORS.length - 1;
 export const slabTop = (i: number) => (top - i) * GAP; // floor i's logical y in the world
 export const slabIndex = (floor: number) => FLOORS.findIndex((f) => f.floor === floor);
-export const floorLabel = (floor: number) => (floor === 0 ? "GF" : `${floor}F`);
 
 export interface Level { view: number | null; selected: string | null }
 export type LevelEvent = { slab: number } | { rail: number | null } | { thing: string; floor: number } | "empty" | "outside" | "escape";
@@ -29,20 +30,23 @@ export function nextLevel(l: Level, e: LevelEvent): Level {
   return { view: e.floor, selected: e.thing };
 }
 
-/** A label's own click box on a floor that has no live things yet: the text, roughly. */
-function labelAt(spec: FloorSpec, x: number, y: number): string | null {
-  for (const room of spec.rooms) {
-    const [cx, cy] = roomCentre(room);
-    if (room.sel && Math.abs(x - cx) <= room.label.length * 2 + 4 && Math.abs(y - cy) <= 6) return room.sel;
-  }
-  return null;
-}
-
 /** `getView` is App's floor (null for the whole stack). Same surface as createRenderer, so App drives either. */
 export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null): Renderer {
   const ctx = canvas.getContext("2d")!;
   const w4 = createW4();
-  const slabs = FLOORS.map((spec) => (spec === W4 ? null : createSlab(spec)));
+  const slabs = FLOORS.map((spec) => (spec === W4 ? null : createFloor(spec)));
+  // Who is where changes only when the hospital steps a minute: the scenes are worked out once per minute, not per frame.
+  let memo: { h: unknown; minute: number; floors: FloorSummary[]; scenes: Scene[] } | null = null;
+  function scenes(s: Sim): { floors: FloorSummary[] | null; scenes: Scene[] } {
+    const h = s.hospital;
+    if (!h) return { floors: null, scenes: FLOORS.map(() => EMPTY) };
+    if (memo?.h !== h || memo.minute !== h.lastMinute) {
+      const floors = floorSummary(h);
+      memo = { h, minute: h.lastMinute, floors, scenes: FLOORS.map((spec) => floorScene(h, spec, floors)) };
+    }
+    return memo;
+  }
+  let turn = 0; // the ghost repainted this frame, round-robin
   // Ghosts are pictures of a whole slab, so a translucent floor does not show its own walls through its floor.
   const ghosts = FLOORS.map(() => {
     const c = document.createElement("canvas");
@@ -50,11 +54,14 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     c.height = LOGICAL_H * GHOST_BACKING;
     return c;
   });
-  ghosts.forEach((c, i) => {
-    const g = c.getContext("2d")!;
+  function paintGhost(i: number, scene: Scene, now: number) {
+    const g = ghosts[i].getContext("2d")!;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
     g.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
-    slabs[i]?.(g);
-  });
+    slabs[i]?.paint(g, scene, null, null, now);
+  }
+  ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
   const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
 
   const cam: Cam = { zoom: 1, x: LOGICAL_W / 2, y: WORLD_H / 2 }; // world coordinates
@@ -71,8 +78,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   function focusPoint(s: Sim, view: number, id: string): [number, number] | null {
     const spec = FLOORS[slabIndex(view)];
     if (spec === W4) return w4.focusPoint(s, id);
-    const room = spec?.rooms.find((r) => r.sel === id);
-    return room ? roomCentre(room) : null;
+    const i = slabIndex(view);
+    return slabs[i]?.focusPoint(scenes(s).scenes[i], id) ?? null;
   }
 
   function target(s: Sim, view: number | null, selected: string | null): Cam {
@@ -92,7 +99,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     const [x, y] = iso(0, 13);
     return [viewW / 2 + (x - cam.x) * cam.zoom, viewH / 2 + (y + slabTop(i) - cam.y) * cam.zoom];
   };
-  const tagText = (spec: FloorSpec) => `${floorLabel(spec.floor)} ${spec.name}`;
+  let tagFloors: FloorSummary[] | null = null; // the summary the slab tags last showed, so hit() reads the same text
+  const tagText = (i: number) => slabTag(FLOORS[i], tagFloors);
 
   return {
     resize(width: number, height: number, ratio: number) {
@@ -130,6 +138,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     reset() {
       user = fitCam(LOGICAL_W, LOGICAL_H);
       shown = undefined;
+      turn = 0;
+      memo = null;
       w4.reset();
     },
 
@@ -152,6 +162,14 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       ctx.imageSmoothingEnabled = false;
 
       const focus = view === null ? -1 : slabIndex(view);
+      const live = scenes(s);
+      tagFloors = live.floors;
+      // Floors other than W4 show from their cached pictures unless focused; one of them is repainted a frame (all on the first).
+      const first = turn === 0;
+      FLOORS.forEach((spec, i) => {
+        if (spec !== W4 && i !== focus && (first || turn % FLOORS.length === i)) paintGhost(i, live.scenes[i], now);
+      });
+      turn += 1;
       const peek = view === null && hovered?.startsWith("floor:") ? slabIndex(Number(hovered.slice(6))) : -1;
       // Painter's order, GF first. W4 is painted exactly once a frame (it moves its own trolleys): live, or into its ghost.
       FLOORS.forEach((spec, i) => {
@@ -160,7 +178,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
           ctx.save();
           ctx.translate(0, slabTop(i));
           if (spec === W4) w4.paint(ctx, s, i === focus ? selected : null, i === focus ? hovered : null, dt, now);
-          else slabs[i]!(ctx);
+          else if (i === focus) slabs[i]!.paint(ctx, live.scenes[i], selected, hovered, now);
+          else ctx.drawImage(ghosts[i], 0, 0, LOGICAL_W, LOGICAL_H); // the stack: every slab from its cache
           ctx.restore();
           return;
         }
@@ -190,9 +209,9 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
         ctx.stroke();
       }
       ctx.setTransform(backing, 0, 0, backing, 0, 0);
-      FLOORS.forEach((spec, i) => {
+      FLOORS.forEach((_, i) => {
         const [x, y] = tagAnchor(i);
-        tag(ctx, tagText(spec), x, y, undefined, i === peek);
+        tag(ctx, tagText(i), x, y, undefined, i === peek);
       });
     },
 
@@ -205,7 +224,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
         const [sx, sy] = [cssX / scale, cssY / scale];
         for (let i = top; i >= 0; i -= 1) {
           const [tx, ty] = tagAnchor(i);
-          if (Math.abs(sx - tx) <= tagText(FLOORS[i]).length * 2 + 4 && sy <= ty && sy >= ty - 12) return `floor:${FLOORS[i].floor}`;
+          if (Math.abs(sx - tx) <= tagText(i).length * 2 + 4 && sy <= ty && sy >= ty - 12) return `floor:${FLOORS[i].floor}`;
         }
         for (let i = top; i >= 0; i -= 1) if (onSlab(x, y - slabTop(i))) return `floor:${FLOORS[i].floor}`;
         return null;
@@ -213,7 +232,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       const i = slabIndex(view);
       const ly = y - slabTop(i);
       if (!onSlab(x, ly)) return null;
-      return (FLOORS[i] === W4 ? w4.hit(s, x, ly) : labelAt(FLOORS[i], x, ly)) ?? "";
+      return (FLOORS[i] === W4 ? w4.hit(s, x, ly) : slabs[i]!.hit(scenes(s).scenes[i], x, ly)) ?? "";
     },
   };
 }

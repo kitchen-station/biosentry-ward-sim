@@ -2,17 +2,21 @@
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
 import { clampCam, fitCam, panBy, zoomAbout, type Cam } from "../camera";
-import { findPath, nurseStand, BEDS, CORRIDOR, MAP_H, MAP_W, STATIONS, bedByLabel, type Floor, type Room, type Tile } from "../sim/map";
-import { W4, type FloorSpec } from "./floors";
+import { findPath, nurseStand, BEDS, CORRIDOR, MAP_H, MAP_W, STATIONS, bedByLabel, type Bed, type Tile } from "../sim/map";
+import { GROUP_COLOURS, type Cell } from "../building";
+import { W4, type FloorSpec, type SpecRoom, type Tint } from "./floors";
+import type { Scene } from "./scene";
 import { staffById, staffStatus, type Sim } from "../sim/sim";
 import {
   ENVELOPE,
   ENVELOPE_PALETTE,
+  NURSE_PALETTES,
   PATIENT_HEAD,
   PERSON,
   PLANT,
   PLANT_PALETTE,
   STAFF_PALETTES,
+  figurePalette,
   patientPalette,
   sprite,
 } from "./sprites";
@@ -113,6 +117,7 @@ interface Item {
   image: HTMLCanvasElement;
   bed?: string;
   empty?: HTMLCanvasElement; // a bed's picture with nobody in it
+  body?: HTMLCanvasElement; // and with a body under a sheet, awaiting the morgue
   dx: number;
   dy: number;
 }
@@ -139,7 +144,7 @@ const hex = (colour: string): [number, number, number] => [
 ];
 
 // [grout, light, dark] per room type; each room reads as its own space.
-const FLOORS: Record<Floor, [string, string, string]> = {
+const FLOORS: Record<Tint, [string, string, string]> = {
   bay: ["#97B09F", "#BBD0C1", "#AEC5B6"],
   hdu: ["#93AFC0", "#C3D8E4", "#B5CDDB"],
   side: ["#B8A48F", "#E8D5C2", "#DECAB5"],
@@ -148,6 +153,8 @@ const FLOORS: Record<Floor, [string, string, string]> = {
   utility: ["#B9C2C7", "#EEF1F2", "#E2E7EA"],
   family: ["#B3A7C2", "#DDD3E6", "#D2C7DD"],
   comms: ["#4B566A", "#6B7A8F", "#637286"],
+  waiting: ["#C9B98F", "#F4E9C7", "#EADDB5"],
+  cold: ["#9AA6AE", "#D5DDE2", "#C9D2D8"],
 };
 
 const roomIn = (spec: FloorSpec, x: number, y: number) =>
@@ -231,11 +238,14 @@ function wallItem(map: string[], x: number, y: number): Item {
   });
 }
 
-function bedItem(bedX: number, headY: number, footY: number, patient: number | null): Item {
+const SHEET: [string, string, string] = ["#FFFDF5", "#E3DFD0", "#CFCABA"];
+
+/** body: a sheet over the whole length, head included, and no blanket colour. */
+function bedItem(bedX: number, headY: number, footY: number, patient: number | null, body = false): Item {
   const y0 = Math.min(headY, footY);
   const north = headY < footY;
   const frame: [string, string, string] = ["#D9D3C4", "#9F9A8E", "#8A8579"];
-  const sheet: [string, string, string] = ["#FFFDF5", "#E3DFD0", "#CFCABA"];
+  const sheet = SHEET;
   const blanket: [string, string, string] =
     patient === null ? ["#D9E4EC", "#B8C7D2", "#A5B5C1"] : ["#7DA7D9", "#5E89BC", "#4F78A9"];
   return bake(y0 + 1 + bedX, bedX, y0, 1, 2, 16, (ctx) => {
@@ -243,10 +253,11 @@ function bedItem(bedX: number, headY: number, footY: number, patient: number | n
     box(ctx, x, y0, 0.76, 2, 4, frame);
     box(ctx, x, y0, 0.76, 2, 2, sheet, 4);
     const blanketY = north ? y0 + 0.75 : y0;
-    box(ctx, x, blanketY, 0.76, 1.25, patient === null ? 2 : 3, blanket, 4);
-    box(ctx, x + 0.1, north ? y0 + 0.08 : y0 + 1.42, 0.56, 0.5, 2, sheet, 6);
+    if (body) box(ctx, x + 0.06, y0 + 0.1, 0.64, 1.8, 4, ["#F2EEE2", "#CFCABA", "#BDB8A8"], 4);
+    else box(ctx, x, blanketY, 0.76, 1.25, patient === null ? 2 : 3, blanket, 4);
+    if (!body) box(ctx, x + 0.1, north ? y0 + 0.08 : y0 + 1.42, 0.56, 0.5, 2, sheet, 6);
     box(ctx, x, north ? y0 : y0 + 1.92, 0.76, 0.08, 12, ["#E8D9A0", "#C7B583", "#B3A172"]);
-    if (patient !== null) {
+    if (patient !== null && !body) {
       const [sx, sy] = iso(bedX + 0.5, north ? y0 + 0.36 : y0 + 1.66);
       ctx.drawImage(sprite(PATIENT_HEAD, patientPalette(patient)), sx - 3, sy - 13);
     }
@@ -267,6 +278,22 @@ function tileItem(spec: FloorSpec, ch: string, x: number, y: number): Item | nul
         } else if ((x + 1) % 2 === 0) {
           box(ctx, x + 0.3, y + 0.4, 0.4, 0.15, 7, ["#3D2E4A", "#1A1320", "#1A1320"], 7);
         }
+      });
+    case "c":
+      return bake(depth, x, y, 1, 1, 10, (ctx) => {
+        box(ctx, x + 0.2, y + 0.2, 0.6, 0.6, 4, ["#C79A6B", "#8F6843", "#7A5838"]);
+        box(ctx, x + 0.2, y + 0.2, 0.6, 0.12, 9, ["#C79A6B", "#8F6843", "#7A5838"]);
+      });
+    case "M":
+      return bake(depth, x, y, 1, 1, 20, (ctx) => {
+        box(ctx, x + 0.05, y + 0.1, 0.9, 0.8, 16, ["#D5DDE2", "#9AA6AE", "#87939B"]);
+        [3, 8, 13].forEach((h) => leftFaceBand(ctx, x + 0.05, y + 0.9, 0.9, h, h + 1, "#5E6B75", 3));
+      });
+    case "V":
+      return bake(depth, x, y, 1, 1, 26, (ctx) => {
+        box(ctx, x + 0.3, y + 0.3, 0.4, 0.4, 10, ["#D9D3C4", "#9F9A8E", "#8A8579"]);
+        box(ctx, x + 0.2, y + 0.35, 0.6, 0.15, 9, ["#3D2E4A", "#1A1320", "#1A1320"], 10);
+        leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 12, 18, "#4ECDC4", 1);
       });
     case "D":
       return bake(depth, x, y, 1, 1, 20, (ctx) => {
@@ -349,7 +376,7 @@ function buildItems(spec: FloorSpec): Item[] {
   // Both pictures, because patients come and go.
   spec.beds.forEach((bed, i) => {
     const [x, head, foot] = [bed.head[0], bed.head[1], bed.foot[1]];
-    items.push({ ...bedItem(x, head, foot, i), bed: bed.label, empty: bedItem(x, head, foot, null).image });
+    items.push({ ...bedItem(x, head, foot, i), bed: bed.label, empty: bedItem(x, head, foot, null).image, body: bedItem(x, head, foot, i, true).image });
   });
   return items.sort((a, b) => a.depth - b.depth);
 }
@@ -430,17 +457,219 @@ function floorText(ctx: Ctx, spec: FloorSpec) {
   label(ctx, spec.name, wx, wy, "rgba(26,19,32,.6)", FONT);
 }
 
-export const roomCentre = (room: Room) => iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
+export const roomCentre = (room: SpecRoom) => iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
 
-/** A floor with no live content: baked once, painted in its own logical pixels. */
-export function createSlab(spec: FloorSpec) {
+const unIso = (px: number, py: number): [number, number] => {
+  const a = (px - OX) / HALF_W;
+  const b = (py - OY) / HALF_H;
+  return [(a + b) / 2, (b - a) / 2];
+};
+/** Whether a logical point falls on a w x d footprint at (tx, ty), or on anything standing up to h px on it. */
+function onFootprint(x: number, y: number, tx: number, ty: number, w: number, d: number, h: number) {
+  for (let lift = 0; lift <= h; lift += 1) {
+    const [u, v] = unIso(x, y + lift);
+    if (u >= tx && u < tx + w && v >= ty && v < ty + d) return true;
+  }
+  return false;
+}
+function outline(ctx: Ctx, tx: number, ty: number, w: number, d: number, selected: boolean) {
+  const [a, right, b, left] = [iso(tx, ty), iso(tx + w, ty), iso(tx + w, ty + d), iso(tx, ty + d)];
+  ctx.strokeStyle = selected ? "#FFD93D" : CREAM;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(a[0], a[1]);
+  ctx.lineTo(right[0], right[1]);
+  ctx.lineTo(b[0], b[1]);
+  ctx.lineTo(left[0], left[1]);
+  ctx.closePath();
+  ctx.stroke();
+}
+const tilePoint = (t: Tile, lift: number): [number, number] => {
+  const [x, y] = iso(t[0] + 0.5, t[1] + 0.5);
+  return [x, y - lift];
+};
+const bedPoint = (bed: Bed): [number, number] => {
+  const y0 = Math.min(bed.head[1], bed.foot[1]);
+  const [x, y] = iso(bed.head[0] + 0.5, y0 + (bed.north ? 0.9 : 1.1));
+  return [x, y - 8];
+};
+/** Initials; "XX ICU" for an ICU-indicated person once admitted; a body's tag is inverted and has no dot. */
+const cellText = (c: Cell) => (c.icu && !c.dead ? `${c.initials} ICU` : c.initials);
+const cellTag = (ctx: Ctx, c: Cell, x: number, bottom: number) => tag(ctx, cellText(c), x, bottom, c.dead ? undefined : GROUP_COLOURS[c.group], c.dead);
+const inTag = (x: number, y: number, cx: number, bottom: number, text: string, dot: boolean) =>
+  Math.abs(x - cx) <= text.length * 2 + (dot ? 6 : 3) && y >= bottom - 12 && y <= bottom;
+const TROLLEY: [string, string, string] = ["#7DA7D9", "#5E89BC", "#4F78A9"];
+const COVER: [string, string, string] = ["#F2EEE2", "#CFCABA", "#BDB8A8"];
+
+/** A hospital floor other than W4: baked once; who is where comes from its scene (render/scene.ts) at each paint. */
+export function createFloor(spec: FloorSpec) {
   const floor = bakeFloor(spec);
   const items = buildItems(spec);
-  return (ctx: Ctx) => {
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(floor, 0, 0);
-    floorText(ctx, spec);
-    for (const item of items) ctx.drawImage(item.image, item.dx, item.dy);
+  const nurses = NURSE_PALETTES.map((p) => sprite(PERSON.front.stand, p));
+  const heads = Array.from({ length: 5 }, (_, i) => sprite(PATIENT_HEAD, patientPalette(i)));
+  const figures = new Map<string, HTMLCanvasElement>(); // per triage colour and skin
+  const figure = (colour: string, n: number) => {
+    const key = `${colour}:${n % 5}`;
+    if (!figures.has(key)) figures.set(key, sprite(PERSON.front.stand, figurePalette(colour, n)));
+    return figures.get(key)!;
+  };
+  const personN = (id: string) => Number(id.slice(2)) || 0;
+  const depthOf = (t: Tile) => t[0] + t[1] + 0.01;
+
+  function drawSpot(ctx: Ctx, tile: Tile, c: Cell, morgue: boolean) {
+    const [x, y] = tile;
+    const [sx, sy] = iso(x + 0.5, y + 0.5);
+    ctx.fillStyle = "rgba(26,19,32,.28)";
+    ctx.fillRect(sx - 6, sy - 1, 12, 2);
+    if (c.dead || morgue) {
+      box(ctx, x + 0.1, y + 0.2, 0.8, 0.6, 2, COVER, 3);
+      box(ctx, x + 0.2, y + 0.3, 0.6, 0.4, 2, COVER, 5);
+    } else {
+      box(ctx, x + 0.1, y + 0.2, 0.8, 0.6, 2, TROLLEY, 3);
+      ctx.drawImage(heads[c.slot % 5], sx - 3, sy - 13);
+    }
+  }
+
+  return {
+    paint(ctx: Ctx, scene: Scene, selected: string | null, hovered: string | null, now: number) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(floor, 0, 0);
+      floorText(ctx, spec);
+      const beds = new Map(scene.beds.map((b) => [b.bed.label, b]));
+      const actors: { depth: number; draw: () => void }[] = [
+        ...scene.spots.map((p) => ({ depth: depthOf(p.tile), draw: () => drawSpot(ctx, p.tile, p.cell, p.unit === "MORGUE") })),
+        ...scene.staff.map((m) => ({
+          depth: depthOf(m.tile),
+          draw: () => {
+            const [sx, sy] = iso(m.tile[0] + 0.5, m.tile[1] + 0.5);
+            ctx.fillStyle = "rgba(26,19,32,.28)";
+            ctx.fillRect(sx - 5, sy - 1, 10, 2);
+            ctx.drawImage(nurses[m.i % nurses.length], sx - 6, sy - 20);
+          },
+        })),
+        ...scene.queue.map((q) => ({
+          depth: depthOf(q.tile),
+          draw: () => {
+            const [sx, sy] = iso(q.tile[0] + 0.5, q.tile[1] + 0.5);
+            const img = figure(q.colour, personN(q.id));
+            if (q.seated) ctx.drawImage(img, 0, 0, 12, 17, sx - 6, sy - 17, 12, 17); // the 3 leg rows cropped, 3 px lower: sitting
+            else ctx.drawImage(img, sx - 6, sy - 20);
+          },
+        })),
+      ].sort((a, b) => a.depth - b.depth);
+      let next = 0;
+      for (const item of items) {
+        while (next < actors.length && actors[next].depth < item.depth) actors[next++].draw();
+        if (!item.bed) {
+          ctx.drawImage(item.image, item.dx, item.dy);
+          continue;
+        }
+        const b = beds.get(item.bed);
+        if (!b) continue; // a bed tile beyond the unit's authorised count
+        ctx.drawImage(b.cell === null ? item.empty! : b.cell.dead ? item.body! : item.image, item.dx, item.dy);
+      }
+      while (next < actors.length) actors[next++].draw();
+
+      for (const d of scene.drawers) {
+        if (!d.full) continue;
+        const [x, y] = iso(d.tile[0] + 0.5, d.tile[1] + 0.9);
+        ctx.fillStyle = INK;
+        ctx.fillRect(x - 2, y - 17, 4, 3);
+        ctx.fillStyle = Math.floor(now * 2 + d.tile[0]) % 6 === 0 ? CREAM : "#FFD93D";
+        ctx.fillRect(x - 1, y - 16, 2, 1);
+      }
+      const [lx, ly] = iso(MAP_W - 1 + 0.5, CORRIDOR.y0 + 0.5);
+      tag(ctx, "LIFT", lx, ly - 10);
+
+      const marked = (...ids: string[]) => (ids.includes(selected ?? "") ? "selected" : ids.includes(hovered ?? "") ? "hovered" : null);
+      for (const b of scene.beds) {
+        const m = marked(b.id, b.slot);
+        if (m) outline(ctx, b.bed.head[0], Math.min(b.bed.head[1], b.bed.foot[1]), 1, 2, m === "selected");
+      }
+      for (const p of scene.spots) {
+        const m = marked(p.id, p.slot);
+        if (m) outline(ctx, p.tile[0], p.tile[1], 1, 1, m === "selected");
+      }
+      for (const d of scene.drawers) {
+        const m = d.full ? marked(d.id, d.slot) : marked(d.slot);
+        if (m) outline(ctx, d.tile[0], d.tile[1], 1, 1, m === "selected");
+      }
+      for (const b of scene.beds) {
+        if (!b.cell) continue;
+        const [x, y] = bedPoint(b.bed);
+        cellTag(ctx, b.cell, x, y - 8);
+      }
+      for (const p of scene.spots) {
+        const [x, y] = tilePoint(p.tile, 0);
+        cellTag(ctx, p.unit === "MORGUE" ? { ...p.cell, dead: true } : p.cell, x, y - 14); // every body's tag is inverted
+      }
+      for (const q of scene.queue) {
+        if (!marked(q.id)) continue;
+        const [x, y] = tilePoint(q.tile, 0);
+        tag(ctx, q.cell.initials, x, y - (q.seated ? 19 : 22), q.colour);
+      }
+      for (const m of scene.more) {
+        const [x, y] = tilePoint(m.tile, 4);
+        tag(ctx, m.text, x, y, undefined, marked(m.id) !== null);
+      }
+      for (const room of spec.rooms) {
+        if (!room.sel || !marked(room.sel)) continue;
+        const [x, y] = roomCentre(room);
+        tag(ctx, room.label, x, y + 5, undefined, true);
+      }
+    },
+
+    /** The thing at a logical point of this floor: people, tags, beds and drawers, labels. */
+    hit(scene: Scene, x: number, y: number): string | null {
+      const people = [
+        ...scene.queue.map((q) => ({ id: q.id, tile: q.tile, h: q.seated ? 17 : 20 })),
+        ...scene.staff.map((m) => ({ id: m.id, tile: m.tile, h: 20 })),
+      ].sort((a, b) => b.tile[0] + b.tile[1] - (a.tile[0] + a.tile[1]));
+      for (const p of people) {
+        const [sx, sy] = iso(p.tile[0] + 0.5, p.tile[1] + 0.5);
+        if (Math.abs(x - sx) <= 5 && y <= sy && y >= sy - p.h) return p.id;
+      }
+      for (const b of scene.beds) {
+        if (!b.cell) continue;
+        const [cx, cy] = bedPoint(b.bed);
+        if (inTag(x, y, cx, cy - 8, cellText(b.cell), !b.cell.dead)) return b.id;
+      }
+      for (const p of scene.spots) {
+        const [cx, cy] = tilePoint(p.tile, 0);
+        if (inTag(x, y, cx, cy - 14, cellText(p.cell), !p.cell.dead && p.unit !== "MORGUE")) return p.id;
+      }
+      for (const m of scene.more) {
+        const [cx, cy] = tilePoint(m.tile, 4);
+        if (inTag(x, y, cx, cy, m.text, false)) return m.id;
+      }
+      const front = (t: Tile) => -(t[0] + t[1]);
+      for (const b of [...scene.beds].sort((p, q) => front(p.bed.head) - front(q.bed.head))) {
+        if (onFootprint(x, y, b.bed.head[0], Math.min(b.bed.head[1], b.bed.foot[1]), 1, 2, 14)) return b.id;
+      }
+      for (const p of [...scene.spots].sort((a, b) => front(a.tile) - front(b.tile))) {
+        if (onFootprint(x, y, p.tile[0], p.tile[1], 1, 1, 8)) return p.id;
+      }
+      for (const d of [...scene.drawers].sort((a, b) => front(a.tile) - front(b.tile))) if (onFootprint(x, y, d.tile[0], d.tile[1], 1, 1, 16)) return d.id;
+      for (const room of spec.rooms) {
+        const [cx, cy] = roomCentre(room);
+        if (room.sel && Math.abs(x - cx) <= room.label.length * 2 + 4 && Math.abs(y - cy) <= 6) return room.sel;
+      }
+      return null;
+    },
+
+    /** Where the camera goes for a selection on this floor; null when it is not drawn here. */
+    focusPoint(scene: Scene, id: string): [number, number] | null {
+      const b = scene.beds.find((x) => x.id === id || x.slot === id);
+      if (b) return bedPoint(b.bed);
+      const p = scene.spots.find((x) => x.id === id || x.slot === id);
+      if (p) return tilePoint(p.tile, 3);
+      const q = scene.queue.find((x) => x.id === id);
+      if (q) return tilePoint(q.tile, 10);
+      const d = scene.drawers.find((x) => (x.full && x.id === id) || x.slot === id);
+      if (d) return tilePoint(d.tile, 8);
+      const room = spec.rooms.find((r) => r.sel === id);
+      return room ? roomCentre(room) : null;
+    },
   };
 }
 

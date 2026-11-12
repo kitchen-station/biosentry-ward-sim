@@ -109,6 +109,13 @@ export const patientPalette = (i: number): Palette => ({
   e: INK,
 });
 
+// Outside W4: generic nurses in ward blue scrubs, and the waiting room's people, whose top is their triage colour.
+export const NURSE_PALETTES: Palette[] = SKINS.slice(0, 3).map((skin, i) =>
+  staffPalette(skin, HAIRS[i * 2 % HAIRS.length], "#6C8EF5", "#5576D9", "#FFF8E7", "#5576D9"),
+);
+export const figurePalette = (top: string, i: number): Palette =>
+  staffPalette(SKINS[i % SKINS.length], HAIRS[(i * 2 + 1) % HAIRS.length], top, top, top, "#5E6B7D");
+
 export const ENVELOPE = [
   "kkkkkkkkk",
   "kwwwwwwwk",
