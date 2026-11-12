@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
+import { RealPanel } from "./RealPanel";
 import { floorOf } from "./hospital-panels";
 import { BedTimeline, Inspector, SelectList, selectTargets, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
@@ -131,6 +132,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   worldRef.current = world;
   const [selected, setSelected] = useState<string | null>(null);
   const [timeline, setTimeline] = useState(false);
+  const [realOpen, setRealOpen] = useState(false);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const [, refresh] = useState(0);
@@ -517,7 +519,9 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
         <span>Staff loop: demo design, not a product feature.</span>
         {world.s.hospital && <span>Hospital layer: synthetic. Staffing outside W4 is shown, not modelled.</span>}
+        <button onClick={() => setRealOpen(true)}>What is real here</button>
       </footer>
+      {realOpen && <RealPanel onClose={() => setRealOpen(false)} />}
     </div>
   );
 }
