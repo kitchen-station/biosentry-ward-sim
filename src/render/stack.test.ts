@@ -50,7 +50,7 @@ describe("floorOf", () => {
   it("puts W4 ids on 4F and hospital ids on their unit's floor", () => {
     const h = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101).hospital!;
     expect(["W4-01", "nurse-a", "bed:A1", "gateway"].map((id) => floorOf(h, id))).toEqual([4, 4, 4, 4]);
-    expect(["queue:ER", "morgue", "unit:ER", "unit:ICU", "unit:MED3B", "hbed:SURG5A:2", "unit:W4"].map((id) => floorOf(h, id))).toEqual([0, 0, 0, 2, 3, 5, 4]);
+    expect(["queue:ER", "morgue", "unit:ER", "unit:ICU", "unit:MED3B", "unit:MED3A", "hbed:SURG5A:2", "unit:W4"].map((id) => floorOf(h, id))).toEqual([0, 0, 0, 2, 1, 3, 5, 4]);
     const p = h.people.find((x) => x.unit === "ICU")!;
     expect(floorOf(h, `h:${p.n}`)).toBe(2);
     expect(floorOf(h, "h:999999")).toBeNull();
@@ -59,10 +59,10 @@ describe("floorOf", () => {
 
 describe("the stack's geometry and camera", () => {
   it("stacks GF to 5F bottom up, every floor 36 x 18", () => {
-    expect(FLOORS.map((f) => f.floor)).toEqual([0, 2, 3, 4, 5]);
+    expect(FLOORS.map((f) => f.floor)).toEqual([0, 1, 2, 3, 4, 5]);
     for (const f of FLOORS) expect([f.map.length, ...new Set(f.map.map((r) => r.length))]).toEqual([18, 36]);
-    expect([slabTop(slabIndex(5)), slabTop(slabIndex(4)), slabTop(slabIndex(0))]).toEqual([0, GAP, 4 * GAP]);
-    expect(WORLD_H).toBe(LOGICAL_H + 4 * GAP);
+    expect([slabTop(slabIndex(5)), slabTop(slabIndex(4)), slabTop(slabIndex(0))]).toEqual([0, GAP, 5 * GAP]);
+    expect(WORLD_H).toBe(LOGICAL_H + 5 * GAP);
   });
 
   it("clampCam with a wider view centres the axis the map fits on, and lets the stack zoom out below 0.5", () => {
@@ -75,17 +75,17 @@ describe("the stack's geometry and camera", () => {
 
 // The landing camera at the ward-only stage size: the closed building fitted with a margin. Points as BUILDING gives them
 // (GF's floor at 0); the camera's own offset, slabTop(0), cancels out.
-const LANDING = Math.min(656 / (720 * 1.12), 382 / (537 * 1.12));
-const landing = (wx: number, wy: number): [number, number] => [328 + (wx - 316) * LANDING, 191 + (wy - 130.5) * LANDING];
+const LANDING = Math.min(656 / (720 * 1.12), 382 / (573 * 1.12));
+const landing = (wx: number, wy: number): [number, number] => [328 + (wx - 316) * LANDING, 191 + (wy - 112.5) * LANDING];
 
 describe("the closed building and its opening", () => {
   it("storeys sit on each other with no gap when closed; open, they are the old stack exactly; eased and monotone between", () => {
     expect(STOREY).toBe(36);
-    expect(FLOORS.map((_, i) => storeyY(i, 0))).toEqual([800, 764, 728, 692, 656]);
+    expect(FLOORS.map((_, i) => storeyY(i, 0))).toEqual([1000, 964, 928, 892, 856, 820]);
     for (let i = 0; i < FLOORS.length - 1; i += 1) expect(storeyY(i, 0) - STOREY).toBe(storeyY(i + 1, 0)); // a ceiling is the next floor
     expect(FLOORS.map((_, i) => storeyY(i, 1))).toEqual(FLOORS.map((_, i) => slabTop(i)));
-    expect(storeyY(0, 0.5)).toBe(800); // GF stays put
-    expect(storeyY(4, 0.5)).toBe((656 + 0) / 2);
+    expect(storeyY(0, 0.5)).toBe(1000); // GF stays put
+    expect(storeyY(5, 0.5)).toBe((820 + 0) / 2);
     expect(ease(0.1)).toBeLessThan(0.1);
     expect(ease(0.9)).toBeGreaterThan(0.9);
     for (let i = 1; i < FLOORS.length; i += 1) {
@@ -95,7 +95,7 @@ describe("the closed building and its opening", () => {
         last = storeyY(i, q);
       }
     }
-    expect(BUILDING(FLOORS.length)).toEqual({ x0: -44, x1: 676, y0: -138, y1: 399, w: 720, h: 537 }); // GF's floor at 0
+    expect(BUILDING(FLOORS.length)).toEqual({ x0: -44, x1: 676, y0: -174, y1: 399, w: 720, h: 573 }); // GF's floor at 0
     expect([OPEN_S, CAMERA_AT]).toEqual([0.6, 0.6]);
   });
 
@@ -105,7 +105,8 @@ describe("the closed building and its opening", () => {
       expect(storeyAt(x, y + lift(i) - STOREY + 1, FLOORS.length)).toBe(i);
       expect(storeyAt(x, y + lift(i) - STOREY - 1, FLOORS.length)).toBe(Math.min(i + 1, FLOORS.length - 1)); // 5F: its roof
       const [cx, cy] = iso(18, 9);
-      expect(storeyAt(cx, cy + lift(i) - STOREY, FLOORS.length)).toBe(FLOORS.length - 1);
+      // A top's centre is under the storeys stacked on it; six high, GF's lies below 5F's front faces, so 4F's cover it.
+      expect(storeyAt(cx, cy + lift(i) - STOREY, FLOORS.length)).toBe(i === 0 ? FLOORS.length - 2 : FLOORS.length - 1);
     }
     expect(storeyAt(...iso(18, 18.5), FLOORS.length)).toBe(-1); // the pavement in front
   });
@@ -147,7 +148,7 @@ describe("the closed building and its opening", () => {
       expect(grid(), `opening, frame ${i}`).toEqual([""]);
     }
     for (let i = 0; i < 200; i += 1) st.frame(s, null, null, 0.05, 2 + i * 0.05);
-    const label = iso((1 + 34 + 1) / 2, (1 + 7 + 1) / 2); // MEDICINE 3A's label
+    const label = iso((11 + 19 + 1) / 2, (1 + 6 + 1) / 2); // BAY 2's label, Medicine 3A
     expect(st.hit(s, label[0], label[1])).toBe("unit:MED3A");
     view = 5; // floor to floor: the stack stays open, the focus moves
     st.frame(s, null, null, 0.016, 20);
@@ -216,7 +217,7 @@ describe("stack hits", () => {
     view = 3;
     st.reset();
     st.frame(s, null, null, 0.016, 0);
-    const label = iso((1 + 34 + 1) / 2, (1 + 7 + 1) / 2); // MEDICINE 3A's label
+    const label = iso((11 + 19 + 1) / 2, (1 + 6 + 1) / 2); // BAY 2's label, Medicine 3A
     expect(st.hit(s, label[0], label[1])).toBe("unit:MED3A");
     expect(st.hit(s, ...iso(30, 14))).toBe("");
     expect(st.hit(s, 328, 2)).toBeNull(); // above the slab's back wall

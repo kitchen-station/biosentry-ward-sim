@@ -92,7 +92,8 @@ export const UNITS: UnitRow[] = [
     residents: judgement(1, "[judgement] Better: a PH ICU physician cover figure."),
   },
   ...(["MED3A", "MED3B"] as const).map((id): UnitRow => ({
-    id, name: id === "MED3A" ? "Medicine 3A" : "Medicine 3B", floor: 3,
+    // One medicine ward per floor, so each has room for bays: MED3B keeps its id (results files use it) but sits on 1F as Medicine 1A.
+    id, name: id === "MED3A" ? "Medicine 3A" : "Medicine 1A", floor: id === "MED3A" ? 3 : 1,
     beds: judgement(30, "[judgement] Better: a PH hospital's medicine ward bed count."),
     stretchers: judgement(8, `[judgement; PGH adds 10-15 ward beds when the ER is full, PH §1.5 snippet] ${LINK.philstar2022} (the §2.2 article of that date; the note's own §1.5 source has no URL of its own). Better: a PH hospital's corridor bed count.`),
     nurses: perScenario(

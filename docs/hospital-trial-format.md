@@ -73,7 +73,7 @@ Ground truth, one row per event, in non-decreasing minute order: `minute,person,
 - The 3 warm-up days are a suggestion; `all_days` is kept so an analysis can choose.
 - People present at minute 0 (residents, W4's first patients) have no `arrive` event. They are left out of door-to-doctor and the ER shares, and a resident already boarding at minute 0 is not in the boarding hours.
 - Boarding is right-censored: see `er_still_boarding_at_end`. ICU access counts a person not yet in the ICU as not placed.
-- Medicine 3A fills before 3B (placement order), so their occupancies differ because of the allocation, not because of demand. Read them together.
+- Medicine 3A (MED3A, floor 3) fills before Medicine 1A (unit id MED3B, floor 1; the id is kept from when both wards were on 3F) (placement order), so their occupancies differ because of the allocation, not because of demand. Read them together.
 - Counts by event use the event's minute; pair figures (boarding, door-to-doctor, ICU access) use the first event of the pair.
 - In hospital mode W4 occupancy under `typical` is about 61% for seed 101 and varies by seed (an earlier figure of 50% came from other seeds). W4 may show no `w4_higher_care` in 30 days (seed 101 shows none).
 - Deaths are pre-drawn fates, so crowding does not change who dies.

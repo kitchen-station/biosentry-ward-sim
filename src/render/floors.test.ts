@@ -75,6 +75,41 @@ describe("the floor maps", () => {
     expect([...chairs, ...standing].every(([x, y]) => x >= waiting.x0 && x <= waiting.x1 && y >= waiting.y0 && y <= waiting.y1)).toBe(true);
   });
 
+  it("six floors bottom up, each with its units", () => {
+    expect(FLOORS.map((f) => [f.floor, f === W4 ? ["W4"] : f.units!.map((u) => u.unit)])).toEqual([
+      [0, ["ER", "MORGUE"]], [1, ["MED3B"]], [2, ["ICU"]], [3, ["MED3A"]], [4, ["W4"]], [5, ["SURG5A"]],
+    ]);
+    for (const u of UNITS) expect(FLOORS[slabIndex(u.floor)].floor, u.id).toBe(u.floor);
+    expect([row("MED3B").name, row("MED3A").name, FLOORS[1].name, FLOORS[3].name]).toEqual(["Medicine 1A", "Medicine 3A", "MEDICINE 1A", "MEDICINE 3A"]);
+  });
+
+  // The monitored ward's standard: beds never side by side, a trolley's aisle (two clear tiles) beyond every foot,
+  // every bed and stretcher reachable from the corridor, no stretcher across a door.
+  it.each(HOSPITAL.map((f) => [f.short, f.floor, f] as const))("%s (%iF) is spaced like W4", (_, __, spec) => {
+    const beds = new Set(spec.beds.flatMap((b) => [b.head, b.foot]).map(key));
+    for (const t of beds) {
+      const [x, y] = t.split(",").map(Number);
+      expect([beds.has(key([x - 1, y])), beds.has(key([x + 1, y]))], `${spec.short} bed tile ${t} has a bed beside it`).toEqual([false, false]);
+    }
+    for (const b of spec.beds) {
+      const d = b.north ? 1 : -1;
+      expect([1, 2].map((k) => at(spec, [b.foot[0], b.foot[1] + d * k])), `${spec.short} ${b.label}'s aisle`).toEqual([".", "."]);
+    }
+    const open = (t: Tile) => [".", "+"].includes(at(spec, t) ?? "#");
+    const seen = new Set([key([35, 8])]); // the lift, on the corridor
+    const queue: Tile[] = [[35, 8]];
+    while (queue.length) {
+      const [x, y] = queue.shift()!;
+      for (const n of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as Tile[]) if (open(n) && !seen.has(key(n))) seen.add(key(n)) && queue.push(n);
+    }
+    for (const b of spec.beds) expect(seen.has(key([b.foot[0], b.foot[1] + (b.north ? 1 : -1)])), `${spec.short} ${b.label} from the lift`).toBe(true);
+    for (const room of spec.rooms.filter((r) => r.floor === "station")) {
+      const inside = [...seen].some((k) => { const [x, y] = k.split(",").map(Number); return x >= room.x0 && x <= room.x1 && y >= room.y0 && y <= room.y1; });
+      expect(inside, `${spec.short} ${room.label} from the lift`).toBe(true);
+    }
+    for (const p of spec.units!) for (const t of p.spots) expect([at(spec, [t[0], t[1] - 1]), at(spec, [t[0], t[1] + 1])], `${spec.short} spot ${t} at a door`).not.toContain("+");
+  });
+
   it("every bed's nurse stand and every spot reaches the lift", () => {
     for (const spec of HOSPITAL) {
       const open = (x: number, y: number) => [".", "+"].includes(spec.map[y]?.[x] ?? "#");
@@ -130,16 +165,17 @@ describe("from the hospital to what is drawn", () => {
   it("puts each person in their own bed, stretcher, trolley, chair or drawer, with building.ts's marks", () => {
     const { h, cast } = hospital();
     const med = sceneOf(h, 3);
+    const med1 = sceneOf(h, 1);
     const spec = FLOORS[slabIndex(3)];
-    expect(med.beds.length).toBe(60);
+    expect([med.beds.length, med1.beds.length]).toEqual([30, 30]);
     expect(med.beds.find((b) => b.slot === "hbed:MED3A:3")!.id).toBe(`h:${cast.bed.n}`);
     const st = med.spots.find((p) => p.id === `h:${cast.stretcher.n}`)!;
     expect(st.tile).toEqual(spec.units![0].spots[1]); // slot 31 = stretcher 2
-    expect(med.beds.find((b) => b.slot === "hbed:MED3B:0")!.cell!.icu).toBe(true);
+    expect(med1.beds.find((b) => b.slot === "hbed:MED3B:0")!.cell!.icu).toBe(true);
     expect(icuFlag(cast.icu)).toBe(true);
-    expect(med.beds.find((b) => b.slot === "hbed:MED3B:1")!.cell!.icu).toBeUndefined(); // the ICU mark only once admitted
+    expect(med1.beds.find((b) => b.slot === "hbed:MED3B:1")!.cell!.icu).toBeUndefined(); // the ICU mark only once admitted
     // Every bed shows its occupant, or is empty and selects the bed itself.
-    for (const b of med.beds) {
+    for (const b of [...med.beds, ...med1.beds]) {
       const p = h.people.find((x) => x.unit === b.bed.zone && x.slot === Number(b.slot.split(":")[2]));
       expect(b.id).toBe(p ? `h:${p.n}` : b.slot);
       expect(b.cell === null).toBe(!p);
@@ -176,10 +212,11 @@ describe("from the hospital to what is drawn", () => {
     const tags = FLOORS.map((f) => slabTag(f, floors));
     const med = floors.find((f) => f.floor === 3)!;
     expect(tags[slabIndex(0)]).toBe("GF ER 45 waiting");
-    expect(tags[slabIndex(3)]).toBe(`3F MEDICINE ${med.census}/60`);
+    expect(tags[slabIndex(3)]).toBe(`3F MEDICINE ${med.census}/30`);
+    expect(tags[slabIndex(1)]).toBe(`1F MEDICINE ${floors.find((f) => f.floor === 1)!.census}/30`);
     expect(tags[slabIndex(2)]).toMatch(/^2F ICU \d+\/10$/);
     expect(tags[slabIndex(5)]).toMatch(/^5F SURGERY \d+\/24$/);
-    expect(slabTag(FLOORS[slabIndex(3)], null)).toBe("3F MEDICINE"); // no hospital: the name only
+    expect(slabTag(FLOORS[slabIndex(3)], null)).toBe("3F MEDICINE 3A"); // no hospital: the name only
   });
 });
 
@@ -203,7 +240,7 @@ describe("hits on a focused floor", () => {
     return out;
   }
 
-  it.each([0, 2, 3, 5])("%iF: every bed, occupant, stretcher, trolley, queue figure, drawer, nurse and label, at zoom 1 and zoomed in", (floor) => {
+  it.each([0, 1, 2, 3, 5])("%iF: every bed, occupant, stretcher, trolley, queue figure, drawer, nurse and label, at zoom 1 and zoomed in", (floor) => {
     const { s, h } = hospital();
     const spec = FLOORS[slabIndex(floor)];
     const scene = sceneOf(h, floor);
@@ -238,7 +275,7 @@ describe("hits on a focused floor", () => {
 
   it("a focused floor's hits all belong to it; its ghosts take no clicks", () => {
     const { s, h } = hospital();
-    for (const floor of [0, 2, 3, 5]) {
+    for (const floor of [0, 1, 2, 3, 5]) {
       const st = createStackRenderer(canvas(), () => floor);
       st.resize(656, 382, 1);
       st.frame(s, null, null, 0.016, 0);
