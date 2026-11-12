@@ -19,7 +19,7 @@ export const LIMITS =
   "Who deteriorates and how often (course.ratePerDay) and the delay to death (course.deathAfterNoticedH) are judgement too: `recognition` is a model output, not evidence about real wards. " +
   "`obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late. " +
   "Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand. " +
-  "Returning people: one return rate (returns.readmit30, 0.18 within 30 days) applies to every group, and only its medicine figure has a source (one hospital, search excerpt only); real readmission varies by condition. A return takes the place of a new arrival, so arrivals per day do not change.";
+  "Returning people: one return rate (returns.readmit30, 0.18 within 30 days) applies to every group, and only its medicine figure has a source (one hospital, search excerpt only); real readmission varies by condition. A return takes the place of a new arrival, so the count of arrivals per day does not change; that newcomer never comes, and which newcomers are skipped depends on the scenario.";
 const STEPS_PER_HOUR = 3600; // speed 60: one step is one sim second
 
 export const HOURLY_COLUMNS = [

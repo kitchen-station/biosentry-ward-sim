@@ -161,7 +161,7 @@ export const PARAMS = {
     ageSd: cited(16.7, `SD 16.7 of the same cohort [PH §7 read] ${LINK.arrest}`),
     ageRange: judgement([18, 95], "Normal ages are clipped to 18-95 (adult only) [judgement; the cohort's range was not read]. Better: the cohort's age range or a PH adult admission age distribution."),
     cardiacAgeRange: w4Code([45, 84], "[W4 code] cardiac ages use W4's 45 + floor(rng * 40) so W4's age mix does not change (source.ts, a shortcut there)."),
-    namePool: judgement({ surnames: 400, givenPerSex: 150 }, "400 Filipino surnames and 150 given names per sex plus a middle initial (3,120,000 names; before slice A3: 80 and 40, 166,400, still used when returns.enabled is off); synthetic, no real people [judgement]. Better: a published PH name frequency list."),
+    namePool: judgement({ surnames: 392, givenFemale: 149, givenMale: 145 }, "392 Filipino surnames and 149 female and 145 male given names plus a middle initial (2,996,448 names; before slice A3: 80 and 40 per sex, 166,400, still used when returns.enabled is off); synthetic, no real people [judgement]. Better: a published PH name frequency list."),
   },
   warmUpDays: judgement(3, "Analyses may drop the first 3 days as warm-up [judgement; the design gives no tag]. Better: measure how long occupancy takes to settle across seeds."),
   w4: {
@@ -337,9 +337,9 @@ export const PARAMS = {
     escalate: judgement(true, "A noticed deterioration joins the hourly watch class and asks for an ICU bed (ward to ICU, or ICU first from ER boarding) [judgement; design A2]. Off only in tests, to show the course adds nothing else. Better: a PH hospital's escalation policy for a deteriorating ward patient."),
   },
   // Returning patients and more varied people (slice A3). A return takes the place of an arrival that would have happened, so
-  // arrivalsPerDay and every earlier calibration stay where they are. The switch also selects the larger name pool.
+  // arrivals per day stay where they are; admissions, boarding, occupancy and deaths move by path noise (seed 101 typical 30 d: boarding 200 to 154 h, deaths 96 to 99). The switch also selects the larger name pool.
   returns: {
-    enabled: judgement(true, "Off only in tests, to show the people, returns and look add nothing else; off also keeps the old 80 x 80 name lists. Better: n/a."),
+    enabled: judgement(true, "Off only in tests, to show the people, returns and look add nothing else; off also keeps the old lists (80 surnames, 40 given names per sex). Better: n/a."),
     readmit30: {
       medicine: unverified(0.18, `Hypertensive, respiratory, infection: about 18% (602 of 4,010) of PGH General Medicine discharges in 2019 were readmitted within 30 days, mostly unplanned and related to the index stay [search excerpt only, page not read] ${LINK.pghReadmit}; one hospital. Better: a PH readmission rate by condition.`),
       other: judgement(0.18, "Cardiac, stroke, trauma, minor: the medicine figure applied to all groups (orchestrator ruling 2026-11-12) [judgement]. Real readmission varies by condition. Better: a PH readmission rate by condition."),

@@ -5,7 +5,7 @@ import surge from "../../../scenarios/hospital/surge.json?raw";
 import typical from "../../../scenarios/hospital/typical.json?raw";
 import { GIVEN, INITIALS, LEGACY, SURNAMES } from "./names";
 import { PARAMS } from "./params";
-import { drawCourse, drawPerson, GROUPS, lookOf, stayDeathP, TRIAGES } from "./people";
+import { drawCourse, drawPerson, givenIndex, GROUPS, lookOf, stayDeathP, TRIAGES } from "./people";
 import { parseScenario, type Scenario } from "./scenario";
 import { stream } from "./rng";
 import { createHospital, noticedLateMin, overdueRounds, stepHospital, takeRows } from "./step";
@@ -75,8 +75,8 @@ describe("person n", () => {
     expect(drawPerson(7, 3)).not.toEqual(drawPerson(8, 3));
     expect(drawPerson(7, 3)).not.toEqual(drawPerson(7, 4));
     expect(SURNAMES).toHaveLength(PARAMS.people.namePool.value.surnames);
-    expect(GIVEN.F).toHaveLength(PARAMS.people.namePool.value.givenPerSex);
-    expect(GIVEN.M).toHaveLength(PARAMS.people.namePool.value.givenPerSex);
+    expect(GIVEN.F).toHaveLength(PARAMS.people.namePool.value.givenFemale);
+    expect(GIVEN.M).toHaveLength(PARAMS.people.namePool.value.givenMale);
     const N = 20000;
     const ps = Array.from({ length: N }, (_, i) => drawPerson(5, i + 1));
     const share = (f: (p: (typeof ps)[number]) => boolean) => ps.filter(f).length / N;
@@ -1024,12 +1024,18 @@ describe("A3 leaves every v3 output as it was when returns are off", () => {
 describe("names and look (A3)", () => {
   const VULGAR = ["Puto", "Tae", "Bobo", "Gago", "Tanga", "Ulol", "Pwet", "Puki", "Titi", "Shit", "Fuck", "Dick", "Cock", "Ass", "Bitch", "Whore"];
   const OFFICE_FAMILIES = ["Marcos", "Aquino", "Duterte", "Estrada", "Arroyo", "Roxas", "Binay", "Pacquiao", "Rizal"];
-  const FAMOUS_PAIRS = ["Ramos, Fidel", "Bonifacio, Andres", "Marcos, Ferdinand", "Aquino, Corazon", "Duterte, Rodrigo", "Estrada, Joseph", "Pacquiao, Manny"];
+  const FAMOUS_PAIRS = [
+    "Ramos, Fidel", "Bonifacio, Andres", "Marcos, Ferdinand", "Aquino, Corazon", "Duterte, Rodrigo", "Estrada, Joseph", "Pacquiao, Manny",
+    "Yulo, Carlos", "Balagtas, Francisco", "Tagle, Luis", "Ruiz, Lorenzo", "Santos, Vilma", "Reyes, Efren", "Villanueva, Joel", "Teodoro, Gilberto",
+    "Tan, Lucio", "Pineda, Arnel", "Montano, Cesar", "Padilla, Dennis", "Ongpin, Jaime",
+  ];
+  const DROPPED_SURNAMES = ["Yulo", "Balagtas", "Tagle", "Ongpin", "Gatchalian", "Escudero", "Pimentel", "Teodoro"];
+  const DROPPED_GIVEN = ["Vilma", "Efren", "Lucio", "Joel", "Arnel", "Dennis"];
   const STAGE = ["Vice", "Pokwang", "Sharon", "Dolphy", "Aga", "Kris", "Bossing", "Madonna", "Beyonce", "Rihanna", "Cher", "Prince", "Sting"];
   const given = [...GIVEN.F, ...GIVEN.M];
 
-  it("holds 400 surnames and 150 given names per sex, with no duplicates, letters only", () => {
-    expect([SURNAMES.length, GIVEN.F.length, GIVEN.M.length]).toEqual([400, 150, 150]);
+  it("holds 392 surnames, 149 female and 145 male given names, with no duplicates, letters only", () => {
+    expect([SURNAMES.length, GIVEN.F.length, GIVEN.M.length]).toEqual([392, 149, 145]);
     for (const list of [SURNAMES, GIVEN.F, GIVEN.M]) {
       expect(new Set(list).size).toBe(list.length);
       expect(list.every((w) => /^[A-Z][a-z]+$/.test(w))).toBe(true);
@@ -1039,8 +1045,20 @@ describe("names and look (A3)", () => {
 
   it("holds no office holder's family name, no famous full pair, no vulgar word, no single stage name", () => {
     expect(SURNAMES.filter((w) => OFFICE_FAMILIES.includes(w))).toEqual([]);
-    const pairs = new Set(SURNAMES.flatMap((s) => given.map((g) => `${s}, ${g}`)));
-    expect(FAMOUS_PAIRS.filter((x) => pairs.has(x))).toEqual([]);
+    expect(SURNAMES.filter((w) => DROPPED_SURNAMES.includes(w))).toEqual([]);
+    expect(given.filter((w) => DROPPED_GIVEN.includes(w))).toEqual([]);
+    // Every producible name: each surname with each given-name draw, after the generator's skip. None may be a blocked pair.
+    const made = new Set<string>();
+    for (const s of SURNAMES) for (const sex of ["F", "M"] as const) for (let i = 0; i < GIVEN[sex].length; i += 1) made.add(`${s}, ${GIVEN[sex][givenIndex(s, sex, i)]}`);
+    expect(made.size).toBeGreaterThan(100_000);
+    expect(FAMOUS_PAIRS.filter((x) => made.has(x))).toEqual([]);
+    // the skip is real: these two pairs are in the pools and are passed over
+    for (const [s, g, sex] of [["Ruiz", "Lorenzo", "M"], ["Montano", "Cesar", "M"]] as const) {
+      expect(GIVEN[sex]).toContain(g);
+      expect(GIVEN[sex][givenIndex(s, sex, GIVEN[sex].indexOf(g))]).not.toBe(g);
+    }
+    // and drawn people never carry one
+    for (let n = 1; n <= 3000; n += 1) expect(FAMOUS_PAIRS.some((x) => drawPerson(3, n).name.startsWith(x))).toBe(false);
     const bad = new Set([...VULGAR, ...STAGE].map((w) => w.toLowerCase()));
     expect([...SURNAMES, ...given].filter((w) => bad.has(w.toLowerCase()))).toEqual([]);
   });
@@ -1075,7 +1093,7 @@ describe("names and look (A3)", () => {
       const [skin, hair, shirt] = p.look;
       expect([skin >= 0 && skin <= 3, shirt >= 0 && shirt <= 5, p.age >= 60 ? hair >= 3 && hair <= 4 : hair >= 0 && hair <= 2]).toEqual([true, true, true]);
       expect(p.look).toEqual(lookOf(9, n, p.age));
-      expect(drawPerson(9, n, 2).look).toEqual(p.look);
+      expect(drawPerson(9, n, 2, p).look).toEqual(p.look);
     }
     expect(new Set(Array.from({ length: 400 }, (_, i) => drawPerson(9, i + 1).look.join())).size).toBeGreaterThan(30);
   });
@@ -1083,7 +1101,7 @@ describe("names and look (A3)", () => {
   it("makes a return the same person: sex, name, age, group and look kept, the rest redrawn", () => {
     let redrawn = 0;
     for (let n = 1; n <= 300; n += 1) {
-      const a = drawPerson(4, n), b = drawPerson(4, n, 2), c = drawPerson(4, n, 3);
+      const a = drawPerson(4, n), b = drawPerson(4, n, 2, a), c = drawPerson(4, n, 3, a);
       for (const x of [b, c]) expect([x.id, x.name, x.sex, x.age, x.group, x.look]).toEqual([a.id, a.name, a.sex, a.age, a.group, a.look]);
       if (b.stayMin !== a.stayMin && b.deathU !== a.deathU) redrawn += 1;
       expect(drawCourse(4, n, a.group, 5000, 0, 2)).not.toEqual(drawCourse(4, n, a.group, 5000, 0, 1));
@@ -1207,6 +1225,7 @@ describe("returning people (A3)", () => {
       run(h, acceptingPort(), 0, 200 * DAY);
       const most = Math.max(...[...h.people, ...h.gone].map((p) => p.visit));
       expect(most).toBeGreaterThanOrEqual(7);
+      expect(Math.max(...[...h.people, ...h.gone].map((p) => p.history.length))).toBe(5);
       for (const p of [...h.people, ...h.gone]) {
         expect(p.history.length).toBe(Math.min(5, p.visit - 1));
         if (p.visit > 1) expect(p.history.at(-1)!.visit).toBe(p.visit - 1);
@@ -1223,5 +1242,42 @@ describe("returning people (A3)", () => {
     expect(rb).toEqual(ra);
     expect(JSON.stringify(b)).toBe(JSON.stringify(a));
     expect(ra.events.some((e) => e.kind === "return")).toBe(true);
+  }, 240_000);
+  it("draws a return's wait as 1 to 30 days: both ends reachable, nothing else", () => {
+    const keep = [R.readmit30.medicine.value, R.readmit30.other.value];
+    R.readmit30.medicine.value = 1; R.readmit30.other.value = 1;
+    try {
+      const { events } = month(101, SC.surge);
+      const days = new Set(events.filter((e) => e.kind === "return_scheduled").map((e) => Number(/^in (\d+) d$/.exec(e.detail)![1])));
+      expect([...days].sort((a, b) => a - b)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    } finally { [R.readmit30.medicine.value, R.readmit30.other.value] = keep as [number, number]; }
+  }, 240_000);
+
+  it("gives a due return the slot of the minute it falls due (due now counts)", () => {
+    const first = (h: Hospital) => { const { events } = run(h, fullPort(), 0, 3 * 60); return events.find((e) => e.kind === "arrive")!.minute; };
+    const m = first(createHospital(101, SC.typical));
+    const h = createHospital(101, SC.typical);
+    h.returning = [{ n: 7, visit: 2, atMin: m, history: [], same: drawPerson(101, 7) }];
+    const { events } = run(h, fullPort(), 0, m + 1);
+    expect([...events, ...h.events].filter((e) => e.kind === "return").map((e) => e.minute)).toEqual([m]); // rows are drained only on the hour
+  });
+
+  it("brings a W4-initial patient back as the same person: name, sex, age and look come from W4's record, not the draw", () => {
+    const keep = [R.readmit30.medicine.value, R.readmit30.other.value];
+    R.readmit30.medicine.value = 1; R.readmit30.other.value = 1;
+    try {
+      const h = createHospital(101, { ...SC.typical, startOccupancy: 0 });
+      let d = drawPerson(101, 2_000_001);
+      for (let k = 2_000_002; d.group !== "cardiac"; k += 1) d = drawPerson(101, k);
+      const w4: Person = { ...d, name: "Dela Cruz, Rosa M.", age: 71, sex: "F", look: [3, 4, 5], admit: true, icuIndicated: false, arrivedMin: 0, unit: "W4", where: "bed", sinceMin: 0, slot: null,
+        wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: "w4-x", fromW4: false, obsDueMin: null, obsLastMin: null, course: null, visit: 1, history: [] };
+      h.people.push(w4); h.createdCount += 1;
+      const port: FakePort = { now: 0, calls: [], admit: () => null, left: (id) => (id === "w4-x" && port.now >= 10 ? { outcome: "discharged", minute: port.now } : null) };
+      const seen: Person[] = [];
+      run(h, port, 0, 45 * DAY, (hh) => { const q = hh.people.find((p) => p.n === d.n && p.visit === 2); if (q && seen.length === 0) seen.push({ ...q }); });
+      const back = seen[0];
+      expect(back).toBeDefined();
+      expect([back.name, back.sex, back.age, back.look, back.group]).toEqual(["Dela Cruz, Rosa M.", "F", 71, [3, 4, 5], d.group]);
+    } finally { [R.readmit30.medicine.value, R.readmit30.other.value] = keep as [number, number]; }
   }, 240_000);
 });

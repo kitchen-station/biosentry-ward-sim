@@ -41,7 +41,7 @@ export interface Person extends PersonDraw {
 /** Slice A3: one finished visit. Only a person discharged alive can return, so the outcome is always "discharged". */
 export interface Visit { visit: number; arrivedMin: number; leftMin: number; lastUnit: UnitId; outcome: "discharged" }
 /** Slice A3: a return waiting for an arrival slot (it takes the place of a new arrival, so arrivalsPerDay holds). */
-export interface ReturnDue { n: number; visit: number; atMin: number; history: Visit[] }
+export interface ReturnDue { n: number; visit: number; atMin: number; history: Visit[]; same: { name: string; sex: Sex; age: number; group: Group; look: [number, number, number] } }
 
 /** Slice A2: one admission's deterioration course (people.ts drawCourse). atMin null: no deterioration in this stay. */
 export interface Course {

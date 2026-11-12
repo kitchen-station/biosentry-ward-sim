@@ -28,7 +28,7 @@ import { drawCourse, drawPerson, DAY_MIN, stayDeathP } from "./people";
 import { PARAMS, UNITS, type Group, type UnitId } from "./params";
 import { poisson, rngFrom, stream, streamSeed } from "./rng";
 import type { Scenario } from "./scenario";
-import type { Acc, Counters, EventKind, EventRow, Hospital, HourRow, Person, Unit, Visit, W4Port, Where } from "./types";
+import type { Acc, Counters, EventKind, EventRow, Hospital, HourRow, Person, ReturnDue, Unit, Visit, W4Port, Where } from "./types";
 
 const START = PARAMS.clock.startMinuteOfDay.value;
 const RANK = { emergent: 0, urgent: 1, non_urgent: 2 };
@@ -186,8 +186,8 @@ function tryPlace(c: Ctx, p: Person): boolean {
   return false;
 }
 
-function newPerson(h: Hospital, n: number, arrivedMin: number, visit = 1, history: Visit[] = []): Person {
-  const d = drawPerson(h.seed, n, visit);
+function newPerson(h: Hospital, n: number, arrivedMin: number, visit = 1, history: Visit[] = [], same?: ReturnDue["same"]): Person {
+  const d = drawPerson(h.seed, n, visit, same);
   return {
     ...d, arrivedMin, unit: "ER", where: "waiting", sinceMin: arrivedMin, slot: null, wants: null, seenMin: null, decideMin: null, dueMin: null,
     dieMin: d.erDeathAfterMin === null ? null : arrivedMin + d.erDeathAfterMin, boardedMin: 0, w4Id: null, fromW4: false,
@@ -268,8 +268,8 @@ function scheduleReturn(c: Ctx, p: Person) {
   const [retU, dayU, minU] = [r(), r(), r()];
   const rate = p.group === "hypertensive" || p.group === "respiratory" || p.group === "infection" ? R.readmit30.medicine : R.readmit30.other;
   if (retU >= rate.value) return;
-  const days = 1 + Math.floor(dayU * 29);
-  const due = { n: p.n, visit: p.visit + 1, atMin: (Math.floor(c.minute / DAY_MIN) + days) * DAY_MIN + Math.floor(minU * DAY_MIN),
+  const days = 1 + Math.floor(dayU * 30);
+  const due: ReturnDue = { n: p.n, visit: p.visit + 1, same: { name: p.name, sex: p.sex, age: p.age, group: p.group, look: p.look }, atMin: (Math.floor(c.minute / DAY_MIN) + days) * DAY_MIN + Math.floor(minU * DAY_MIN),
     history: [...p.history, { visit: p.visit, arrivedMin: p.arrivedMin, leftMin: c.minute, lastUnit: p.unit, outcome: "discharged" as const }].slice(-5) };
   const w4 = p.unit === "W4"; // W4 decides its own discharge time with NEWS2, so the rows that follow it are not independent of it
   if (c.h.returning.length >= R.cap.value) { log(c, p, p.unit, "return_dropped", `visit ${due.visit}`, !w4); return; }
@@ -365,7 +365,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     }
     // A3: a return that has come due takes this slot; slot n is used up either way, so every other arrival keeps its number.
     const back = h.returning.length > 0 && h.returning[0].atMin <= minute ? h.returning.shift() : undefined;
-    const p = back ? newPerson(h, back.n, minute, back.visit, back.history) : newPerson(h, n, minute);
+    const p = back ? newPerson(h, back.n, minute, back.visit, back.history, back.same) : newPerson(h, n, minute);
     if (back) h.gone = h.gone.filter((g) => g.n !== back.n); // one record per person: the earlier visit's lives on in `history`
     h.people.push(p);
     h.createdCount += 1;
