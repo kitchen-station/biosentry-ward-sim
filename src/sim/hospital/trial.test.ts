@@ -36,13 +36,21 @@ describe("hospital trial", () => {
 
   it("writes one hourly row per unit per hour, columns as designed", () => {
     const rows = long.hourlyCsv.trimEnd().split("\n");
-    expect(rows[0]).toBe("hour,unit,census,beds,stretchers_used,occupancy_pct,arrivals,admitted_in,discharged,transferred_in,transferred_out,died,nurses,patients_per_nurse,er_waiting,er_consult,er_workup,er_boarding,er_boarding_hours,er_lwbs,door_to_doctor_median_min,icu_indicated_not_in_icu,morgue");
+    expect(rows[0]).toBe("hour,unit,census,beds,stretchers_used,occupancy_pct,arrivals,admitted_in,discharged,transferred_in,transferred_out,died,nurses,patients_per_nurse,er_waiting,er_consult,er_workup,er_boarding,er_boarding_hours,er_lwbs,door_to_doctor_median_min,icu_indicated_not_in_icu,morgue" +
+      ",obs_due,obs_done,obs_late,obs_overdue_now,obs_longest_overdue_min,care_min_demanded,care_min_available,obs_longest_since_round_min,obs_rel_late_median");
     expect(rows.length - 1).toBe(UNITS * DAYS * 24);
     expect(long.hourlyRows).toBe(UNITS * DAYS * 24);
-    for (const r of rows) expect(r.split(",")).toHaveLength(23);
+    for (const r of rows) expect(r.split(",")).toHaveLength(32);
     const er = rows.filter((r) => r.split(",")[1] === "ER" && r.split(",")[0] !== "hour");
     expect(er.every((r) => r.split(",")[14] !== "")).toBe(true); // ER-only columns filled on the ER
     expect(rows.filter((r) => r.split(",")[1] === "ICU").every((r) => r.split(",")[14] === "")).toBe(true); // blank elsewhere
+    // the observation columns: filled on the ER and the three wards, blank on the ICU, W4 and the morgue
+    for (const r of rows.slice(1)) {
+      const f = r.split(",");
+      const on = ["ER", "MED3A", "MED3B", "SURG5A"].includes(f[1]);
+      expect(f.slice(23, 31).every((x) => (on ? /^\d+(\.\d+)?$/.test(x) : x === "")), r).toBe(true);
+      expect(on ? /^(\d+(\.\d+)?)?$/.test(f[31]) : f[31] === "", r).toBe(true); // blank when no round was done that hour
+    }
   });
 
   it("writes events in minute order, seven fields, news2_independent yes or no, w4_higher_care no", () => {
@@ -87,6 +95,11 @@ describe("hospital trial", () => {
   it("states the limits and the warm-up in the summary", () => {
     const s = JSON.parse(long.summaryJson);
     expect(s.limits).toContain("synthetic, not validated");
+    expect(s.limits).toContain("observation workload uses judgement values (share of nurse time); see params");
+    expect(s.format_version).toBe(2);
+    expect(Object.keys(s.all_days.per_unit.MED3A)).toEqual(["occupancy_mean_pct", "occupancy_max_pct", "admissions", "deaths", "obs_late_share", "obs_longest_overdue_max_min", "care_demand_over_available", "obs_longest_since_round_max_min", "obs_rel_late_median_of_hours"]);
+    expect(s.all_days.per_unit.ICU.obs_late_share).toBeNull();
+    expect(s.all_days.per_unit.MED3A.care_demand_over_available).toBeGreaterThan(0);
     expect(s.synthetic).toBe(true);
     expect(s.seed).toBe(101);
     expect(s.scenario).toEqual(typical);
@@ -119,6 +132,15 @@ describe("hospital trial", () => {
     expect(() => labelEvents([{ ...higher[0], kind: "transfer", news2_independent: true }])).toThrow(/news2_independent/);
   }, 120_000); // steps a hospital for days: about 1 s alone, far more on a busy machine
 
+  // Recorded by running this test on origin/main (ae80706, no A1 logic; the real W4 runs, so #25 moved it): its new columns are appended and its new summary keys added, nothing else moves.
+  it("keeps every v1 byte of the 30-day typical trial: events, the first 23 hourly columns, the v1 summary keys", () => {
+    const h = (x: string) => createHash("sha256").update(x).digest("hex").slice(0, 16);
+    const oldHourly = long.hourlyCsv.split("\n").map((l) => l.split(",").slice(0, 23).join(",")).join("\n");
+    const A1_SUMMARY = new Set(["format_version", "limits", "obs_late_share", "obs_longest_overdue_max_min", "care_demand_over_available", "obs_longest_since_round_max_min", "obs_rel_late_median_of_hours"]);
+    const oldSummary = JSON.stringify(JSON.parse(long.summaryJson), (k, v) => (A1_SUMMARY.has(k) ? undefined : v));
+    expect([h(long.eventsCsv), h(oldHourly), h(oldSummary)]).toEqual(["06bcca99478acddf", "72abf5628b361263", "6b841afc19dc32a4"]);
+  });
+
   it("finishes a 30-day typical trial", () => {
     console.log(`30-day typical trial: ${secs} s; hourly ${long.hourlyCsv.length} B, events ${long.eventsCsv.length} B, summary ${long.summaryJson.length} B`);
     expect(long.hourlyRows).toBe(UNITS * DAYS * 24);
@@ -150,8 +172,9 @@ describe("summary figures", () => {
     const a = s.after_warm_up, all = s.all_days;
     expect(a.er_arrivals).toBe(5); // p2 p3 p4 p5 p8; p1 is before the warm-up, p9 after the end
     expect(all.er_arrivals).toBe(6);
-    expect(a.per_unit.ER).toEqual({ occupancy_mean_pct: 100, occupancy_max_pct: 150, admissions: 5, deaths: 1 });
-    expect(all.per_unit.ER).toEqual({ occupancy_mean_pct: 96.67, occupancy_max_pct: 150, admissions: 6, deaths: 1 });
+    const noObs = { obs_late_share: null, obs_longest_overdue_max_min: null, care_demand_over_available: null, obs_longest_since_round_max_min: null, obs_rel_late_median_of_hours: null }; // these rows carry no rounds
+    expect(a.per_unit.ER).toEqual({ occupancy_mean_pct: 100, occupancy_max_pct: 150, admissions: 5, deaths: 1, ...noObs });
+    expect(all.per_unit.ER).toEqual({ occupancy_mean_pct: 96.67, occupancy_max_pct: 150, admissions: 6, deaths: 1, ...noObs });
     expect(a.deaths).toBe(1);
   });
 
@@ -173,6 +196,16 @@ describe("summary figures", () => {
     expect([a.er_boarding_hours_median, a.er_boarding_hours_p90, a.er_boarders_ended]).toEqual([5, 5, 1]); // p6; p7 began before the warm-up
     expect(a.er_still_boarding_at_end).toEqual({ count: 1, median_hours_so_far: 41.67 });
     expect([s.all_days.er_boarding_hours_median, s.all_days.er_boarders_ended]).toEqual([3, 2]);
+  });
+
+  it("observation keys: late over done, the longest overdue, demand over available as sum over sum; null with nothing to divide by", () => {
+    const o = (hour: number, unit: UnitId, done: number, late: number, longest: number, demanded: number, available: number) =>
+      ({ ...hr(hour, unit, 0), obs_done: done, obs_late: late, obs_longest_overdue_min: longest, care_min_demanded: demanded, care_min_available: available }) as HourRow;
+    const rows = [o(80, "MED3A", 4, 1, 30, 50, 30), o(81, "MED3A", 6, 4, 170, 40, 30), o(80, "SURG5A", 0, 0, 0, 25, 0), hr(80, "ICU", 10)];
+    const f = summarize([], rows, ["MED3A", "SURG5A", "ICU"], 5).after_warm_up.per_unit as Record<string, Record<string, unknown>>;
+    expect(f.MED3A).toMatchObject({ obs_late_share: 0.5, obs_longest_overdue_max_min: 170, care_demand_over_available: 1.5 });
+    expect(f.SURG5A).toMatchObject({ obs_late_share: null, obs_longest_overdue_max_min: 0, care_demand_over_available: null }); // zero nurses
+    expect(f.ICU).toMatchObject({ obs_late_share: null, obs_longest_overdue_max_min: null, care_demand_over_available: null });
   });
 
   it("ICU access counts people still waiting as not placed, and reports them", () => {

@@ -15,6 +15,9 @@
 //    full still goes to its ward or W4 flagged, as row 10 says.
 // Note for H3: each cardiac boarder calls `port.admit` every minute (at most one refusal is remembered per minute), so the real
 // W4 must refuse before it draws any random number, or boarding would change W4's own draws.
+// Slice A1, observation rounds (workload-design.md): nurses in the ER and the three wards spend a share of each minute on
+// rounds, served most late first relative to their own interval; with more due than they can do, rounds run late. A1 draws nothing and changes no old
+// value: it only adds state, counters and columns. The ICU, W4 and the morgue are not in the workload model.
 // Pure and seeded: one call per sim minute, no clock, no I/O. Everything that can differ between runs is in `Hospital`.
 import { drawPerson, DAY_MIN, stayDeathP } from "./people";
 import { PARAMS, UNITS, type Group, type UnitId } from "./params";
@@ -30,7 +33,7 @@ const WARDS: UnitId[] = ["MED3A", "MED3B", "SURG5A"];
 const INITIAL_BASE = 1_000_000;
 
 const unitOf = (h: Hospital, id: UnitId) => h.units.find((u) => u.id === id)!;
-const blank = (): Counters => ({ admittedIn: 0, discharged: 0, transferredIn: 0, transferredOut: 0, died: 0 });
+const blank = (): Counters => ({ admittedIn: 0, discharged: 0, transferredIn: 0, transferredOut: 0, died: 0, obsDue: 0, obsDone: 0, obsLate: 0, obsRel: [] });
 const emptyAcc = (): Acc => ({
   by: { ER: blank(), MORGUE: blank(), ICU: blank(), MED3A: blank(), MED3B: blank(), W4: blank(), SURG5A: blank() },
   arrivals: 0, lwbs: 0, boardMin: 0, d2d: [],
@@ -39,7 +42,7 @@ const emptyAcc = (): Acc => ({
 /** Units as the scenario sets them; W4 and the morgue are fixed. */
 function buildUnits(s: Scenario): Unit[] {
   return UNITS.map((r) => {
-    const base = { id: r.id, name: r.name, floor: r.floor, beds: r.beds.value, stretchers: r.stretchers.value, nurses: r.nurses.typical.value, residents: r.residents.value };
+    const base = { id: r.id, name: r.name, floor: r.floor, beds: r.beds.value, stretchers: r.stretchers.value, nurses: r.nurses.typical.value, residents: r.residents.value, obsCredit: 0 };
     if (r.id === "ER") return { ...base, beds: s.er.bays, nurses: s.er.nurses };
     if (r.id === "ICU" || r.id === "MED3A" || r.id === "MED3B" || r.id === "SURG5A") return { ...base, ...s.units[r.id] };
     return base;
@@ -103,6 +106,7 @@ function put(c: Ctx, p: Person, id: UnitId, where: Where, slot: number | null, k
   release(c, p);
   take(c, p, id, slot);
   p.where = where; p.sinceMin = c.minute; p.wants = null;
+  p.obsDueMin = WARDS.includes(id) ? c.minute : null; // an admission round on arrival; the ICU and W4 have no rounds
   p.dueMin = id === "ICU" ? c.minute + p.icuStayMin : id === "W4" ? null : dueAt(c.minute, p.stayMin, p.dischargeHour);
   // W4 patients carry no hospital fate in this slice: W4 deaths are slice H8's.
   if (id !== "W4" && p.dieMin === null && p.deathU < stayDeathP(p.group, p.icuIndicated)) {
@@ -148,6 +152,7 @@ function newPerson(h: Hospital, n: number, arrivedMin: number): Person {
   return {
     ...d, arrivedMin, unit: "ER", where: "waiting", sinceMin: arrivedMin, slot: null, wants: null, seenMin: null, decideMin: null, dueMin: null,
     dieMin: d.erDeathAfterMin === null ? null : arrivedMin + d.erDeathAfterMin, boardedMin: 0, w4Id: null, fromW4: false,
+    obsDueMin: arrivedMin, obsLastMin: null,
   };
 }
 
@@ -164,7 +169,8 @@ function seedResidents(h: Hospital) {
     push(h, { minute: 0, person: p.id, w4_id: null, unit: "ER", kind: "turned_away", detail: "people cap reached at start", news2_independent: true });
     return false;
   };
-  const add = (p: Person) => { h.people.push(p); h.createdCount += 1; };
+  // First rounds spread over one interval by number, with no draw.
+  const add = (p: Person) => { p.obsDueMin = inRounds(p) ? p.n % obsInterval(p) : null; h.people.push(p); h.createdCount += 1; };
 
   const consult = PARAMS.consultMin.value;
   for (let i = 0; i < unitOf(h, "ER").beds; i += 1) {
@@ -226,7 +232,53 @@ const median = (xs: number[]) => {
   return s.length === 0 ? null : s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 };
 
+// ---- observation rounds (A1) ----
+const OBS_UNITS: UnitId[] = ["ER", ...WARDS];
+const CLASS = ["watch", "routine"] as const;
+/** Who is on a unit's rounds: everyone in the ER's stages, and the wards' living people in a bed or on a stretcher. */
+const inRounds = (p: Person) => (p.unit === "ER" ? inEr(p) : WARDS.includes(p.unit) && (p.where === "bed" || p.where === "stretcher"));
+/** 0 "watch", 1 "routine". The seam for A2: a person noticed as deteriorated joins class 0. */
+export const obsClass = (p: Person): 0 | 1 =>
+  (p.unit === "ER" && p.triage === "emergent") || (p.admit && p.icuIndicated && (p.where === "boarding" || p.where === "bed" || p.where === "stretcher")) ? 0 : 1;
+const obsInterval = (p: Person) => PARAMS.obs.intervalMin[CLASS[obsClass(p)]].value;
+
+/** One round on p at `minute`. The next counts from when this one was done, not from the old due time. The seam for A2's notice. */
+function doRound(by: Counters, p: Person, minute: number) {
+  const cls = CLASS[obsClass(p)];
+  if (minute - p.obsDueMin! > PARAMS.obs.graceMin[cls].value) by.obsLate += 1;
+  by.obsDone += 1;
+  by.obsRel.push((minute - p.obsDueMin!) / PARAMS.obs.intervalMin[cls].value);
+  p.obsLastMin = minute;
+  p.obsDueMin = minute + PARAMS.obs.intervalMin[cls].value;
+}
+
+/** Each workload unit earns nurses x share nurse-minutes (capped, no saving up) and spends roundMin per round on who is due.
+ *  Order (orchestrator ruling, round 2): largest relative lateness (now - due) / own interval first, then the more acute class,
+ *  then the lower number. Strict class order let hourly watch rounds starve routine patients for days. */
+function rounds(h: Hospital, minute: number, prev: number) {
+  const o = PARAMS.obs;
+  const roundMin = o.roundMin.value;
+  for (const u of h.units) {
+    if (!OBS_UNITS.includes(u.id)) continue;
+    const by = h.acc.by[u.id];
+    const due: [number, 0 | 1, Person][] = [];
+    for (const p of h.people) {
+      if (p.unit !== u.id || p.obsDueMin === null || !inRounds(p)) continue;
+      if (p.obsDueMin > prev && p.obsDueMin <= minute) by.obsDue += 1; // fell due this minute
+      if (p.obsDueMin <= minute) { const cls = obsClass(p); due.push([(minute - p.obsDueMin) / o.intervalMin[CLASS[cls]].value, cls, p]); }
+    }
+    u.obsCredit = Math.min(u.obsCredit + u.nurses * o.shareOfNurseTime.value, u.nurses * roundMin);
+    due.sort(([ra, ca, a], [rb, cb, b]) => rb - ra || ca - cb || a.n - b.n);
+    for (const [, , p] of due) {
+      if (u.obsCredit < roundMin) break;
+      u.obsCredit -= roundMin;
+      doRound(by, p, minute);
+    }
+  }
+}
+
 export function stepHospital(h: Hospital, port: W4Port, minute: number) {
+  const prev = h.lastMinute;
   h.lastMinute = minute;
   const used = Object.fromEntries(h.units.map((u) => [u.id, new Set<number>()]));
   for (const p of h.people) if (p.slot !== null) used[p.unit].add(p.slot);
@@ -291,7 +343,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
       h.acc.by.W4.transferredOut += 1;
       h.acc.by.ER.transferredIn += 1;
       release(c, p); take(c, p, "ER", anySlot(c, "ER"));
-      p.where = "boarding"; p.wants = "ICU"; p.sinceMin = minute; p.dueMin = null;
+      p.where = "boarding"; p.wants = "ICU"; p.sinceMin = minute; p.dueMin = null; p.obsDueMin = minute;
       log(c, p, "ER", "board", "W4 higher care, no ICU bed", false);
     }
     p.w4Id = null;
@@ -377,6 +429,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     if (h.gone.length > 300) h.gone.splice(0, h.gone.length - 300);
   }
   h.icuFree = unitOf(h, "ICU").beds - used.ICU.size;
+  rounds(h, minute, prev);
   if ((minute + 1) % 60 === 0) hourRows(h, Math.floor(minute / 60));
 }
 
@@ -401,12 +454,32 @@ function hourRows(h: Hospital, hour: number) {
       door_to_doctor_median_min: er ? median(a.d2d) : null,
       icu_indicated_not_in_icu: u.id === "MORGUE" ? null : here.filter((p) => p.icuIndicated && p.unit !== "ICU" && (p.where === "boarding" || p.where === "bed" || p.where === "stretcher" || p.w4Id !== null)).length,
       morgue: u.id === "MORGUE" ? here.length + h.people.filter((p) => p.unit !== "MORGUE" && p.where === "awaiting_morgue").length : null,
+      ...obsColumns(h, u, hour * 60 + 59),
     };
     h.hourly.push(row);
   }
   const cap = PARAMS.bufferCap.hourly.value;
   if (h.hourly.length > cap) h.hourly.splice(0, h.hourly.length - cap);
   h.acc = emptyAcc();
+}
+
+/** A1's columns for one unit at the hour's last minute; blank where rounds are not modelled. */
+function obsColumns(h: Hospital, u: Unit, minute: number) {
+  const by = h.acc.by[u.id];
+  const on = OBS_UNITS.includes(u.id);
+  const here = on ? h.people.filter((p) => p.unit === u.id && p.obsDueMin !== null && inRounds(p)) : [];
+  const overdue = here.filter((p) => p.obsDueMin! <= minute).map((p) => minute - p.obsDueMin!);
+  // Without a round since the last round or since joining the unit's rounds (ER: arrival; wards: placement), whichever is later.
+  // shortcut: a W4-to-ER boarder (test doubles only) counts from hospital arrival, upgrade if the real W4 ever boards one.
+  const since = here.map((p) => minute - Math.max(p.obsLastMin ?? -Infinity, p.unit === "ER" ? p.arrivedMin : p.sinceMin));
+  return {
+    obs_due: on ? by.obsDue : null, obs_done: on ? by.obsDone : null, obs_late: on ? by.obsLate : null,
+    obs_overdue_now: on ? overdue.length : null, obs_longest_overdue_min: on ? Math.max(0, ...overdue) : null,
+    // Nominal need, not rounds done: each person on rounds needs 60 x roundMin / own interval nurse-minutes an hour.
+    care_min_demanded: on ? round(here.reduce((a, p) => a + (60 * PARAMS.obs.roundMin.value) / obsInterval(p), 0), 2) : null, care_min_available: on ? round(u.nurses * PARAMS.obs.shareOfNurseTime.value * 60, 2) : null,
+    obs_longest_since_round_min: on ? Math.max(0, ...since) : null,
+    obs_rel_late_median: on && by.obsRel.length > 0 ? round(median(by.obsRel)!, 2) : null,
+  };
 }
 
 /** Hands over the event and hourly rows and clears them; a caller does this each hour. */

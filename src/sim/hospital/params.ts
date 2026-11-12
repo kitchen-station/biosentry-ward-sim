@@ -31,6 +31,8 @@ const LINK = {
   pghMedicine: "https://pmc.ncbi.nlm.nih.gov/articles/PMC9850543",
   arrest: "https://actamedicaphilippina.upm.edu.ph/index.php/acta/article/view/2935",
   pghIcu: "https://actamedicaphilippina.upm.edu.ph/index.php/acta/article/view/3592",
+  news2: "https://www.rcp.ac.uk/media/mrllczrj/news2-chart-4_clinical-response-to-news-trigger-thresholds_0.pdf",
+  obsTime: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8249906",
 };
 
 export type ScenarioKind = "standard" | "typical" | "surge";
@@ -300,5 +302,19 @@ export const PARAMS = {
   anchors: { // outputs to compare with, never fitted
     erAdmitShare: cited(0.28, `PGH ER admissions 28% of consults [PH §2.1 read] ${LINK.pgh2019}`),
     icuAccessForIcuBoundHF: cited(0.189, `18.9% of ICU-bound HF reached an ICU bed [PH §2.3 read] ${LINK.hfIcu}`),
+  },
+  // Observation rounds outside W4 and the ICU (slice A1, workload-design.md). Class "watch": ICU-indicated not in the ICU, or
+  // emergent in the ER; "routine": everyone else. No DOH or Philippine observation-frequency standard was found.
+  obs: {
+    intervalMin: {
+      watch: cited(60, `NEWS2 5 or more, or 3 in one parameter: "minimum 1 hourly" [NEWS2 Chart 4, RCP, read] ${LINK.news2}. No PH standard found.`),
+      routine: cited(240, `NEWS2 1-4: "minimum 4-6 hourly" [NEWS2 Chart 4, RCP, read] ${LINK.news2}; 4 h, the band's start, taken. No PH standard found.`),
+    },
+    graceMin: { // a round is late when done more than this after it fell due
+      watch: judgement(30, `[judgement] NEWS2 Chart 4 asks review within 60 min at 5-6 ${LINK.news2}; 30 min is ours. Better: a PH ward observation policy.`),
+      routine: cited(120, `[derived from NEWS2 Chart 4, read] due at 4 h, the "4-6 hourly" band ends at 6 h, so 2 h ${LINK.news2}.`),
+    },
+    roundMin: cited(5, `One set of observations takes 5 min 01 s per round (authors' preferred figure; 3 min 45 s bedside only, 6 min 26 s with all interruptions), 16 English wards, 680 sets [Dall'Ora 2021, read] ${LINK.obsTime}; England, not PH. Better: a PH time-motion study.`),
+    shareOfNurseTime: judgement(0.25, "Each nurse gives a quarter of each minute (15 min per nurse-hour) to observation rounds; the rest is medicines, admissions, charting [judgement; no nurse share of time on observations found]. Better: a PH nurse activity study."),
   },
 };

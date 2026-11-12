@@ -8,7 +8,7 @@ import typical from "../scenarios/hospital/typical.json?raw";
 import type { EventKind, EventRow, HourRow, Person, Where } from "./sim/hospital/types";
 import type { Group, Triage, UnitId } from "./sim/hospital/params";
 
-const base = { arrivedMin: 100, sinceMin: 100, wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false } as const;
+const base = { arrivedMin: 100, sinceMin: 100, wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: null, obsLastMin: null } as const;
 let n = 0;
 function person(unit: UnitId, where: Where, slot: number | null, o: Partial<Person> = {}): Person {
   n += 1;
@@ -19,7 +19,9 @@ const ev = (person: string, minute: number, kind: EventKind, unit: UnitId = "ER"
 const row = (hour: number, unit: UnitId, census: number, o: Partial<HourRow> = {}): HourRow => ({
   hour, unit, census, beds: 10, stretchers_used: 0, occupancy_pct: 0, arrivals: 0, admitted_in: 0, discharged: 0, transferred_in: 0, transferred_out: 0, died: 0,
   nurses: 2, patients_per_nurse: null, er_waiting: null, er_consult: null, er_workup: null, er_boarding: null, er_boarding_hours: null, er_lwbs: null,
-  door_to_doctor_median_min: null, icu_indicated_not_in_icu: null, morgue: null, ...o,
+  door_to_doctor_median_min: null, icu_indicated_not_in_icu: null, morgue: null,
+  obs_due: null, obs_done: null, obs_late: null, obs_overdue_now: null, obs_longest_overdue_min: null, care_min_demanded: null, care_min_available: null,
+  obs_longest_since_round_min: null, obs_rel_late_median: null, ...o,
 });
 
 function fixed() {

@@ -8,7 +8,8 @@ export type Sex = "F" | "M";
 export type Where = "waiting" | "consult" | "workup" | "boarding" | "bed" | "stretcher" | "awaiting_morgue" | "morgue";
 
 // Floor is a plain number: do not export a type named Floor (map.ts has one for room colours).
-export interface Unit { id: UnitId; name: string; floor: number; beds: number; stretchers: number; nurses: number; residents: number }
+// obsCredit: nurse-minutes saved for observation rounds, capped at nurses x obs.roundMin; always 0 outside the workload units.
+export interface Unit { id: UnitId; name: string; floor: number; beds: number; stretchers: number; nurses: number; residents: number; obsCredit: number }
 
 /** Everything person n will ever need, drawn at arrival from the stream `person:${n}` in a fixed order. */
 export interface PersonDraw {
@@ -29,6 +30,8 @@ export interface Person extends PersonDraw {
   boardedMin: number;              // total minutes spent boarding so far
   w4Id: string | null;             // set while the person is a W4 patient; W4 holds the clinical record
   fromW4: boolean;                 // left W4 needing higher care: only the ICU will do, never back to W4
+  obsDueMin: number | null;        // next observation round falls due; null where rounds are not modelled (ICU, W4, morgue)
+  obsLastMin: number | null;       // minute of the last observation round done, null before the first
 }
 
 export type EventKind =
@@ -47,9 +50,17 @@ export interface HourRow {
   er_waiting: number | null; er_consult: number | null; er_workup: number | null; er_boarding: number | null;
   er_boarding_hours: number | null; er_lwbs: number | null; door_to_doctor_median_min: number | null;
   icu_indicated_not_in_icu: number | null; morgue: number | null;
+  // Observation rounds (slice A1), appended; null on ICU, W4 and MORGUE, which are not in the workload model.
+  obs_due: number | null; obs_done: number | null; obs_late: number | null; obs_overdue_now: number | null;
+  obs_longest_overdue_min: number | null; care_min_demanded: number | null; care_min_available: number | null;
+  obs_longest_since_round_min: number | null; obs_rel_late_median: number | null; // round 2: late but not abandoned
 }
 
-export interface Counters { admittedIn: number; discharged: number; transferredIn: number; transferredOut: number; died: number }
+export interface Counters {
+  admittedIn: number; discharged: number; transferredIn: number; transferredOut: number; died: number;
+  obsDue: number; obsDone: number; obsLate: number; // rounds that fell due, done, done late this hour
+  obsRel: number[]; // relative lateness of each round done this hour: (done - due) / interval; at most the hour's rounds
+}
 export interface Acc { by: Record<UnitId, Counters>; arrivals: number; lwbs: number; boardMin: number; d2d: number[] }
 
 export interface Hospital {

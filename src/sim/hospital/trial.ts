@@ -11,15 +11,20 @@ import type { EventKind, EventRow, HourRow } from "./types";
 export type TrialEvent = Omit<EventRow, "kind"> & { kind: EventKind | "w4_higher_care" };
 
 export const WARM_UP_DAYS = 3;
+export const FORMAT_VERSION = 2; // 2: slice A1's observation-round columns and summary keys, appended
 export const SPEED = 60;
 export const LIMITS =
-  "synthetic, not validated: staffing outside W4 is shown, not modelled; deaths are pre-drawn fates, so crowding does not change who dies";
+  "synthetic, not validated: staffing outside W4 drives observation rounds only, and observation workload uses judgement values (share of nurse time); see params; deaths are pre-drawn fates, so crowding and late rounds do not change who dies. " +
+  "`obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late. " +
+  "Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand.";
 const STEPS_PER_HOUR = 3600; // speed 60: one step is one sim second
 
 export const HOURLY_COLUMNS = [
   "hour", "unit", "census", "beds", "stretchers_used", "occupancy_pct", "arrivals", "admitted_in", "discharged", "transferred_in",
   "transferred_out", "died", "nurses", "patients_per_nurse", "er_waiting", "er_consult", "er_workup", "er_boarding", "er_boarding_hours",
   "er_lwbs", "door_to_doctor_median_min", "icu_indicated_not_in_icu", "morgue",
+  "obs_due", "obs_done", "obs_late", "obs_overdue_now", "obs_longest_overdue_min", "care_min_demanded", "care_min_available",
+  "obs_longest_since_round_min", "obs_rel_late_median",
 ] as const satisfies readonly (keyof HourRow)[];
 export const EVENT_COLUMNS = ["minute", "person", "w4_id", "unit", "kind", "detail", "news2_independent"] as const;
 
@@ -61,11 +66,18 @@ export function figures(events: TrialEvent[], hourly: HourRow[], units: string[]
   for (const id of units) {
     const rows = hr.filter((h) => h.unit === id);
     const occ = rows.map((h) => h.occupancy_pct);
+    const obs = rows.filter((h) => typeof h.obs_done === "number"); // blank on units outside the workload model
+    const sum = (k: "obs_done" | "obs_late" | "care_min_demanded" | "care_min_available") => obs.reduce((a, h) => a + h[k]!, 0);
     per_unit[id] = {
       occupancy_mean_pct: occ.length ? r(occ.reduce((a, b) => a + b, 0) / occ.length) : null,
       occupancy_max_pct: occ.length ? Math.max(...occ) : null,
       admissions: rows.reduce((a, h) => a + h.admitted_in, 0),
       deaths: rows.reduce((a, h) => a + h.died, 0),
+      obs_late_share: share(sum("obs_late"), sum("obs_done")),
+      obs_longest_overdue_max_min: obs.length ? Math.max(...obs.map((h) => h.obs_longest_overdue_min!)) : null,
+      care_demand_over_available: share(sum("care_min_demanded"), sum("care_min_available")),
+      obs_longest_since_round_max_min: obs.length ? Math.max(...obs.map((h) => h.obs_longest_since_round_min!)) : null,
+      obs_rel_late_median_of_hours: r(median(obs.filter((h) => h.obs_rel_late_median !== null).map((h) => h.obs_rel_late_median!))),
     };
   }
 
@@ -180,7 +192,7 @@ export function runHospitalTrial(seed: number, scenario: Scenario, days: number,
   for (const e of events) eventsCsv += line([e.minute, personNumber(e.person), e.w4_id, e.unit, e.kind, e.detail, e.news2_independent]);
 
   const summary = {
-    format_version: 1, synthetic: true, seed, days, warm_up_days: WARM_UP_DAYS, scenario,
+    format_version: FORMAT_VERSION, synthetic: true, seed, days, warm_up_days: WARM_UP_DAYS, scenario,
     ...summarize(events, hourly, units, days),
     limits: LIMITS,
   };
