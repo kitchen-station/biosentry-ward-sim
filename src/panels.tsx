@@ -863,13 +863,15 @@ export function Inspector({
 }
 
 /** The canvas cannot take focus per item, so keyboard users pick from these. Hidden until focused. */
+export const selectTargets = (s: Sim): [string, string][] => [
+  ...s.patients.map((p): [string, string] => [p.id, `${p.name}, bed ${p.bed}`]),
+  ...BEDS.filter((b) => !s.patients.some((p) => p.bed === b.label)).map((b): [string, string] => [`bed:${b.label}`, `${s.occupied?.includes(b.label) ? "Occupied" : "Empty"} bed ${b.label}`]),
+  ...s.staff.map((m): [string, string] => [m.id, m.name]),
+  ...Object.entries(MACHINE_NAMES),
+];
+
 export function SelectList({ s, onSelect }: { s: Sim; onSelect: (id: string) => void }) {
-  const targets: [string, string][] = [
-    ...s.patients.map((p): [string, string] => [p.id, `${p.name}, bed ${p.bed}`]),
-    ...BEDS.filter((b) => !s.patients.some((p) => p.bed === b.label)).map((b): [string, string] => [`bed:${b.label}`, `${s.occupied?.includes(b.label) ? "Occupied" : "Empty"} bed ${b.label}`]),
-    ...s.staff.map((m): [string, string] => [m.id, m.name]),
-    ...Object.entries(MACHINE_NAMES),
-  ];
+  const targets = selectTargets(s);
   return (
     <ul className="sr" aria-label="Select on the ward">
       {targets.map(([id, name]) => (

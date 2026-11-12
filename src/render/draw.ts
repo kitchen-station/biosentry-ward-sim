@@ -893,8 +893,12 @@ export function createW4() {
   };
 }
 
+/** Device pixels per logical pixel: the whole number nearest the CSS scale times the device ratio, at least 1. Nearest,
+ * not up: a canvas a little smaller than the screen scaled up costs far fewer pixels than one a lot larger scaled down. */
+export const backingFor = (scale: number, ratio: number) => Math.max(1, Math.round(scale * ratio));
+
 export function createRenderer(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
   const w4 = createW4();
   const cam: Cam = fitCam(LOGICAL_W, LOGICAL_H); // logical point at the view centre
   const user: Cam = fitCam(LOGICAL_W, LOGICAL_H); // where the camera rests with nothing selected; the default is today's view
@@ -920,9 +924,11 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     /** Draws at a whole-number scale so every art pixel is the same size, then lets CSS fit it. */
     resize(width: number, height: number, ratio: number) {
       scale = Math.min(width / LOGICAL_W, height / LOGICAL_H);
-      backing = Math.max(1, Math.ceil(scale * ratio));
+      backing = backingFor(scale, ratio);
       canvas.width = LOGICAL_W * backing;
       canvas.height = LOGICAL_H * backing;
+      ctx.fillStyle = "#2A2036"; // an opaque canvas clears to black; until the next frame show the stage, as transparent did
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       canvas.style.width = `${LOGICAL_W * scale}px`;
       canvas.style.height = `${LOGICAL_H * scale}px`;
       canvas.style.left = `${(width - LOGICAL_W * scale) / 2}px`;
@@ -945,13 +951,17 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       setUser(fitCam(LOGICAL_W, LOGICAL_H), false);
     },
 
+    /** Every frame paints here, so there is no kept picture to forget. */
+    redraw() {},
+
     reset() {
       Object.assign(cam, fitCam(LOGICAL_W, LOGICAL_H));
       Object.assign(user, fitCam(LOGICAL_W, LOGICAL_H));
       w4.reset();
     },
 
-    frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number) {
+    /** Paints the frame; true when it painted (the stack's closed building may skip one that would not change). */
+    frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number): boolean {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = "#2A2036";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -959,6 +969,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       const pixels = backing * cam.zoom;
       ctx.setTransform(pixels, 0, 0, pixels, backing * (LOGICAL_W / 2 - cam.x * cam.zoom), backing * (LOGICAL_H / 2 - cam.y * cam.zoom));
       w4.paint(ctx, s, selected, hovered, dt, now);
+      return true;
     },
 
     /** The patient, empty bed, staff member or machine under a canvas CSS pixel, if any. */

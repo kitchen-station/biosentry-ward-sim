@@ -7,7 +7,7 @@ import { parseScenario } from "../sim/hospital/scenario";
 import { createSim, step } from "../sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "../sim/source";
 import typical from "../../scenarios/hospital/typical.json?raw";
-import { createRenderer, iso, LOGICAL_H, LOGICAL_W, onSlab } from "./draw";
+import { backingFor, createRenderer, iso, LOGICAL_H, LOGICAL_W, onSlab } from "./draw";
 import { BUILDING, ease, lift, litCount, segments, storeyAt, storeyLit, STOREY } from "./facade";
 import { FLOORS } from "./floors";
 import { slabTag } from "./scene";
@@ -158,6 +158,123 @@ describe("the closed building and its opening", () => {
     expect(grid()).toEqual([""]);
     for (let i = 0; i < 200; i += 1) st.frame(s, null, null, 0.05, 22 + i * 0.05);
     expect(grid().every((id) => id === null || id.startsWith("floor:"))).toBe(true);
+  });
+});
+
+describe("the backing store", () => {
+  it("is the whole device-pixel scale nearest the screen's, at least 1", () => {
+    expect(backingFor(Math.min(1060 / LOGICAL_W, 786 / LOGICAL_H), 2)).toBe(3); // was 4 (rounded up from 3.23)
+    expect(backingFor(1, 1)).toBe(1);
+    expect(backingFor(0.3, 1)).toBe(1);
+    const [a, b] = [canvas(), canvas()];
+    createStackRenderer(a, () => null).resize(1060, 786, 2);
+    createRenderer(b).resize(1060, 786, 2);
+    expect([a.width, a.height, b.width, b.height]).toEqual([1968, 1459, 3 * LOGICAL_W, 3 * LOGICAL_H]); // was 2624 x 1946
+    createStackRenderer(a, () => null).resize(656, 382, 1);
+    expect([a.width, a.height]).toEqual([656, 382]);
+  });
+});
+
+// A context that counts what it is asked to do, so a test sees whether a frame painted.
+function counting() {
+  const calls = { n: 0 };
+  const ctx = new Proxy({}, { get: (_t, k) => (k === "measureText" ? () => ({ width: 1 }) : () => ((calls.n += 1), { data: new Uint8ClampedArray(4) })), set: () => ((calls.n += 1), true) });
+  return { calls, canvas: { getContext: () => ctx, style: {}, width: 0, height: 0 } as unknown as HTMLCanvasElement };
+}
+
+describe("the closed building paints only when what it shows changed", () => {
+  const hospital = () => createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+  const nextMinute = (s: ReturnType<typeof hospital>) => {
+    const src = createSyntheticSource(FIXTURE_SEED, true);
+    const m = s.hospital!.lastMinute;
+    s.speed = 60;
+    while (s.hospital!.lastMinute === m) step(s, src);
+  };
+
+  it("an unchanged frame paints nothing; hover, a new minute, a resize, redraw and reset paint the next", () => {
+    const s = hospital();
+    const { calls, canvas: c } = counting();
+    const st = createStackRenderer(c, () => null);
+    st.resize(656, 382, 1);
+    const paints = (hovered: string | null = null) => {
+      const before = calls.n;
+      const drew = st.frame(s, null, hovered, 0.016, 0);
+      expect(calls.n > before).toBe(drew);
+      return drew;
+    };
+    expect(paints()).toBe(true); // the first frame
+    expect([paints(), paints(), paints()]).toEqual([false, false, false]);
+    expect([paints("floor:3"), paints("floor:3"), paints("floor:2"), paints(null), paints(null)]).toEqual([true, false, true, true, false]);
+    nextMinute(s);
+    expect([paints(), paints()]).toEqual([true, false]);
+    st.resize(656, 382, 1); // the same size still wipes the canvas
+    expect([paints(), paints()]).toEqual([true, false]);
+    st.resize(700, 382, 1);
+    expect([paints(), paints()]).toEqual([true, false]);
+    st.redraw();
+    expect([paints(), paints()]).toEqual([true, false]);
+    st.reset();
+    expect([paints(), paints()]).toEqual([true, false]);
+  });
+
+  it("a skipped frame still drops W4's trolleys, and a moving camera or the opening paints every frame", () => {
+    const s = hospital();
+    let view: number | null = null;
+    const { canvas: c } = counting();
+    const st = createStackRenderer(c, () => view);
+    st.resize(656, 382, 1);
+    st.frame(s, null, null, 0.016, 0);
+    s.speed = 1;
+    s.moves.push({ bed: "A1", kind: "in" } as (typeof s.moves)[number]);
+    expect(st.frame(s, null, null, 0.016, 0)).toBe(false);
+    expect(s.moves).toEqual([]);
+    view = 3;
+    const opening = Array.from({ length: 60 }, (_, i) => st.frame(s, null, null, 0.016, i * 0.016));
+    expect(opening.every(Boolean)).toBe(true); // open never skips
+    view = null;
+    const closing = Array.from({ length: 600 }, (_, i) => st.frame(s, null, null, 0.016, 2 + i * 0.016));
+    const firstSkip = closing.indexOf(false);
+    expect(firstSkip).toBeGreaterThan(OPEN_S / 0.016); // painted all the way through the closing and the camera's easing
+    expect(closing.slice(0, firstSkip).every(Boolean)).toBe(true);
+    // Then at rest: the camera's last thousandths of a pixel may cross a rounding step once or twice, then nothing.
+    expect(closing.slice(firstSkip).filter(Boolean).length).toBeLessThanOrEqual(3);
+    expect(closing.slice(300).some(Boolean)).toBe(false);
+  });
+});
+
+describe("the open stack's ghosts", () => {
+  it("are repainted only when their scene or a drawer's blink changed; W4's, which moves, every frame", () => {
+    const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
+    const real = document.createElement;
+    Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
+    try {
+      const s = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+      const st = createStackRenderer(counting().canvas, () => 3);
+      const ghosts = made.filter((c) => c.canvas.width === LOGICAL_W * 2 && c.canvas.height === LOGICAL_H * 2);
+      expect(ghosts.length).toBe(FLOORS.length);
+      st.resize(656, 382, 1);
+      const counts = () => ghosts.map((g) => g.calls.n);
+      const painted = (frames: number, now: number) => {
+        const before = counts();
+        for (let i = 0; i < frames; i += 1) st.frame(s, null, null, 0.016, now);
+        return counts().map((n, i) => n > before[i]);
+      };
+      const w4 = slabIndex(4);
+      const others = FLOORS.map((_, i) => i !== w4 && i !== slabIndex(3));
+      painted(12, 0); // the first frame paints every ghost; let the opening settle too
+      expect(painted(12, 0)).toEqual(FLOORS.map((_, i) => i === w4)); // nothing changed: only W4's ghost
+      const src = createSyntheticSource(FIXTURE_SEED, true);
+      const m = s.hospital!.lastMinute;
+      s.speed = 60;
+      while (s.hospital!.lastMinute === m) step(s, src);
+      s.speed = 0;
+      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4)); // a new minute: each once
+      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => i === w4));
+      st.redraw();
+      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4));
+    } finally {
+      Object.assign(document, { createElement: real });
+    }
   });
 });
 
