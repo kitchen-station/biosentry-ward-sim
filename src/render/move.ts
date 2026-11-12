@@ -60,19 +60,25 @@ export function route(map: string[], from: Tile, to: Tile): Tile[] {
   return [from, ...path, to];
 }
 
-/** The movers a change of places makes. `leaves(id)`: gone from the house or up to W4, so walked out by the lift. */
-export function newMovers(prev: Map<string, Place>, now: Map<string, Place>, clock: number, leaves: (id: string) => boolean): Mover[] {
+const MORGUE_DOOR: Tile = [27, 7]; // GF: a body with no drawer (overflow) is wheeled to the morgue's door and left there
+
+/** The movers a change of places makes, or null when there are too many (a skip, a restart). `leaves(id)`: gone from the
+ * house or up to W4, so walked out by the lift. `cur(id)`: where a mover already on the way is now; the next leg starts there. */
+export function newMovers(prev: Map<string, Place>, now: Map<string, Place>, clock: number, leaves: (id: string) => boolean, cur: (id: string) => Figure | null = () => null): Mover[] | null {
   const out: Mover[] = [];
-  for (const [id, a] of prev) {
-    const b = now.get(id);
-    if (b ? b.floor === a.floor && b.tile[0] === a.tile[0] && b.tile[1] === a.tile[1] : !leaves(id)) continue; // there still, or unseen in a room
+  for (const [id, a0] of prev) {
+    let b = now.get(id);
+    if (b ? b.floor === a0.floor && b.tile[0] === a0.tile[0] && b.tile[1] === a0.tile[1] : !leaves(id)) continue; // there still, or unseen in a room
+    if (!b && a0.body) b = { ...a0, floor: FLOORS.findIndex((f) => f.floor === 0), tile: MORGUE_DOOR };
+    const f = cur(id);
+    const a: Place = f ? { ...a0, floor: f.floor, tile: [Math.round(f.tile[0]), Math.round(f.tile[1])] } : a0;
     const legs = !b ? [{ floor: a.floor, path: route(FLOORS[a.floor].map, a.tile, LIFT) }]
       : b.floor === a.floor ? [{ floor: a.floor, path: route(FLOORS[a.floor].map, a.tile, b.tile) }]
       : [{ floor: a.floor, path: route(FLOORS[a.floor].map, a.tile, LIFT) }, { floor: b.floor, path: route(FLOORS[b.floor].map, LIFT, b.tile) }];
     const cell = b?.cell ?? a.cell ?? { group: "minor", initials: "", sel: id, slot: 0 };
     out.push({ id, legs, t0: clock, cell, walk: a.queued || !b, body: !!(b?.body || a.body), colour: a.colour ?? GROUP_COLOURS[cell.group] });
   }
-  return out.length > SNAP_OVER ? [] : out;
+  return out.length > SNAP_OVER ? null : out;
 }
 
 /** Where a mover is at `clock`; null once arrived. */
@@ -110,10 +116,10 @@ export function animate(scene: Scene, map: string[], moving: Set<string>, clock:
   if (scene.staff.length === 0 && moving.size === 0) return scene;
   return {
     ...scene,
-    beds: scene.beds.map((b) => (b.cell && moving.has(b.cell.sel) ? { ...b, cell: null } : b)),
+    beds: scene.beds.map((b) => (b.cell && moving.has(b.cell.sel) ? { ...b, cell: null, id: b.slot } : b)),
     spots: scene.spots.filter((p) => !moving.has(p.id)),
     queue: scene.queue.filter((q) => !moving.has(q.id)),
-    drawers: scene.drawers.map((d) => (d.full && moving.has(d.id) ? { ...d, full: false } : d)),
+    drawers: scene.drawers.map((d) => (d.full && moving.has(d.id) ? { ...d, full: false, id: d.slot } : d)),
     staff: scene.staff.map((m) => ({ ...m, tile: walkerTile(map, m.tile, `${m.id}:${m.i}`, clock) })),
   };
 }

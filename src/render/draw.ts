@@ -1001,4 +1001,4 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 }
 
 /** `floorOf`: the stack's own answer to which floor a person is on this moment (a mover is still on the floor they leave by). */
-export type Renderer = ReturnType<typeof createRenderer> & { floorOf?: (s: Sim, id: string) => number | null };
+export type Renderer = ReturnType<typeof createRenderer> & { floorOf?: (s: Sim, id: string) => number | null; figures?: (floor: number) => Figure[]; clock?: () => number };

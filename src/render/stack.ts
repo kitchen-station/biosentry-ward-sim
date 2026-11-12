@@ -58,9 +58,9 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       const next = FLOORS.map((spec) => floorScene(h, spec, floors));
       const now = placesOf(next);
       const still = new Map(h.people.map((p) => [`h:${p.n}`, p]));
-      const fresh = places && memo?.h === h && open > 0 && h.lastMinute - memo.minute <= 5 // closed, or a skip: nobody is walked
-        ? newMovers(places, now, clock, (id) => { const p = still.get(id); return !p || p.unit === "W4"; }) : [];
-      movers = [...movers.filter((m) => !fresh.some((f) => f.id === m.id) && memo?.h === h), ...fresh];
+      const ok = places && memo?.h === h && open > 0 && h.lastMinute - memo.minute <= 5; // closed, or a skip: nobody is walked
+      const fresh = ok ? newMovers(places!, now, clock, (id) => { const p = still.get(id); return !p || p.unit === "W4" || p.where === "awaiting_morgue" || p.where === "morgue"; }, (id) => { const m = movers.find((x) => x.id === id); return m ? figureOf(m, clock) : null; }) : null;
+      movers = fresh ? [...movers.filter((m) => !fresh.some((f) => f.id === m.id)), ...fresh] : []; // no new walks: old ones would go to stale places
       places = now;
       memo = { h, minute: h.lastMinute, floors, scenes: next };
     }
@@ -183,6 +183,9 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       painted = null;
       ghostOf = FLOORS.map(() => null);
     },
+
+    figures: (i: number) => figuresOn(i),
+    clock: () => clock,
 
     /** The floor a person is on now: a mover's current floor, else where they are drawn; null when unseen. */
     floorOf(s: Sim, id: string): number | null {
