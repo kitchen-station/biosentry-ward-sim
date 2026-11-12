@@ -125,8 +125,8 @@ export const CLAMPS: Record<Vital, [number, number]> = {
   spo2: [78, 100],
   temperature: [34.5, 40.5],
 };
-// shortcut: no open dataset gives minute-level temperature noise, keep BioSentry's value until one does.
-const TEMPERATURE_NOISE = 0.02;
+// shortcut: judgement, SD 0.1 C (thermometer resolution); no open minute-level source (temperature-sources.md).
+const TEMPERATURE_NOISE = 0.1;
 const noiseOf = (v: Vital) => fit.vitals[v].noise ?? TEMPERATURE_NOISE;
 // HR and RR: van Goor 2022, COVID ward patches, recovered group. No ward source for the rest.
 const CIRCADIAN_AMPLITUDE: Record<Vital, number> = {
@@ -164,9 +164,6 @@ const DEMO_CUFF: Record<string, Cuff> = { "p-004": { systolic: 128, diastolic: 7
 const DEMO_BASELINE: Record<string, Record<Vital, number>> = {
   "p-005": { heart_rate: 84, respiratory_rate: 18, spo2: 97, temperature: 36.7 },
 };
-
-// shortcut: too few eICU episodes chart temperature, keep the demo's rise until a source has it.
-const INJECT_TEMPERATURE = 0.6;
 
 interface Measured {
   data: { present: boolean; value?: unknown };
@@ -491,7 +488,8 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
   };
   const injected = (id: string, v: Vital, minute: number) => {
     const s = streams[id];
-    const size = v === "temperature" ? INJECT_TEMPERATURE : (s.episode?.[v] ?? 0);
+    // The fit has no temperature entry for any kind, so temperature does not move in an episode.
+    const size = (s.episode as Partial<Record<Vital, number>> | null)?.[v] ?? 0;
     return size * injectRamp(minute, s.injectAt, s.rampMin);
   };
 

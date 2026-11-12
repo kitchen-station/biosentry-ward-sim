@@ -193,6 +193,7 @@ npm run fit -- ~/Documents/datasets
 | Vital-sign drift, how fast it moves, how vitals move together, patient-to-patient spread | [eICU-CRD Demo 2.0.1](https://physionet.org/content/eicu-crd-demo/2.0.1/) | ODbL v1.0 |
 | Blood pressure drift, cuff noise, how diastolic follows systolic | eICU-CRD Demo | ODbL v1.0 |
 | Deterioration size and speed, in three kinds: respiratory, tachycardic, hypotensive | eICU-CRD Demo | ODbL v1.0 |
+| Temperature does not change in a deterioration episode | [Churpek 2012](https://pmc.ncbi.nlm.nih.gov/articles/PMC3342781), [Churpek 2015](https://pmc.ncbi.nlm.nih.gov/articles/PMC4359655), [Payvar 2013](https://europepmc.org/abstract/MED/23858000) | Literature, no data used |
 | Minute-to-minute noise for HR, RR, SpO2 | [BIDMC PPG and Respiration 1.0.0](https://physionet.org/content/bidmc/1.0.0/) | ODC-By v1.0 |
 | Premature beat rates and timing | [MIT-BIH Arrhythmia 1.0.0](https://physionet.org/content/mitdb/1.0.0/), 100 series only | ODC-By v1.0 |
 | AF beat irregularity, rate change | [MIT-BIH Atrial Fibrillation 1.0.0](https://physionet.org/content/afdb/1.0.0/) | ODC-By v1.0 |
@@ -217,7 +218,9 @@ Limits:
 - **No ward data:** no open ward-level dataset was found. The dynamics come from ICU stays, restricted to six-hour windows with ward-like medians, and applied around the ward patients' own baselines. Real ward patients may be steadier.
 - **Deterioration events are physiological rise events, our definition:** a rise of 4 or more in an hourly three-vital NEWS2 (HR, RR, SpO2) held for 2 hours, or two cuff readings at or below 100 systolic and at least 20 below baseline. No open dataset labels deterioration and no source validates these rules.
 - **Hypotensive events are ICU-derived:** they are fast (median about an hour) and may reflect sedation or drugs. The patch does not measure blood pressure, so a hypotensive event shows only when a nurse takes a cuff reading. Some go unseen on a low-risk patient, as they could on a real ward.
-- **Still hand-set:** the mix of event kinds (55% respiratory, 20% tachycardic, 25% hypotensive, a judgement because no published split exists), temperature noise and deterioration rise, circadian size for temperature, and the value clamps. Patch dropouts use ViSi Mobile ward pilot figures for rate and length, with a judgement 4-hour cap. The time of day each rhythm peaks comes from eICU.
+- **Still hand-set:** the mix of event kinds (55% respiratory, 20% tachycardic, 25% hypotensive, a judgement because no published split exists), temperature noise (SD 0.1 °C, a judgement), circadian size for temperature, and the value clamps. Patch dropouts use ViSi Mobile ward pilot figures for rate and length, with a judgement 4-hour cap. The time of day each rhythm peaks comes from eICU.
+- **Temperature does not rise in an episode:** ward studies find it does not separate patients who go on to cardiac arrest from controls, and it runs slightly low if anything (Churpek 2012, 2015). In heart failure, low temperature marks worse outcome (Payvar 2013). Earlier versions added a fixed 0.6 °C rise to every episode; that had no source and is removed.
+- **Infection is not modelled:** infection with fever or low temperature is not modelled as its own episode kind yet.
 - **AF episodes are short:** the median is a few minutes, as recorded in patients referred for AF, so a Start AF episode can end quickly.
 
 MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
