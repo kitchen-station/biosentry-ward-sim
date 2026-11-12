@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { floorOf } from "./hospital-panels";
-import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API, ZoomBar } from "./panels";
+import { BedTimeline, Inspector, SelectList, selectTargets, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
@@ -11,12 +11,14 @@ import { parseScenario } from "./sim/hospital/scenario";
 import doh from "../scenarios/hospital/doh-standard.json?raw";
 import surge from "../scenarios/hospital/surge.json?raw";
 import typical from "../scenarios/hospital/typical.json?raw";
-import { createSim, STAFF, step, type Sim, type Stay } from "./sim/sim";
+import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { createReader, ease, finishedStays, type LiveView, type StayRow } from "./sim/view";
+import { createPerf, perfLine, whileVisible } from "./perf";
 
 const TICK = 1 / 60;
+const DRAW_MS = 1000 / 61; // at most one painted frame per 60 Hz refresh: a 120 Hz display draws every other frame
 const POLL_MS = 2000; // as often as the runner publishes
 const STAYS_MS = 30_000; // slower: each read of the stays writes an audit row
 
@@ -31,6 +33,7 @@ const DAY_STEPS = 1440 * 60; // sim.ts skipDay: MINUTES_PER_DAY (1440, not expor
 const SKIP_CHUNK_MS = 12; // the page paints between chunks of this long
 // A hospital world needs no API and is never a viewer. Nothing is saved by the page, so a reload starts fresh.
 const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
+const PERF = new URLSearchParams(window.location.search).has("perf"); // the timing readout (perf.ts); off, none of it runs
 
 function newWorld(scenario = "typical"): { s: Sim; src: VitalsSource } {
   if (VIEW_API) return { s: createReader()({ shared: null, patients: [] }), src: VIEW_SOURCE }; // empty until the first answer
@@ -215,18 +218,31 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     });
     observer.observe(holder);
 
+    // Off-screen (the narrow layout scrolled past it) nothing is drawn; the sim steps on as before.
+    let onScreen = true;
+    const seen = new IntersectionObserver((entries) => void (onScreen = entries[entries.length - 1].isIntersecting));
+    seen.observe(holder);
+    const redraw = () => renderer.redraw();
+    canvas.addEventListener("contextrestored", redraw);
+    document.fonts?.addEventListener("loadingdone", redraw); // the tags' pixel font arrives after the first frames
+
     let raf = 0;
     let last = performance.now();
     let spare = 0;
+    let lastDraw = -Infinity;
+    let pending = 0; // seconds not yet given to the renderer: it eases and moves trolleys by the time since its last frame
     const loop = (now: number) => {
       const dt = Math.min(0.25, (now - last) / 1000); // a hidden tab must not fast-forward
       last = now;
       spare += dt;
+      pending += dt;
       const { s, src } = worldRef.current;
+      const [t0, m0] = PERF ? [performance.now(), minuteOf(s)] : [0, 0];
       while (spare >= TICK) {
         if (!VIEW_API && !skippingRef.current) step(s, src); // a viewer draws the runner's ward and never advances one
         spare -= TICK;
       }
+      if (perf) perf.step(performance.now() - t0, minuteOf(s) - m0);
       if (VIEW_API) {
         // Staff glide from where they are drawn to their newest answer. Only the reader's own Sim is written.
         const glide = glideRef.current;
@@ -238,11 +254,38 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           [m.x, m.y] = [at.x, at.y];
         }
       }
-      renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
+      if (onScreen && now - lastDraw >= DRAW_MS) {
+        const f0 = PERF ? performance.now() : 0;
+        const painted = renderer.frame(s, selectedRef.current, hoveredRef.current, pending, now / 1000);
+        perf?.frame(now, performance.now() - f0, painted);
+        lastDraw = now;
+        pending = 0;
+      } else perf?.frame(now, null, false);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    const panels = setInterval(() => refresh((n) => n + 1), 250);
+    const perf = PERF ? createPerf() : null;
+    const perfReport = () => perf!.report(performance.now(), [canvas.width, canvas.height]);
+    if (perf) Object.assign(window, { __perf: perfReport });
+    const perfLog = perf ? setInterval(() => console.log(perfLine(perfReport())), 5000) : undefined;
+    // The panels follow the sim 4 times a second while the page is seen, and only when something they show changed.
+    // clockS moves every step, so a running sim refreshes as it always did; a paused or ended one stops re-rendering.
+    // A viewer's staff glide between answers without changing any of these, so a viewer always refreshes.
+    let shownKey: unknown[] = [];
+    const panelKey = () => {
+      const { s } = worldRef.current;
+      return [s, s.clockS, s.speed, s.ended, s.log.length, s.patients.length, s.tasks.length, s.stays.length, s.hospital?.lastMinute, skippingRef.current, syncRef.current?.stopped, renderer.userZoom()];
+    };
+    const stopPanels = whileVisible(document, () => {
+      redraw(); // shown again: the canvas may have been dropped while hidden
+      const timer = setInterval(() => {
+        const key = panelKey();
+        if (!VIEW_API && key.length === shownKey.length && key.every((v, i) => v === shownKey[i])) return;
+        shownKey = key;
+        refresh((n) => n + 1);
+      }, 250);
+      return () => clearInterval(timer);
+    });
     // The dashboard reads this ward from /api (vite.config.ts). A static host has no /api: ignore.
     const publish = setInterval(() => {
       const { s, src } = worldRef.current;
@@ -253,8 +296,12 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     }, 2000);
     return () => {
       cancelAnimationFrame(raf);
-      clearInterval(panels);
+      stopPanels();
+      seen.disconnect();
+      canvas.removeEventListener("contextrestored", redraw);
+      document.fonts?.removeEventListener("loadingdone", redraw);
       clearInterval(publish);
+      clearInterval(perfLog);
       observer.disconnect();
     };
   }, []);
@@ -312,6 +359,10 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     };
     skipTimer.current = setTimeout(run, 0);
   };
+
+  // The keyboard list re-renders only when its buttons would change (select reads only refs and state setters).
+  const listKey = JSON.stringify(selectTargets(world.s));
+  const selectList = useMemo(() => <SelectList s={world.s} onSelect={select} />, [world.s, listKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canvasCentre = () => {
     const c = canvasRef.current!;
@@ -444,7 +495,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
             </div>
           )}
           <ZoomBar pct={Math.round((rendererRef.current?.userZoom() ?? 1) * 100)} onZoom={zoomBy} disabled={HOSPITAL && view === null} />
-          <SelectList s={world.s} onSelect={select} />
+          {selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
         <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} />

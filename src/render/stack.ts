@@ -6,7 +6,7 @@ import { clampCam, fitCam, panBy, zoomAbout, ZOOM_MIN, type Cam } from "../camer
 import { floorSummary, type FloorSummary } from "../building";
 import type { Sim } from "../sim/sim";
 import { MAP_H } from "../sim/map";
-import { createFloor, createW4, iso, LOGICAL_H, LOGICAL_W, onSlab, tag, ZOOM, type Renderer } from "./draw";
+import { backingFor, createFloor, createW4, iso, LOGICAL_H, LOGICAL_W, onSlab, tag, ZOOM, type Renderer } from "./draw";
 import { BUILDING, createFacade, ease, lift, QUEUE_SHOWN, QUEUE_SPOTS, STOREY, storeyAt, storeyLit } from "./facade";
 import { FLOORS, W4 } from "./floors";
 import { EMPTY, floorScene, slabTag, type Scene } from "./scene";
@@ -43,7 +43,7 @@ export function nextLevel(l: Level, e: LevelEvent): Level {
 
 /** `getView` is App's floor (null for the building). Same surface as createRenderer, so App drives either. */
 export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null): Renderer {
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
   const w4 = createW4();
   const slabs = FLOORS.map((spec) => (spec === W4 ? null : createFloor(spec)));
   const facade = createFacade(FLOORS.map((f) => f.floor));
@@ -66,7 +66,13 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     c.height = LOGICAL_H * GHOST_BACKING;
     return c;
   });
+  // What each ghost was painted from: its scene (a new object each minute) and the drawers' blink, the slab's one use of now.
+  const blink = (scene: Scene, now: number) => scene.drawers.map((d) => d.full && Math.floor(now * 2 + d.tile[0]) % 6 === 0).join();
+  let ghostOf: ({ scene: Scene; blink: string } | null)[] = FLOORS.map(() => null);
   function paintGhost(i: number, scene: Scene, now: number) {
+    const b = blink(scene, now);
+    if (ghostOf[i]?.scene === scene && ghostOf[i]!.blink === b) return; // the picture it holds is this one
+    ghostOf[i] = { scene, blink: b };
     const g = ghosts[i].getContext("2d")!;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
@@ -76,6 +82,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
   const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
   let open = 0; // 0 the closed building, 1 the open stack
+  // The closed building at rest changes only with what it is drawn from: the key of the picture on the canvas, or null.
+  let painted: unknown[] | null = null;
 
   const cam: Cam = { zoom: 1, x: 0, y: 0 }; // world coordinates
   let user: Cam = fitCam(LOGICAL_W, LOGICAL_H); // FLOOR's resting camera, in the floor's own coordinates
@@ -142,15 +150,23 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   return {
     resize(width: number, height: number, ratio: number) {
       scale = Math.min(width / LOGICAL_W, height / LOGICAL_H);
-      backing = Math.max(1, Math.ceil(scale * ratio));
+      backing = backingFor(scale, ratio);
       viewW = width / scale;
       viewH = height / scale;
       canvas.width = Math.round(viewW * backing);
       canvas.height = Math.round(viewH * backing);
+      ctx.fillStyle = STAGE; // an opaque canvas clears to black; until the next frame show the stage, as transparent did
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       canvas.style.left = "0px";
       canvas.style.top = "0px";
+      painted = null;
+    },
+    /** The picture on the canvas was lost (context restored, fonts loaded, tab shown again): paint the next frame. */
+    redraw() {
+      painted = null;
+      ghostOf = FLOORS.map(() => null);
     },
 
     /** 1 is one floor fitting the stage; the building shows below that. */
@@ -176,11 +192,13 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       user = fitCam(LOGICAL_W, LOGICAL_H);
       shown = undefined;
       turn = 0;
+      ghostOf = FLOORS.map(() => null);
       memo = null;
+      painted = null;
       w4.reset();
     },
 
-    frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number) {
+    frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number): boolean {
       const view = getView();
       if (view !== shown && shown !== undefined) user = fitCam(LOGICAL_W, LOGICAL_H); // a new floor starts at its fit
       const snap = shown === undefined;
@@ -194,6 +212,19 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       cam.y += (t.y - cam.y) * k;
       cam.zoom = Math.max(minZoom(), cam.zoom);
 
+      const live = scenes(s);
+      signFloors = live.floors;
+      const settled = Math.abs(t.zoom - cam.zoom) < 1e-3 && Math.abs(t.x - cam.x) < 1e-3 && Math.abs(t.y - cam.y) < 1e-3;
+      if (open === 0 && settled) {
+        // Everything closed() draws: the minute's summary (a new object each minute or world), the hover, the canvas.
+        const key = [live.floors, hovered, canvas.width, canvas.height, viewW, viewH, backing, ...[cam.zoom, cam.x, cam.y].map((v) => Math.round(v * 1e3))];
+        if (painted?.length === key.length && key.every((v, i) => v === painted![i])) {
+          if (s.speed > 0) s.moves.length = 0; // as closed(): unseen inside, W4's trolleys are not saved up
+          return false;
+        }
+        painted = key;
+      } else painted = null;
+
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = STAGE;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -201,9 +232,10 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       ctx.setTransform(pixels, 0, 0, pixels, backing * (viewW / 2 - cam.x * cam.zoom), backing * (viewH / 2 - cam.y * cam.zoom));
       ctx.imageSmoothingEnabled = false;
 
-      const live = scenes(s);
-      signFloors = live.floors;
-      if (open === 0) return closed(s, live.floors, hovered);
+      if (open === 0) {
+        closed(s, live.floors, hovered);
+        return true;
+      }
 
       const e = ease(open);
       const walls = Math.round(STOREY * (1 - e)); // the outer walls sink to the slab's own low walls; no ceilings
@@ -250,6 +282,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
         }
         ctx.restore();
       });
+      return true;
     },
 
     /** BUILDING (closed): `floor:<n>` for a storey or its sign. FLOOR and THING (open): a thing's id on the focused
