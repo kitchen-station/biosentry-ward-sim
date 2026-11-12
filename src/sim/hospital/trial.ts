@@ -11,10 +11,12 @@ import type { EventKind, EventRow, HourRow } from "./types";
 export type TrialEvent = Omit<EventRow, "kind"> & { kind: EventKind | "w4_higher_care" };
 
 export const WARM_UP_DAYS = 3;
-export const FORMAT_VERSION = 2; // 2: slice A1's observation-round columns and summary keys, appended
+export const FORMAT_VERSION = 3; // 2: slice A1's observation-round columns and summary keys, appended; 3: A2's late recognition
 export const SPEED = 60;
 export const LIMITS =
-  "synthetic, not validated: staffing outside W4 drives observation rounds only, and observation workload uses judgement values (share of nurse time); see params; deaths are pre-drawn fates, so crowding and late rounds do not change who dies. " +
+  "synthetic, not validated: staffing outside W4 drives observation rounds, and observation workload uses judgement values (share of nurse time); see params. " +
+  "deaths after late recognition come from one judgement number (obs.excessDeathPerHour); all other deaths are pre-drawn, scaled by one judgement number (course.stayDeathScale) so typical deaths stay at their level before slice A2. " +
+  "Who deteriorates and how often (course.ratePerDay) and the delay to death (course.deathAfterNoticedH) are judgement too: `recognition` is a model output, not evidence about real wards. " +
   "`obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late. " +
   "Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand.";
 const STEPS_PER_HOUR = 3600; // speed 60: one step is one sim second
@@ -25,6 +27,7 @@ export const HOURLY_COLUMNS = [
   "er_lwbs", "door_to_doctor_median_min", "icu_indicated_not_in_icu", "morgue",
   "obs_due", "obs_done", "obs_late", "obs_overdue_now", "obs_longest_overdue_min", "care_min_demanded", "care_min_available",
   "obs_longest_since_round_min", "obs_rel_late_median",
+  "deteriorated", "noticed", "noticed_late", "unnoticed_now", "recognition_delay_median_min",
 ] as const satisfies readonly (keyof HourRow)[];
 export const EVENT_COLUMNS = ["minute", "person", "w4_id", "unit", "kind", "detail", "news2_independent"] as const;
 
@@ -55,8 +58,45 @@ const pct = (xs: number[], q: number) => {
 const r = (x: number | null, places = 2) => (x === null ? null : Math.round(x * 10 ** places) / 10 ** places);
 const share = (n: number, d: number) => (d === 0 ? null : r(n / d, 4));
 
+/** A W4 episode as the trial reads it from W4 (read-only): its injectAt and the first minute NEWS2 was 5 or more after it, if any. */
+export interface W4Episode { injectMin: number; alertMin: number | null }
+const ROUND_UNITS = ["ER", "MED3A", "MED3B", "SURG5A", "ICU"]; // the ICU sees a course at once (delay 0)
+
+/** Slice A2's `recognition` block: notices counted at the notice's minute, excess deaths at the death's. */
+function recognition(ev: TrialEvent[], hr: HourRow[], w4: W4Episode[], fromMin: number, endMin: number) {
+  const delayOf = (e: TrialEvent) => Number(/^delay (\d+) min$/.exec(e.detail)![1]);
+  const noticedAt = new Map(ev.filter((e) => e.kind === "noticed").map((e) => [e.person, e.minute]));
+  const escalated = ev.filter((e) => (e.kind === "place" || e.kind === "transfer") && e.unit === "ICU" && noticedAt.has(e.person) && noticedAt.get(e.person)! <= e.minute);
+  const excess = ev.filter((e) => e.kind === "died" && e.detail.endsWith("after late recognition"));
+  const per_unit: Record<string, unknown> = {};
+  for (const id of ROUND_UNITS) {
+    const d = ev.filter((e) => e.kind === "noticed" && e.unit === id).map(delayOf);
+    const ppn = hr.filter((h) => h.unit === id && h.patients_per_nurse !== null).map((h) => h.patients_per_nurse!);
+    per_unit[id] = {
+      deteriorated: ev.filter((e) => e.kind === "deteriorate" && e.unit === id).length,
+      count: d.length, delay_median_min: r(median(d)), delay_p90_min: r(pct(d, 0.9)),
+      late_share: share(d.filter((x) => x > PARAMS.obs.lateThresholdMin.value).length, d.length),
+      unnoticed: ev.filter((e) => e.kind === "unnoticed" && e.unit === id).length,
+      escalated_to_icu: id === "ICU" ? null : escalated.filter((e) => ev.some((n) => n.kind === "noticed" && n.person === e.person && n.unit === id)).length,
+      patients_per_nurse_mean: ppn.length ? r(ppn.reduce((a, b) => a + b, 0) / ppn.length) : null,
+      excess_deaths: excess.filter((e) => e.unit === id).length,
+    };
+  }
+  const deaths = ev.filter((e) => e.kind === "died").length;
+  const leads = w4.filter((e) => e.injectMin >= fromMin && e.injectMin < endMin);
+  const lead = leads.filter((e) => e.alertMin !== null).map((e) => e.alertMin! - e.injectMin);
+  return {
+    per_unit,
+    excess_deaths_total: excess.length,
+    excess_deaths_share_of_deaths: share(excess.length, deaths),
+    excess_deaths_label: "model output under a judgement relation, not evidence",
+    // Not the same measure as the wards' delay: W4's counts the time vitals take to change, the wards' only the wait for a round. Never subtract them.
+    w4: { episodes: leads.length, alerted: lead.length, alert_lead_median_min: r(median(lead)), alert_lead_p90_min: r(pct(lead, 0.9)) },
+  };
+}
+
 /** Figures over minutes [fromMin, endMin). Counts use the event's minute; stay figures use the stay's first event (arrival, decision, board). */
-export function figures(events: TrialEvent[], hourly: HourRow[], units: string[], fromMin: number, endMin: number) {
+export function figures(events: TrialEvent[], hourly: HourRow[], units: string[], fromMin: number, endMin: number, w4: W4Episode[] = []) {
   const all = events.filter((e) => e.minute < endMin);
   const ev = all.filter((e) => e.minute >= fromMin);
   const hr = hourly.filter((h) => h.hour * 60 >= fromMin && h.hour * 60 < endMin);
@@ -141,6 +181,7 @@ export function figures(events: TrialEvent[], hourly: HourRow[], units: string[]
     },
     w4_admissions: count("place", "W4"),
     w4_higher_care_transfers: count("w4_higher_care"),
+    recognition: recognition(ev, hr, w4, fromMin, endMin),
   };
 }
 
@@ -154,9 +195,9 @@ export function labelEvents(rows: EventRow[]): TrialEvent[] {
 }
 
 /** Both blocks of summary.json's figures. */
-export function summarize(events: TrialEvent[], hourly: HourRow[], units: string[], days: number) {
+export function summarize(events: TrialEvent[], hourly: HourRow[], units: string[], days: number, w4: W4Episode[] = []) {
   const end = days * 1440;
-  return { all_days: figures(events, hourly, units, 0, end), after_warm_up: figures(events, hourly, units, WARM_UP_DAYS * 1440, end) };
+  return { all_days: figures(events, hourly, units, 0, end, w4), after_warm_up: figures(events, hourly, units, WARM_UP_DAYS * 1440, end, w4) };
 }
 
 export interface TrialResult {
@@ -177,9 +218,20 @@ export function runHospitalTrial(seed: number, scenario: Scenario, days: number,
     hourly.push(...rows.hourly);
     s.moves.length = 0; // as skipDay: trolleys are only for drawing
   };
+  // A2's W4 comparison, read-only: each W4 patient's scheduled episode (src.save reads state, draws nothing) and the first
+  // minute after it that W4's own NEWS2 total is 5 or more.
+  const w4: Record<string, W4Episode | null> = {};
+  const watchW4 = (minute: number) => {
+    for (const p of s.patients) {
+      if (!(p.id in w4)) { const at = (src.save!([p.id]).streams[p.id] as { injectAt: number | null }).injectAt; w4[p.id] = at === null ? null : { injectMin: Math.floor(at), alertMin: null }; }
+      const e = w4[p.id];
+      if (e && e.alertMin === null && minute >= e.injectMin && p.decision.kind === "ranked" && p.decision.news2.total >= 5) e.alertMin = minute;
+    }
+  };
   const total = days * 24 * STEPS_PER_HOUR;
   for (let i = 1; i <= total; i += 1) {
     step(s, src);
+    if (i % 60 === 0) watchW4(i / 60);
     if (i % STEPS_PER_HOUR === 0) drain();
   }
   if (minuteOf(s) !== days * 1440) throw new Error("trial: the clock is not where the trial should end");
@@ -193,7 +245,7 @@ export function runHospitalTrial(seed: number, scenario: Scenario, days: number,
 
   const summary = {
     format_version: FORMAT_VERSION, synthetic: true, seed, days, warm_up_days: WARM_UP_DAYS, scenario,
-    ...summarize(events, hourly, units, days),
+    ...summarize(events, hourly, units, days, Object.values(w4).filter((e): e is W4Episode => e !== null && e.injectMin < days * 1440)),
     limits: LIMITS,
   };
   return { hourlyCsv, eventsCsv, summaryJson: JSON.stringify(summary, null, 2) + "\n", hourlyRows: hourly.length, eventRows: events.length };

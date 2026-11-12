@@ -18,8 +18,13 @@
 // Slice A1, observation rounds (workload-design.md): nurses in the ER and the three wards spend a share of each minute on
 // rounds, served most late first relative to their own interval; with more due than they can do, rounds run late. A1 draws nothing and changes no old
 // value: it only adds state, counters and columns. The ICU, W4 and the morgue are not in the workload model.
+// Slice A2, late recognition (workload-design.md and the orchestrator's ruling 1): an admitted person may deteriorate at a
+// drawn onset (own stream, people.ts drawCourse). On a ward or boarding in the ER nobody knows until the next round reaches
+// them; the ICU sees it at once. The notice puts them in the watch class and asks for an ICU bed (ward to ICU is new here).
+// The longer the delay, the likelier a death 6 h after the notice; the pre-drawn stay death is scaled down
+// (course.stayDeathScale) so typical deaths stay at their old level. W4 keeps its own episodes and is not touched.
 // Pure and seeded: one call per sim minute, no clock, no I/O. Everything that can differ between runs is in `Hospital`.
-import { drawPerson, DAY_MIN, stayDeathP } from "./people";
+import { drawCourse, drawPerson, DAY_MIN, stayDeathP } from "./people";
 import { PARAMS, UNITS, type Group, type UnitId } from "./params";
 import { poisson, rngFrom, stream, streamSeed } from "./rng";
 import type { Scenario } from "./scenario";
@@ -33,7 +38,7 @@ const WARDS: UnitId[] = ["MED3A", "MED3B", "SURG5A"];
 const INITIAL_BASE = 1_000_000;
 
 const unitOf = (h: Hospital, id: UnitId) => h.units.find((u) => u.id === id)!;
-const blank = (): Counters => ({ admittedIn: 0, discharged: 0, transferredIn: 0, transferredOut: 0, died: 0, obsDue: 0, obsDone: 0, obsLate: 0, obsRel: [] });
+const blank = (): Counters => ({ admittedIn: 0, discharged: 0, transferredIn: 0, transferredOut: 0, died: 0, obsDue: 0, obsDone: 0, obsLate: 0, obsRel: [], deteriorated: 0, noticed: 0, noticedLate: 0, delays: [] });
 const emptyAcc = (): Acc => ({
   by: { ER: blank(), MORGUE: blank(), ICU: blank(), MED3A: blank(), MED3B: blank(), W4: blank(), SURG5A: blank() },
   arrivals: 0, lwbs: 0, boardMin: 0, d2d: [],
@@ -91,7 +96,9 @@ function dueAt(minute: number, stayMin: number, hour: number) {
 }
 
 const wardsOf = (g: Group): UnitId[] => PARAMS.placement.value[g === "trauma" ? "trauma" : "others"] as UnitId[];
-const wantsIcu = (p: Person) => p.icuIndicated || p.wants === "ICU";
+/** A2: noticed as deteriorated and not yet in an ICU bed: hourly rounds and an ICU request (off only in tests). */
+const escalating = (p: Person) => PARAMS.course.escalate.value && p.course !== null && p.course.noticedMin !== null && !p.course.escalated;
+const wantsIcu = (p: Person) => p.icuIndicated || p.wants === "ICU" || escalating(p);
 const endBoarding = (p: Person, minute: number) => { if (p.where === "boarding") p.boardedMin += minute - p.sinceMin; };
 
 function finish(c: Ctx, p: Person) {
@@ -102,6 +109,7 @@ function finish(c: Ctx, p: Person) {
 /** Puts a person in a slot (or on W4), sets the stay clock and the in-stay fate. `fromEr` counts as an admission, else a transfer. */
 function put(c: Ctx, p: Person, id: UnitId, where: Where, slot: number | null, kind: EventKind, detail: string, fromEr: boolean, news2Independent = true) {
   const from = p.unit;
+  if (id === "W4") unnoticed(c, p); // W4 has its own episodes: an unseen course leaves our record
   endBoarding(p, c.minute);
   release(c, p);
   take(c, p, id, slot);
@@ -109,7 +117,8 @@ function put(c: Ctx, p: Person, id: UnitId, where: Where, slot: number | null, k
   p.obsDueMin = WARDS.includes(id) ? c.minute : null; // an admission round on arrival; the ICU and W4 have no rounds
   p.dueMin = id === "ICU" ? c.minute + p.icuStayMin : id === "W4" ? null : dueAt(c.minute, p.stayMin, p.dischargeHour);
   // W4 patients carry no hospital fate in this slice: W4 deaths are slice H8's.
-  if (id !== "W4" && p.dieMin === null && p.deathU < stayDeathP(p.group, p.icuIndicated)) {
+  // A2: deaths are calibrated, not added: for people admitted during the run the pre-drawn stay death is scaled down.
+  if (id !== "W4" && p.dieMin === null && p.deathU < stayDeathP(p.group, p.icuIndicated) * (p.course ? PARAMS.course.stayDeathScale.value : 1)) {
     // The stay is what is left until the discharge clock, plus the ward stay still to come after an ICU stay.
     const left = id === "ICU" ? p.icuStayMin + p.stayMin : p.dueMin! - c.minute;
     p.dieMin = c.minute + 1 + Math.floor(p.deathF * left);
@@ -118,6 +127,36 @@ function put(c: Ctx, p: Person, id: UnitId, where: Where, slot: number | null, k
   if (fromEr) by[id].admittedIn += 1;
   else { by[id].transferredIn += 1; by[from].transferredOut += 1; }
   log(c, p, id, kind, detail, news2Independent);
+  const k = p.course;
+  if (id === "ICU" && k !== null && k.onsetMin !== null && k.unnoticedMin === null) {
+    if (k.noticedMin === null) notice(c.h, p, c.minute); // the ICU monitors: an unseen course is seen on arrival
+    k.escalated = true;
+  }
+}
+
+/** A2: the course is noticed now (a round, or ICU arrival). Counted on the person's unit; the delay decides a death it may cause. */
+function notice(h: Hospital, p: Person, minute: number) {
+  const k = p.course!;
+  const delay = minute - k.onsetMin!;
+  k.noticedMin = minute;
+  const by = h.acc.by[p.unit];
+  by.noticed += 1;
+  by.delays.push(delay);
+  if (delay > PARAMS.obs.lateThresholdMin.value) by.noticedLate += 1;
+  push(h, { minute, person: p.id, w4_id: p.w4Id, unit: p.unit, kind: "noticed", detail: `delay ${delay} min`, news2_independent: true });
+  // Never overrides a pre-drawn death: only someone not already fated to die can die of the delay.
+  if (p.dieMin === null && k.excessU < 1 - Math.exp(-PARAMS.obs.excessDeathPerHour.value * delay / 60)) {
+    p.dieMin = minute + PARAMS.course.deathAfterNoticedH.value * 60;
+    k.excess = true;
+  }
+}
+
+/** A2: the person leaves our record (discharge, transfer out, death, W4) with a course nobody noticed. */
+function unnoticed(c: Ctx, p: Person) {
+  const k = p.course;
+  if (k === null || k.onsetMin === null || k.noticedMin !== null || k.unnoticedMin !== null) return;
+  k.unnoticedMin = c.minute;
+  log(c, p, p.unit, "unnoticed", `${c.minute - k.onsetMin} min after onset`);
 }
 
 /** Row 9 and 10: ICU if indicated and free; cardiac through W4's port; else the group's bed, then its stretcher. */
@@ -152,7 +191,7 @@ function newPerson(h: Hospital, n: number, arrivedMin: number): Person {
   return {
     ...d, arrivedMin, unit: "ER", where: "waiting", sinceMin: arrivedMin, slot: null, wants: null, seenMin: null, decideMin: null, dueMin: null,
     dieMin: d.erDeathAfterMin === null ? null : arrivedMin + d.erDeathAfterMin, boardedMin: 0, w4Id: null, fromW4: false,
-    obsDueMin: arrivedMin, obsLastMin: null,
+    obsDueMin: arrivedMin, obsLastMin: null, course: null,
   };
 }
 
@@ -215,13 +254,15 @@ function seedResidents(h: Hospital) {
 function die(c: Ctx, p: Person) {
   endBoarding(p, c.minute);
   c.h.acc.by[p.unit].died += 1;
-  log(c, p, p.unit, "died", p.where);
+  log(c, p, p.unit, "died", p.course?.excess ? `${p.where} after late recognition` : p.where);
+  unnoticed(c, p);
   p.where = "awaiting_morgue"; p.sinceMin = c.minute; p.wants = null; // the bed or bay stays blocked until the body leaves
 }
 
 function leaveEr(c: Ctx, p: Person, kind: EventKind, detail: string) {
   endBoarding(p, c.minute);
   log(c, p, "ER", kind, detail);
+  unnoticed(c, p);
   finish(c, p);
 }
 
@@ -239,17 +280,19 @@ const CLASS = ["watch", "routine"] as const;
 const inRounds = (p: Person) => (p.unit === "ER" ? inEr(p) : WARDS.includes(p.unit) && (p.where === "bed" || p.where === "stretcher"));
 /** 0 "watch", 1 "routine". The seam for A2: a person noticed as deteriorated joins class 0. */
 export const obsClass = (p: Person): 0 | 1 =>
-  (p.unit === "ER" && p.triage === "emergent") || (p.admit && p.icuIndicated && (p.where === "boarding" || p.where === "bed" || p.where === "stretcher")) ? 0 : 1;
+  (p.unit === "ER" && p.triage === "emergent") || (p.admit && p.icuIndicated && (p.where === "boarding" || p.where === "bed" || p.where === "stretcher")) || escalating(p) ? 0 : 1;
 const obsInterval = (p: Person) => PARAMS.obs.intervalMin[CLASS[obsClass(p)]].value;
 
 /** One round on p at `minute`. The next counts from when this one was done, not from the old due time. The seam for A2's notice. */
-function doRound(by: Counters, p: Person, minute: number) {
+function doRound(h: Hospital, by: Counters, p: Person, minute: number) {
   const cls = CLASS[obsClass(p)];
   if (minute - p.obsDueMin! > PARAMS.obs.graceMin[cls].value) by.obsLate += 1;
   by.obsDone += 1;
   by.obsRel.push((minute - p.obsDueMin!) / PARAMS.obs.intervalMin[cls].value);
   p.obsLastMin = minute;
-  p.obsDueMin = minute + PARAMS.obs.intervalMin[cls].value;
+  const k = p.course;
+  if (k !== null && k.onsetMin !== null && k.noticedMin === null && k.unnoticedMin === null) notice(h, p, minute); // A2: the round sees it
+  p.obsDueMin = minute + PARAMS.obs.intervalMin[CLASS[obsClass(p)]].value; // the class after the notice
 }
 
 /** Each workload unit earns nurses x share nurse-minutes (capped, no saving up) and spends roundMin per round on who is due.
@@ -272,7 +315,7 @@ function rounds(h: Hospital, minute: number, prev: number) {
     for (const [, , p] of due) {
       if (u.obsCredit < roundMin) break;
       u.obsCredit -= roundMin;
-      doRound(by, p, minute);
+      doRound(h, by, p, minute);
     }
   }
 }
@@ -324,6 +367,18 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     } else if (p.dieMin !== null && p.dieMin <= minute) die(c, p);
   }
 
+  // 2b. A2: courses reach their onset. Followed on the wards, in ER boarding and in the ICU (seen at once); dropped elsewhere.
+  for (const p of live()) {
+    const k = p.course;
+    if (k === null || k.atMin === null || k.onsetMin !== null || k.atMin > minute) continue;
+    const icu = p.unit === "ICU" && p.where === "bed";
+    if (!icu && !(OBS_UNITS.includes(p.unit) && inRounds(p))) { k.atMin = null; continue; } // W4 or a body: no course event
+    k.onsetMin = minute;
+    h.acc.by[p.unit].deteriorated += 1;
+    log(c, p, p.unit, "deteriorate", "");
+    if (icu) { notice(h, p, minute); k.escalated = true; }
+  }
+
   // 3. Beds free up. W4 patients leave first, then ward discharges, then ICU step-downs (an ICU patient who needs a ward bed
   // goes before a boarder: the ICU is the bottleneck, and design row 13 gives no priority).
   for (const p of live()) {
@@ -348,11 +403,19 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     }
     p.w4Id = null;
   }
+  // A2: a noticed deterioration on a ward goes to a free ICU bed, longest noticed first (the ward-to-ICU path).
+  const asking = live().filter((p) => WARDS.includes(p.unit) && (p.where === "bed" || p.where === "stretcher") && escalating(p));
+  for (const p of asking.sort((a, b) => a.course!.noticedMin! - b.course!.noticedMin! || a.n - b.n)) {
+    const s = freeBed(c, "ICU");
+    if (s === null) break;
+    put(c, p, "ICU", "bed", s, "transfer", `${p.unit} to ICU after notice`, false);
+  }
   const settled = (p: Person) => (p.where === "bed" || p.where === "stretcher") && p.dueMin !== null && p.dueMin <= minute;
   for (const p of live()) {
     if (!settled(p) || p.unit === "ICU") continue;
     h.acc.by[p.unit].discharged += 1;
     log(c, p, p.unit, "discharge", "");
+    unnoticed(c, p);
     finish(c, p);
   }
   for (const p of live()) {
@@ -392,6 +455,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
       leaveEr(c, p, "decide_home", "");
       continue;
     }
+    p.course = drawCourse(h.seed, p.n, p.group, p.stayMin, minute);
     p.wants = wantsIcu(p) ? "ICU" : p.group === "cardiac" ? "W4" : wardsOf(p.group)[0];
     log(c, p, "ER", "decide_admit", p.icuIndicated ? `${p.group}, ICU-indicated` : p.group);
     if (!tryPlace(c, p)) {
@@ -463,22 +527,42 @@ function hourRows(h: Hospital, hour: number) {
   h.acc = emptyAcc();
 }
 
-/** A1's columns for one unit at the hour's last minute; blank where rounds are not modelled. */
+const onRounds = (h: Hospital, id: UnitId) => h.people.filter((p) => p.unit === id && p.obsDueMin !== null && inRounds(p));
+
+/** Seam for the screen: a workload unit's rounds overdue now, how many and the longest (minutes); null outside the workload model. */
+export function overdueRounds(h: Hospital, id: UnitId, minute: number): { count: number; longestMin: number } | null {
+  if (!OBS_UNITS.includes(id)) return null;
+  const overdue = onRounds(h, id).filter((p) => p.obsDueMin! <= minute).map((p) => minute - p.obsDueMin!);
+  return { count: overdue.length, longestMin: Math.max(0, ...overdue) };
+}
+
+/** Seam for the screen (A2): the recognition delay in minutes when this person's deterioration was noticed late, else null. */
+export function noticedLateMin(p: Person): number | null {
+  const k = p.course;
+  if (k === null || k.noticedMin === null) return null;
+  const delay = k.noticedMin - k.onsetMin!;
+  return delay > PARAMS.obs.lateThresholdMin.value ? delay : null;
+}
+
+/** A1's and A2's columns for one unit at the hour's last minute; blank where rounds are not modelled. */
 function obsColumns(h: Hospital, u: Unit, minute: number) {
   const by = h.acc.by[u.id];
   const on = OBS_UNITS.includes(u.id);
-  const here = on ? h.people.filter((p) => p.unit === u.id && p.obsDueMin !== null && inRounds(p)) : [];
-  const overdue = here.filter((p) => p.obsDueMin! <= minute).map((p) => minute - p.obsDueMin!);
+  const here = on ? onRounds(h, u.id) : [];
+  const due = overdueRounds(h, u.id, minute);
+  const unseen = here.filter((p) => p.course !== null && p.course.onsetMin !== null && p.course.noticedMin === null && p.course.unnoticedMin === null).length;
   // Without a round since the last round or since joining the unit's rounds (ER: arrival; wards: placement), whichever is later.
   // shortcut: a W4-to-ER boarder (test doubles only) counts from hospital arrival, upgrade if the real W4 ever boards one.
   const since = here.map((p) => minute - Math.max(p.obsLastMin ?? -Infinity, p.unit === "ER" ? p.arrivedMin : p.sinceMin));
   return {
     obs_due: on ? by.obsDue : null, obs_done: on ? by.obsDone : null, obs_late: on ? by.obsLate : null,
-    obs_overdue_now: on ? overdue.length : null, obs_longest_overdue_min: on ? Math.max(0, ...overdue) : null,
+    obs_overdue_now: due ? due.count : null, obs_longest_overdue_min: due ? due.longestMin : null,
     // Nominal need, not rounds done: each person on rounds needs 60 x roundMin / own interval nurse-minutes an hour.
     care_min_demanded: on ? round(here.reduce((a, p) => a + (60 * PARAMS.obs.roundMin.value) / obsInterval(p), 0), 2) : null, care_min_available: on ? round(u.nurses * PARAMS.obs.shareOfNurseTime.value * 60, 2) : null,
     obs_longest_since_round_min: on ? Math.max(0, ...since) : null,
     obs_rel_late_median: on && by.obsRel.length > 0 ? round(median(by.obsRel)!, 2) : null,
+    deteriorated: on ? by.deteriorated : null, noticed: on ? by.noticed : null, noticed_late: on ? by.noticedLate : null,
+    unnoticed_now: on ? unseen : null, recognition_delay_median_min: on && by.delays.length > 0 ? median(by.delays) : null,
   };
 }
 

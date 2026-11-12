@@ -1,6 +1,8 @@
-# Hospital trial results format, version 2
+# Hospital trial results format, version 3
 
 Version 2 (slice A1, observation rounds) appends nine hourly columns after the 23 of version 1 and adds five keys to each `summary.json` `per_unit` block. Every version 1 column, event and summary key keeps its order and its value for the same seed and scenario (a test compares them with version 1's output).
+
+Version 3 (slice A2, late recognition) appends five hourly columns (37 in all), adds three event kinds (`deteriorate`, `noticed`, `unnoticed`), a `recognition` block in `all_days` and `after_warm_up`, and new wording in `limits`. Unlike A1, A2 changes outcomes: deaths, ICU moves and everything downstream of them can differ from version 2 for the same seed. With A2's response switched off (a test-only setting) and its additions stripped, every version 1 and version 2 column, event and summary key is byte-identical to the older code's output (a test compares hashes recorded from origin/main).
 
 A hospital trial is one seed, one scenario and a number of days, run with no browser and no API. The same three inputs give byte-identical files, so scenarios can be compared seed by seed. This format is separate from the ward-only cohort trial (`docs/trial-format.md`, another branch).
 
@@ -19,7 +21,7 @@ A hospital trial is one seed, one scenario and a number of days, run with no bro
 All files are UTF-8 with `\n` line ends. Numbers are printed with `String(n)`. CSV has a header row and no quoting. No field contains a comma, a newline or a character outside printable ASCII (asserted). No patient or staff names appear anywhere.
 
 ### `manifest.json`
-`format_version` (2), `synthetic` (true), `seed`, `days`, `speed` (60), `scenario` (the parsed scenario), `scenario_sha256` (over the scenario file's raw bytes), `sim_commit`, `node_major`, `warm_up_days` (3), `hourly_rows`, `event_rows`.
+`format_version` (3), `synthetic` (true), `seed`, `days`, `speed` (60), `scenario` (the parsed scenario), `scenario_sha256` (over the scenario file's raw bytes), `sim_commit`, `node_major`, `warm_up_days` (3), `hourly_rows`, `event_rows`.
 - `sim_commit` is `TRIAL_SIM_COMMIT` when it is 7 to 40 lowercase hex characters, else `"unknown"`.
 - Byte-identical output is promised for the same seed, scenario and Node major only.
 
@@ -56,8 +58,13 @@ One row per unit per hour: 7 units (ER, MORGUE, ICU, MED3A, MED3B, W4, SURG5A) x
 | `care_min_available` | nurse-minutes | `nurses` x the share of nurse time on rounds (0.25) x 60: what the unit's nurses can give to rounds this hour. |
 | `obs_longest_since_round_min` | minutes | The longest any person on the unit's rounds has gone without a round, at the hour's last minute: counted from their last round, or from joining the unit (ER: arrival; wards: placement) if that is later; 0 when the unit is empty. |
 | `obs_rel_late_median` | intervals | Median relative lateness of the rounds done this hour: (minute done - minute due) / that person's interval (60 or 240), two decimals. 0 is on time, 1 is one whole interval late. Blank when no round was done. |
+| `deteriorated` | people | Version 3: deteriorations that began on the unit this hour (see "Late recognition"). |
+| `noticed` | people | Version 3: deteriorations a round noticed on the unit this hour. |
+| `noticed_late` | people | Version 3: of those, noticed more than 60 min after onset. |
+| `unnoticed_now` | people | Version 3: people on the unit's rounds at the hour's last minute whose deterioration has begun and nobody has noticed. |
+| `recognition_delay_median_min` | minutes | Version 3: median of onset to notice over the notices this hour; blank when none. |
 
-ER-only columns are blank on every other unit's row. The nine observation columns are blank on ICU, W4 and MORGUE rows.
+ER-only columns are blank on every other unit's row. The nine observation columns and the five recognition columns are blank on ICU, W4 and MORGUE rows.
 
 #### Observation rounds (version 2)
 - Who: the ER (everyone waiting, in consult, in work-up or boarding) and MED3A, MED3B, SURG5A (living people in a bed or on a corridor stretcher). The ICU and W4 are NOT in the workload model: they count as monitored (ICU bedside monitors; W4 has its own staff and NEWS2 model). The morgue has none.
@@ -65,16 +72,24 @@ ER-only columns are blank on every other unit's row. The nine observation column
 - Order: the due person with the largest relative lateness (minutes overdue / own interval) goes first; ties go to "watch" (ICU-indicated and not in the ICU, or emergent in the ER) before "routine", then to the lower person number. When time is short every class runs late in proportion to its interval and nobody is left out. Rounds are never early; the next round falls due one interval after the round was done: 60 min for watch, 240 min for routine (NEWS2 Chart 4, RCP: "minimum 1 hourly" at 5 or more, "minimum 4-6 hourly" at 1-4; https://www.rcp.ac.uk/media/mrllczrj/news2-chart-4_clinical-response-to-news-trigger-thresholds_0.pdf). On arrival in a unit a round is due at once; people present at minute 0 have their first round spread by number over one interval.
 - Late: a round is late when it is done MORE than the grace after it fell due: 120 min for routine (derived from NEWS2 Chart 4: due at 4 h, the 4-6 hourly band ends at 6 h) and 30 min for watch (our judgement; the chart asks review within 60 min at 5-6).
 - Staffing numbers outside W4 are our judgement (the DOH 1:12 ward standard is cited, the counts it is applied to are ours); see the notes in `params.ts`. No Philippine observation-frequency standard or time per observation was found.
-- In A1 late rounds change no outcome: deaths are still pre-drawn fates.
+- In A1 late rounds changed no outcome; from version 3 they can (next section).
 - A person who moves unit while overdue keeps an `obs_due` count on the unit they left with no round done there.
 - `obs_rel_late_median_of_hours` (summary) is a median of hourly medians, not a median over all rounds.
 - `obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late.
 - Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand.
 
+#### Late recognition (version 3)
+- Course: at the admit decision each admitted person gets a course from their own random stream (`person:<n>:course`, three draws), so adding a person or a draw never moves anyone else's fate, and who deteriorates and when relative to the decision is the same under every scenario. P(deteriorates) = 1 - exp(-rate x drawn ward stay in days); onset = decision minute + a uniform share of the drawn ward stay. Rates per patient-day (all judgement): medicine groups and stroke 0.010, cardiac 0.015, trauma 0.005, minor 0.002.
+- Where: an onset on MED3A, MED3B, SURG5A or while boarding in the ER is recorded (`deteriorate`) and is unknown to the staff. In the ICU it is seen at once (`deteriorate` and `noticed` with delay 0). On W4, or after death, no course event: W4 has its own episodes.
+- Notice: the first observation round at or after the onset (A1's rounds), or arrival in the ICU. `noticed` detail `delay N min`, N = notice minus onset. Late = N over 60 min (Barwise et al. 2016's delay definition, search excerpt; NEWS2's 60-min review).
+- Response: the person joins the hourly "watch" class (the class flips before the next round's due time is set) and asks for an ICU bed: from a ward, a free ICU bed is taken before ER boarders are placed (event `transfer`, detail `<ward> to ICU after notice`); from ER boarding, the ICU is tried first, then the ward as before. Back on a ward after the ICU, they are routine again.
+- Outcome: if not already fated to die, the person dies 6 h after the notice with probability 1 - exp(-0.02 x N in hours) (`died` detail ends `after late recognition`). It never overrides a pre-drawn death, and ICU care does not lower it. To keep deaths calibrated rather than added (orchestrator ruling), the pre-drawn stay-death probability of everyone admitted during the run is multiplied by 0.98, so typical total deaths stay at their version-2 level.
+- Leaving first: discharge, transfer out, a pre-drawn death or a move to W4 before anyone noticed gives `unnoticed` with detail `N min after onset`.
+
 ### `events.csv`
 Ground truth, one row per event, in non-decreasing minute order: `minute,person,w4_id,unit,kind,detail,news2_independent`.
 - `minute`: sim minute. `person`: the person's number (the digits of `h-000123`). Residents at minute 0 are numbered from 1000001, W4's first patients from 2000001. `w4_id`: the ward's patient id while the person is on W4, else blank.
-- `unit`: where the event happened. `kind`: `arrive, triage, consult, decide_home, decide_admit, board, place, transfer, discharge, lwbs, transfer_out, died, to_morgue, released, turned_away, w4_higher_care`.
+- `unit`: where the event happened. `kind`: `arrive, triage, consult, decide_home, decide_admit, board, place, transfer, discharge, lwbs, transfer_out, died, to_morgue, released, turned_away, w4_higher_care`, and from version 3 `deteriorate, noticed, unnoticed` (all `news2_independent` = `yes`: no NEWS2 is computed outside W4).
 - `detail`: only the sim's fixed words (group, complaint wording, unit id, triage level, hours as `boarded 5 h`). Where the sim's wording holds a comma, it is written as `;`.
 - `news2_independent`: `yes` when the event does not depend on NEWS2, `no` when W4's NEWS2 decided it (W4 discharge, W4 higher care and the ICU move). Use only `yes` rows as ground truth for evaluating NEWS2 or models built on it.
 - `transfer` rows include a move from a stretcher to a bed inside one unit (detail `stretcher to bed`), which is not a move between units.
@@ -91,7 +106,11 @@ Ground truth, one row per event, in non-decreasing minute order: `minute,person,
 - `er_arrivals`, `er_admission_share` (decide_admit over decide_admit + decide_home) and `er_death_share` (ER deaths over arrivals) count only people who ARRIVED during the run (and, for `after_warm_up`, after the warm-up). Minute-0 residents are not in them.
 - `icu_access`: ICU-indicated people the ER admitted, `reached_icu`, `share`. People still waiting for the ICU at the end count as not placed; `icu_indicated_pending_at_end` says how many of them are still alive and in the house.
 - `w4_admissions` (placed on W4), `w4_higher_care_transfers`.
-- `limits`: "synthetic, not validated: staffing outside W4 drives observation rounds only, and observation workload uses judgement values (share of nurse time); see params; deaths are pre-drawn fates, so crowding and late rounds do not change who dies. `obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late. Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand."
+- Version 3 adds `recognition`, counted by the event's minute:
+  - `per_unit.<id>` for ER, MED3A, MED3B, SURG5A and ICU: `deteriorated` (onsets), `count` (notices), `delay_median_min`, `delay_p90_min` (nearest rank), `late_share` (notices over 60 min, over notices, four decimals), `unnoticed` (left before a notice), `escalated_to_icu` (noticed here, later placed or moved to the ICU; null on the ICU), `patients_per_nurse_mean` (over the hourly rows), `excess_deaths` (deaths after late recognition, by the unit of death).
+  - `excess_deaths_total`, `excess_deaths_share_of_deaths` (over all `died`), `excess_deaths_label` ("model output under a judgement relation, not evidence").
+  - `w4`: `episodes` (W4 patients whose scheduled deterioration starts in the window, read from W4's source without changing it), `alerted` (of those, the ones whose NEWS2 total reached 5 or more on W4), `alert_lead_median_min`, `alert_lead_p90_min` (that minute minus the episode start). Not the same measure as the wards' delay: W4's includes the time vitals take to change, the wards' counts only the wait for a round. Show them side by side; never subtract them.
+- `limits`: "synthetic, not validated: staffing outside W4 drives observation rounds, and observation workload uses judgement values (share of nurse time); see params. deaths after late recognition come from one judgement number (obs.excessDeathPerHour); all other deaths are pre-drawn, scaled by one judgement number (course.stayDeathScale) so typical deaths stay at their level before slice A2. Who deteriorates and how often (course.ratePerDay) and the delay to death (course.deathAfterNoticedH) are judgement too: `recognition` is a model output, not evidence about real wards. `obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late. Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand."
 
 ## Known edges
 - `obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late.
@@ -102,11 +121,14 @@ Ground truth, one row per event, in non-decreasing minute order: `minute,person,
 - Medicine 3A (MED3A, floor 3) fills before Medicine 1A (unit id MED3B, floor 1; the id is kept from when both wards were on 3F) (placement order), so their occupancies differ because of the allocation, not because of demand. Read them together.
 - Counts by event use the event's minute; pair figures (boarding, door-to-doctor, ICU access) use the first event of the pair.
 - In hospital mode W4 occupancy under `typical` is about 61% for seed 101 and varies by seed (an earlier figure of 50% came from other seeds). W4 may show no `w4_higher_care` in 30 days (seed 101 shows none).
-- Deaths are pre-drawn fates, so crowding and late rounds do not change who dies.
+- Deaths are pre-drawn fates except deaths after late recognition (version 3).
 - Known limits of the A1 calibration (seeds 101-103, 30 days, after warm-up, W4 always full): two of the design's windows miss and were not tuned. Medicine late share is 33.0% under `doh-standard` (design: at most 5%) and 97.5% under `typical` (design: 25-75%). Watch rounds are hourly with a 30 min grace and run late as soon as time is short, and the ICU-indicated people a full ICU leaves on the medicine wards add demand the design's routine-only arithmetic did not count. The windows that hold: `typical` SURG5A 89.4% late (at least 80%) and `typical` ER care demand over available 1.85 (above 1; nominal need). Nobody went more than 15 h without a round under `doh-standard` or `typical` (longest 886 min).
 
+## Limits of late recognition (version 3)
+This is a model with judgement numbers, not evidence about real wards. No Philippine ward deterioration rate, time from late escalation to death, or study of how a recognition delay causes death was found. Every number that turns a delay into a death is ours (`params.ts`, tagged judgement): the deterioration rates, `obs.excessDeathPerHour` (0.02, anchored only on an association: Barwise et al. 2016, 15% vs 8% hospital mortality for delayed rapid-response calls, adjusted OR 1.6), `course.deathAfterNoticedH` (6) and `course.stayDeathScale` (0.98, derived from one measurement so typical deaths stay level). At these numbers late recognition decides a few deaths in 30 days (seeds 101-103: about 1, 2 and 4 under doh-standard, typical and surge in the hospital-alone test harness) out of a few hundred; the gradient between scenarios is small and of the order of seed noise. Escalated patients take ICU beds, which changes ICU access and boarding for others; part of any death difference comes from that, not from the delay. ICU care does not lower a death caused by the delay. People present at minute 0 carry no course.
+
 ## Not in this format
-- W4 episodes (`w4_episode_start`, `w4_episode_full`) and an `episodeOf` accessor in `source.ts`: they need ward-code changes, left out.
+- W4 episode events (`w4_episode_start`, `w4_episode_full`) and an `episodeOf` accessor in `source.ts`: they need ward-code changes, left out. Version 3's `recognition.w4` reads each W4 patient's scheduled episode start through the source's existing `save` (read-only, no draw) and W4's own NEWS2, with no change to W4's code.
 - W4 deaths (design slice H8).
 - Vitals, NEWS2 values and names. Phases inside a scenario (design item L4).
 

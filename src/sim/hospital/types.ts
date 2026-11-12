@@ -32,12 +32,25 @@ export interface Person extends PersonDraw {
   fromW4: boolean;                 // left W4 needing higher care: only the ICU will do, never back to W4
   obsDueMin: number | null;        // next observation round falls due; null where rounds are not modelled (ICU, W4, morgue)
   obsLastMin: number | null;       // minute of the last observation round done, null before the first
+  course: Course | null;           // slice A2: set at the admit decision, null for everyone never admitted during the run
+}
+
+/** Slice A2: one admission's deterioration course (people.ts drawCourse). atMin null: no deterioration in this stay. */
+export interface Course {
+  atMin: number | null;            // drawn onset minute; set to null when the person is not where a course is followed (W4, gone, dead)
+  excessU: number;                 // the draw for a death caused by late recognition
+  onsetMin: number | null;         // onset recorded on a ward, in ER boarding or in the ICU
+  noticedMin: number | null;       // the round (or ICU arrival) that noticed it
+  unnoticedMin: number | null;     // left (discharge, transfer out, death, W4) before anyone noticed
+  escalated: boolean;              // reached an ICU bed after the notice
+  excess: boolean;                 // the notice came late enough to cause a death (dieMin set by it)
 }
 
 export type EventKind =
   | "arrive" | "triage" | "consult" | "decide_home" | "decide_admit" | "board" | "place" | "transfer" | "discharge"
   | "lwbs" | "transfer_out" | "died" | "to_morgue" | "released"
-  | "turned_away"; // not in the design's list: an arrival the house could not hold (people cap)
+  | "turned_away" // not in the design's list: an arrival the house could not hold (people cap)
+  | "deteriorate" | "noticed" | "unnoticed"; // slice A2
 
 export interface EventRow { minute: number; person: string; w4_id: string | null; unit: UnitId; kind: EventKind; detail: string; news2_independent: boolean }
 
@@ -54,12 +67,16 @@ export interface HourRow {
   obs_due: number | null; obs_done: number | null; obs_late: number | null; obs_overdue_now: number | null;
   obs_longest_overdue_min: number | null; care_min_demanded: number | null; care_min_available: number | null;
   obs_longest_since_round_min: number | null; obs_rel_late_median: number | null; // round 2: late but not abandoned
+  // Late recognition (slice A2), appended; null where rounds are not modelled.
+  deteriorated: number | null; noticed: number | null; noticed_late: number | null; unnoticed_now: number | null;
+  recognition_delay_median_min: number | null;
 }
 
 export interface Counters {
   admittedIn: number; discharged: number; transferredIn: number; transferredOut: number; died: number;
   obsDue: number; obsDone: number; obsLate: number; // rounds that fell due, done, done late this hour
   obsRel: number[]; // relative lateness of each round done this hour: (done - due) / interval; at most the hour's rounds
+  deteriorated: number; noticed: number; noticedLate: number; delays: number[]; // A2: onsets, notices, late notices, their delays
 }
 export interface Acc { by: Record<UnitId, Counters>; arrivals: number; lwbs: number; boardMin: number; d2d: number[] }
 

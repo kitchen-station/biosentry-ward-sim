@@ -15,15 +15,23 @@ const sha = (t: TrialResult) => [t.hourlyCsv, t.eventsCsv, t.summaryJson].map((x
 const UNITS = 7;
 const DAYS = 30;
 
+/** Runs `f` with A2's response off (no class flip or ICU request, no death from the delay, stay deaths unscaled). */
+function a2Off<T>(f: () => T): T {
+  const C = PARAMS.course, keep = [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] as const;
+  C.escalate.value = false; PARAMS.obs.excessDeathPerHour.value = 0; C.stayDeathScale.value = 1;
+  try { return f(); } finally { [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] = keep; }
+}
+
 describe("hospital trial", () => {
-  let day: TrialResult, again: TrialResult, long: TrialResult, secs: number;
+  let day: TrialResult, again: TrialResult, long: TrialResult, off: TrialResult, secs: number;
   beforeAll(() => {
     day = runHospitalTrial(101, typical, 1);
     again = runHospitalTrial(101, typical, 1);
     const t0 = performance.now();
     long = runHospitalTrial(101, typical, DAYS);
     secs = Math.round((performance.now() - t0) / 100) / 10;
-  }, 300_000);
+    off = a2Off(() => runHospitalTrial(101, typical, DAYS));
+  }, 600_000);
 
   it("gives byte-identical files for the same seed and scenario", () => {
     expect(sha(again)).toEqual(sha(day));
@@ -37,10 +45,11 @@ describe("hospital trial", () => {
   it("writes one hourly row per unit per hour, columns as designed", () => {
     const rows = long.hourlyCsv.trimEnd().split("\n");
     expect(rows[0]).toBe("hour,unit,census,beds,stretchers_used,occupancy_pct,arrivals,admitted_in,discharged,transferred_in,transferred_out,died,nurses,patients_per_nurse,er_waiting,er_consult,er_workup,er_boarding,er_boarding_hours,er_lwbs,door_to_doctor_median_min,icu_indicated_not_in_icu,morgue" +
-      ",obs_due,obs_done,obs_late,obs_overdue_now,obs_longest_overdue_min,care_min_demanded,care_min_available,obs_longest_since_round_min,obs_rel_late_median");
+      ",obs_due,obs_done,obs_late,obs_overdue_now,obs_longest_overdue_min,care_min_demanded,care_min_available,obs_longest_since_round_min,obs_rel_late_median" +
+      ",deteriorated,noticed,noticed_late,unnoticed_now,recognition_delay_median_min");
     expect(rows.length - 1).toBe(UNITS * DAYS * 24);
     expect(long.hourlyRows).toBe(UNITS * DAYS * 24);
-    for (const r of rows) expect(r.split(",")).toHaveLength(32);
+    for (const r of rows) expect(r.split(",")).toHaveLength(37);
     const er = rows.filter((r) => r.split(",")[1] === "ER" && r.split(",")[0] !== "hour");
     expect(er.every((r) => r.split(",")[14] !== "")).toBe(true); // ER-only columns filled on the ER
     expect(rows.filter((r) => r.split(",")[1] === "ICU").every((r) => r.split(",")[14] === "")).toBe(true); // blank elsewhere
@@ -50,6 +59,8 @@ describe("hospital trial", () => {
       const on = ["ER", "MED3A", "MED3B", "SURG5A"].includes(f[1]);
       expect(f.slice(23, 31).every((x) => (on ? /^\d+(\.\d+)?$/.test(x) : x === "")), r).toBe(true);
       expect(on ? /^(\d+(\.\d+)?)?$/.test(f[31]) : f[31] === "", r).toBe(true); // blank when no round was done that hour
+      expect(f.slice(32, 36).every((x) => (on ? /^\d+$/.test(x) : x === "")), r).toBe(true); // A2's counts
+      expect(on ? /^(\d+(\.\d+)?)?$/.test(f[36]) : f[36] === "", r).toBe(true); // blank when nothing was noticed that hour
     }
   });
 
@@ -96,7 +107,17 @@ describe("hospital trial", () => {
     const s = JSON.parse(long.summaryJson);
     expect(s.limits).toContain("synthetic, not validated");
     expect(s.limits).toContain("observation workload uses judgement values (share of nurse time); see params");
-    expect(s.format_version).toBe(2);
+    expect(s.limits).toContain("deaths after late recognition come from one judgement number (obs.excessDeathPerHour); all other deaths are pre-drawn");
+    expect(s.limits).toContain("not evidence about real wards");
+    expect(s.format_version).toBe(3);
+    const rec = s.all_days.recognition;
+    expect(Object.keys(rec)).toEqual(["per_unit", "excess_deaths_total", "excess_deaths_share_of_deaths", "excess_deaths_label", "w4"]);
+    expect(Object.keys(rec.per_unit)).toEqual(["ER", "MED3A", "MED3B", "SURG5A", "ICU"]);
+    expect(Object.keys(rec.per_unit.MED3A)).toEqual(["deteriorated", "count", "delay_median_min", "delay_p90_min", "late_share", "unnoticed", "escalated_to_icu", "patients_per_nurse_mean", "excess_deaths"]);
+    expect(rec.per_unit.MED3A.count + rec.per_unit.MED3B.count).toBeGreaterThan(5);
+    expect(rec.excess_deaths_label).toBe("model output under a judgement relation, not evidence");
+    expect(Object.keys(rec.w4)).toEqual(["episodes", "alerted", "alert_lead_median_min", "alert_lead_p90_min"]);
+    expect(rec.w4.episodes).toBeGreaterThanOrEqual(rec.w4.alerted);
     expect(Object.keys(s.all_days.per_unit.MED3A)).toEqual(["occupancy_mean_pct", "occupancy_max_pct", "admissions", "deaths", "obs_late_share", "obs_longest_overdue_max_min", "care_demand_over_available", "obs_longest_since_round_max_min", "obs_rel_late_median_of_hours"]);
     expect(s.all_days.per_unit.ICU.obs_late_share).toBeNull();
     expect(s.all_days.per_unit.MED3A.care_demand_over_available).toBeGreaterThan(0);
@@ -132,13 +153,20 @@ describe("hospital trial", () => {
     expect(() => labelEvents([{ ...higher[0], kind: "transfer", news2_independent: true }])).toThrow(/news2_independent/);
   }, 120_000); // steps a hospital for days: about 1 s alone, far more on a busy machine
 
-  // Recorded by running this test on origin/main (ae80706, no A1 logic; the real W4 runs, so #25 moved it): its new columns are appended and its new summary keys added, nothing else moves.
-  it("keeps every v1 byte of the 30-day typical trial: events, the first 23 hourly columns, the v1 summary keys", () => {
+  // With A2's response off, A2's event rows, columns and `recognition` blocks taken out, the 30-day typical trial must hash to what
+  // older code gives. v1: recorded on ae80706 (no A1 logic). v2: recorded from origin/main 75fda0f's own hospital-trial output
+  // (A1, no A2) for seed 101, typical, 30 days. Only appended columns, added keys and added event rows may differ.
+  it("keeps every v1 and v2 byte of the 30-day typical trial when A2's additions are stripped and its response is off", () => {
     const h = (x: string) => createHash("sha256").update(x).digest("hex").slice(0, 16);
-    const oldHourly = long.hourlyCsv.split("\n").map((l) => l.split(",").slice(0, 23).join(",")).join("\n");
-    const A1_SUMMARY = new Set(["format_version", "limits", "obs_late_share", "obs_longest_overdue_max_min", "care_demand_over_available", "obs_longest_since_round_max_min", "obs_rel_late_median_of_hours"]);
-    const oldSummary = JSON.stringify(JSON.parse(long.summaryJson), (k, v) => (A1_SUMMARY.has(k) ? undefined : v));
-    expect([h(long.eventsCsv), h(oldHourly), h(oldSummary)]).toEqual(["06bcca99478acddf", "72abf5628b361263", "6b841afc19dc32a4"]);
+    const A2_KINDS = new Set(["deteriorate", "noticed", "unnoticed"]);
+    const events = off.eventsCsv.split("\n").filter((l) => !A2_KINDS.has(l.split(",")[4])).join("\n");
+    expect(off.eventsCsv.split("\n").length - events.split("\n").length).toBeGreaterThan(10); // A2 rows were there to strip
+    const cols = (n: number) => off.hourlyCsv.split("\n").map((l) => l.split(",").slice(0, n).join(",")).join("\n");
+    const strip = (keys: string[]) => { const ks = new Set(keys); return JSON.stringify(JSON.parse(off.summaryJson), (k, v) => (ks.has(k) ? undefined : v)); };
+    const A1_SUMMARY = ["obs_late_share", "obs_longest_overdue_max_min", "care_demand_over_available", "obs_longest_since_round_max_min", "obs_rel_late_median_of_hours"];
+    const OUT = ["format_version", "limits", "recognition"];
+    expect([h(events), h(cols(23)), h(strip([...OUT, ...A1_SUMMARY]))]).toEqual(["06bcca99478acddf", "72abf5628b361263", "6b841afc19dc32a4"]);
+    expect([h(events), h(cols(32)), h(strip(OUT))]).toEqual(["06bcca99478acddf", "6b503e0176568031", "616a37b838e19926"]);
   });
 
   it("finishes a 30-day typical trial", () => {
