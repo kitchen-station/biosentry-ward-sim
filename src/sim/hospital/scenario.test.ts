@@ -321,7 +321,7 @@ describe("params", () => {
 
   it("keeps the design's people values", () => {
     const p = PARAMS.people;
-    expect([p.maleShare.value, p.ageMean.value, p.ageSd.value, p.ageRange.value, p.cardiacAgeRange.value, p.namePool.value]).toEqual([0.479, 50.1, 16.7, [18, 95], [45, 84], { surnames: 80, givenPerSex: 40 }]);
+    expect([p.maleShare.value, p.ageMean.value, p.ageSd.value, p.ageRange.value, p.cardiacAgeRange.value, p.namePool.value]).toEqual([0.479, 50.1, 16.7, [18, 95], [45, 84], { surnames: 400, givenPerSex: 150 }]);
     expect([PARAMS.warmUpDays.value, PARAMS.w4.attendings.value]).toEqual([3, 2]);
   });
 

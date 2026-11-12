@@ -11,14 +11,15 @@ import type { EventKind, EventRow, HourRow } from "./types";
 export type TrialEvent = Omit<EventRow, "kind"> & { kind: EventKind | "w4_higher_care" };
 
 export const WARM_UP_DAYS = 3;
-export const FORMAT_VERSION = 3; // 2: slice A1's observation-round columns and summary keys, appended; 3: A2's late recognition
+export const FORMAT_VERSION = 4; // 2: slice A1's observation-round columns and summary keys, appended; 3: A2's late recognition; 4: A3's returning people
 export const SPEED = 60;
 export const LIMITS =
   "synthetic, not validated: staffing outside W4 drives observation rounds, and observation workload uses judgement values (share of nurse time); see params. " +
   "deaths after late recognition come from one judgement number (obs.excessDeathPerHour); all other deaths are pre-drawn, scaled by one judgement number (course.stayDeathScale) so typical deaths stay at their level before slice A2. " +
   "Who deteriorates and how often (course.ratePerDay) and the delay to death (course.deathAfterNoticedH) are judgement too: `recognition` is a model output, not evidence about real wards. " +
   "`obs_late_share` is a threshold count: it jumps from near 0 to near 1 when observation demand passes 1.5 times the nurse time available, and that time comes from one judgement value (`obs.shareOfNurseTime`, 0.25). It is a model output, not evidence of how often real rounds are late. " +
-  "Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand.";
+  "Read `obs_rel_late_median` and `obs_longest_since_round_min` for how late; MED3A runs later than MED3B because of placement order, not demand. " +
+  "Returning people: one return rate (returns.readmit30, 0.18 within 30 days) applies to every group, and only its medicine figure has a source (one hospital, search excerpt only); real readmission varies by condition. A return takes the place of a new arrival, so arrivals per day do not change.";
 const STEPS_PER_HOUR = 3600; // speed 60: one step is one sim second
 
 export const HOURLY_COLUMNS = [
@@ -27,9 +28,9 @@ export const HOURLY_COLUMNS = [
   "er_lwbs", "door_to_doctor_median_min", "icu_indicated_not_in_icu", "morgue",
   "obs_due", "obs_done", "obs_late", "obs_overdue_now", "obs_longest_overdue_min", "care_min_demanded", "care_min_available",
   "obs_longest_since_round_min", "obs_rel_late_median",
-  "deteriorated", "noticed", "noticed_late", "unnoticed_now", "recognition_delay_median_min",
+  "deteriorated", "noticed", "noticed_late", "unnoticed_now", "recognition_delay_median_min", "returns",
 ] as const satisfies readonly (keyof HourRow)[];
-export const EVENT_COLUMNS = ["minute", "person", "w4_id", "unit", "kind", "detail", "news2_independent"] as const;
+export const EVENT_COLUMNS = ["minute", "person", "w4_id", "unit", "kind", "detail", "news2_independent", "visit"] as const;
 
 // The design's `w4_higher_care` is the step that moves a W4 patient out for higher care (the sim writes it as a transfer or a board).
 export const isHigherCare = (e: EventRow) => e.detail === "W4 to ICU" || e.detail === "W4 higher care, no ICU bed";
@@ -60,13 +61,15 @@ const share = (n: number, d: number) => (d === 0 ? null : r(n / d, 4));
 
 /** A W4 episode as the trial reads it from W4 (read-only): its injectAt and the first minute NEWS2 was 5 or more after it, if any. */
 export interface W4Episode { injectMin: number; alertMin: number | null }
+// One stay: a person who returns has the same id on each visit, so stay-level figures key on id and visit (visit 1 is the bare id).
+const who = (e: TrialEvent) => (e.visit > 1 ? `${e.person}.${e.visit}` : e.person);
 const ROUND_UNITS = ["ER", "MED3A", "MED3B", "SURG5A", "ICU"]; // the ICU sees a course at once (delay 0)
 
 /** Slice A2's `recognition` block: notices counted at the notice's minute, excess deaths at the death's. */
 function recognition(ev: TrialEvent[], hr: HourRow[], w4: W4Episode[], fromMin: number, endMin: number) {
   const delayOf = (e: TrialEvent) => Number(/^delay (\d+) min$/.exec(e.detail)![1]);
-  const noticedAt = new Map(ev.filter((e) => e.kind === "noticed").map((e) => [e.person, e.minute]));
-  const escalated = ev.filter((e) => (e.kind === "place" || e.kind === "transfer") && e.unit === "ICU" && noticedAt.has(e.person) && noticedAt.get(e.person)! <= e.minute);
+  const noticedAt = new Map(ev.filter((e) => e.kind === "noticed").map((e) => [who(e), e.minute]));
+  const escalated = ev.filter((e) => (e.kind === "place" || e.kind === "transfer") && e.unit === "ICU" && noticedAt.has(who(e)) && noticedAt.get(who(e))! <= e.minute);
   const excess = ev.filter((e) => e.kind === "died" && e.detail.endsWith("after late recognition"));
   const per_unit: Record<string, unknown> = {};
   for (const id of ROUND_UNITS) {
@@ -77,7 +80,7 @@ function recognition(ev: TrialEvent[], hr: HourRow[], w4: W4Episode[], fromMin: 
       count: d.length, delay_median_min: r(median(d)), delay_p90_min: r(pct(d, 0.9)),
       late_share: share(d.filter((x) => x > PARAMS.obs.lateThresholdMin.value).length, d.length),
       unnoticed: ev.filter((e) => e.kind === "unnoticed" && e.unit === id).length,
-      escalated_to_icu: id === "ICU" ? null : escalated.filter((e) => ev.some((n) => n.kind === "noticed" && n.person === e.person && n.unit === id)).length,
+      escalated_to_icu: id === "ICU" ? null : escalated.filter((e) => ev.some((n) => n.kind === "noticed" && who(n) === who(e) && n.unit === id)).length,
       patients_per_nurse_mean: ppn.length ? r(ppn.reduce((a, b) => a + b, 0) / ppn.length) : null,
       excess_deaths: excess.filter((e) => e.unit === id).length,
     };
@@ -125,34 +128,34 @@ export function figures(events: TrialEvent[], hourly: HourRow[], units: string[]
   const arrivedAt = new Map<string, number>();
   const triage = new Map<string, string>();
   for (const e of all) {
-    if (e.kind === "arrive") arrivedAt.set(e.person, e.minute);
-    else if (e.kind === "triage") triage.set(e.person, e.detail);
+    if (e.kind === "arrive") arrivedAt.set(who(e), e.minute);
+    else if (e.kind === "triage") triage.set(who(e), e.detail);
   }
   const arrivers = new Set([...arrivedAt].filter(([, m]) => m >= fromMin).map(([p]) => p));
 
   const d2d: number[] = [], d2dBy: Record<string, number[]> = { emergent: [], urgent: [], non_urgent: [] }, lwbsWait: number[] = [];
   const boardedAt = new Map<string, number>(), boardH: number[] = [];
   for (const e of all) {
-    if (e.kind === "consult" && arrivers.has(e.person)) {
-      const w = e.minute - arrivedAt.get(e.person)!;
+    if (e.kind === "consult" && arrivers.has(who(e))) {
+      const w = e.minute - arrivedAt.get(who(e))!;
       d2d.push(w);
-      d2dBy[triage.get(e.person) ?? ""]?.push(w);
-    } else if (e.kind === "lwbs" && arrivers.has(e.person)) lwbsWait.push(e.minute - arrivedAt.get(e.person)!);
-    else if (e.kind === "board" && !boardedAt.has(e.person)) boardedAt.set(e.person, e.minute);
-    else if ((e.kind === "place" || e.kind === "transfer_out" || e.kind === "died") && boardedAt.has(e.person)) {
-      const start = boardedAt.get(e.person)!;
-      boardedAt.delete(e.person);
+      d2dBy[triage.get(who(e)) ?? ""]?.push(w);
+    } else if (e.kind === "lwbs" && arrivers.has(who(e))) lwbsWait.push(e.minute - arrivedAt.get(who(e))!);
+    else if (e.kind === "board" && !boardedAt.has(who(e))) boardedAt.set(who(e), e.minute);
+    else if ((e.kind === "place" || e.kind === "transfer_out" || e.kind === "died") && boardedAt.has(who(e))) {
+      const start = boardedAt.get(who(e))!;
+      boardedAt.delete(who(e));
       if (start >= fromMin) boardH.push((e.minute - start) / 60);
     }
   }
   const stillBoarding = [...boardedAt.values()].filter((m) => m >= fromMin).map((m) => (endMin - m) / 60);
 
-  const admit = ev.filter((e) => e.kind === "decide_admit" && arrivers.has(e.person)).length;
-  const home = ev.filter((e) => e.kind === "decide_home" && arrivers.has(e.person)).length;
-  const erDeaths = ev.filter((e) => e.kind === "died" && e.unit === "ER" && arrivers.has(e.person)).length;
-  const indicated = new Set(ev.filter((e) => e.kind === "decide_admit" && e.detail.endsWith("ICU-indicated")).map((e) => e.person));
-  const reached = new Set(all.filter((e) => e.kind === "place" && e.unit === "ICU" && indicated.has(e.person)).map((e) => e.person));
-  const ended = new Set(all.filter((e) => (e.kind === "died" || e.kind === "transfer_out" || e.kind === "discharge") && indicated.has(e.person)).map((e) => e.person));
+  const admit = ev.filter((e) => e.kind === "decide_admit" && arrivers.has(who(e))).length;
+  const home = ev.filter((e) => e.kind === "decide_home" && arrivers.has(who(e))).length;
+  const erDeaths = ev.filter((e) => e.kind === "died" && e.unit === "ER" && arrivers.has(who(e))).length;
+  const indicated = new Set(ev.filter((e) => e.kind === "decide_admit" && e.detail.endsWith("ICU-indicated")).map((e) => who(e)));
+  const reached = new Set(all.filter((e) => e.kind === "place" && e.unit === "ICU" && indicated.has(who(e))).map((e) => who(e)));
+  const ended = new Set(all.filter((e) => (e.kind === "died" || e.kind === "transfer_out" || e.kind === "discharge") && indicated.has(who(e))).map((e) => who(e)));
   const pending = [...indicated].filter((p) => !reached.has(p) && !ended.has(p)).length;
 
   return {
@@ -182,6 +185,10 @@ export function figures(events: TrialEvent[], hourly: HourRow[], units: string[]
     w4_admissions: count("place", "W4"),
     w4_higher_care_transfers: count("w4_higher_care"),
     recognition: recognition(ev, hr, w4, fromMin, endMin),
+    // Version 4. A return is an arrival (it is in er_arrivals and the arrive count); the shares are of ward discharges (MED3A, MED3B, SURG5A, W4) and of arrive events.
+    returns: count("return"), return_scheduled: count("return_scheduled"), return_dropped: count("return_dropped"),
+    return_share_of_discharges: share(count("return_scheduled"), ev.filter((e) => e.kind === "discharge" && e.unit !== "ER").length),
+    return_share_of_arrivals: share(count("return"), count("arrive")),
   };
 }
 
@@ -241,7 +248,7 @@ export function runHospitalTrial(seed: number, scenario: Scenario, days: number,
   let hourlyCsv = line([...HOURLY_COLUMNS]);
   for (const row of hourly) hourlyCsv += line(HOURLY_COLUMNS.map((c) => row[c]));
   let eventsCsv = line([...EVENT_COLUMNS]);
-  for (const e of events) eventsCsv += line([e.minute, personNumber(e.person), e.w4_id, e.unit, e.kind, e.detail, e.news2_independent]);
+  for (const e of events) eventsCsv += line([e.minute, personNumber(e.person), e.w4_id, e.unit, e.kind, e.detail, e.news2_independent, e.visit]);
 
   const summary = {
     format_version: FORMAT_VERSION, synthetic: true, seed, days, warm_up_days: WARM_UP_DAYS, scenario,

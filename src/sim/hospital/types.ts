@@ -14,6 +14,7 @@ export interface Unit { id: UnitId; name: string; floor: number; beds: number; s
 /** Everything person n will ever need, drawn at arrival from the stream `person:${n}` in a fixed order. */
 export interface PersonDraw {
   id: string; n: number; name: string; age: number; sex: Sex; group: Group; complaint: string; triage: Triage;
+  look: [number, number, number]; // A3: skin 0-3, hair 0-4, shirt 0-5; same on every visit
   patienceMin: number | null;      // null for emergent: they never leave unseen
   admit: boolean; icuU: number; icuIndicated: boolean; // icuIndicated is only meaningful when admit
   decisionMin: number;             // consult end to decision, minutes
@@ -33,7 +34,14 @@ export interface Person extends PersonDraw {
   obsDueMin: number | null;        // next observation round falls due; null where rounds are not modelled (ICU, W4, morgue)
   obsLastMin: number | null;       // minute of the last observation round done, null before the first
   course: Course | null;           // slice A2: set at the admit decision, null for everyone never admitted during the run
+  visit: number;                   // A3: 1 for a new person, 2 and on for a return (same id, name, age, sex, look)
+  history: Visit[];                // A3: the earlier visits, last 5 only
 }
+
+/** Slice A3: one finished visit. Only a person discharged alive can return, so the outcome is always "discharged". */
+export interface Visit { visit: number; arrivedMin: number; leftMin: number; lastUnit: UnitId; outcome: "discharged" }
+/** Slice A3: a return waiting for an arrival slot (it takes the place of a new arrival, so arrivalsPerDay holds). */
+export interface ReturnDue { n: number; visit: number; atMin: number; history: Visit[] }
 
 /** Slice A2: one admission's deterioration course (people.ts drawCourse). atMin null: no deterioration in this stay. */
 export interface Course {
@@ -50,9 +58,10 @@ export type EventKind =
   | "arrive" | "triage" | "consult" | "decide_home" | "decide_admit" | "board" | "place" | "transfer" | "discharge"
   | "lwbs" | "transfer_out" | "died" | "to_morgue" | "released"
   | "turned_away" // not in the design's list: an arrival the house could not hold (people cap)
-  | "deteriorate" | "noticed" | "unnoticed"; // slice A2
+  | "deteriorate" | "noticed" | "unnoticed" // slice A2
+  | "return_scheduled" | "return" | "return_dropped"; // slice A3
 
-export interface EventRow { minute: number; person: string; w4_id: string | null; unit: UnitId; kind: EventKind; detail: string; news2_independent: boolean }
+export interface EventRow { minute: number; person: string; visit: number; w4_id: string | null; unit: UnitId; kind: EventKind; detail: string; news2_independent: boolean }
 
 // transferred_in/out count moves between units (ICU step-down, W4 to ICU) and, for the ER, transfers out to another hospital.
 // er_boarding_hours is boarding person-hours accrued during the hour. morgue is every body in the house (drawers and awaiting), on the MORGUE row.
@@ -70,6 +79,7 @@ export interface HourRow {
   // Late recognition (slice A2), appended; null where rounds are not modelled.
   deteriorated: number | null; noticed: number | null; noticed_late: number | null; unnoticed_now: number | null;
   recognition_delay_median_min: number | null;
+  returns: number | null; // slice A3: ER only, returning people who arrived this hour
 }
 
 export interface Counters {
@@ -78,11 +88,12 @@ export interface Counters {
   obsRel: number[]; // relative lateness of each round done this hour: (done - due) / interval; at most the hour's rounds
   deteriorated: number; noticed: number; noticedLate: number; delays: number[]; // A2: onsets, notices, late notices, their delays
 }
-export interface Acc { by: Record<UnitId, Counters>; arrivals: number; lwbs: number; boardMin: number; d2d: number[] }
+export interface Acc { by: Record<UnitId, Counters>; arrivals: number; returns: number; lwbs: number; boardMin: number; d2d: number[] }
 
 export interface Hospital {
   seed: number; scenario: Scenario; units: Unit[]; arrivalRng: number; nextN: number; lastMinute: number;
   people: Person[]; gone: Person[]; // gone: the last 300
+  returning: ReturnDue[]; // A3: sorted by atMin, at most PARAMS.returns.cap
   goneCount: number; createdCount: number; turnedAway: number; peopleCap: number;
   doctorsFreeAt: number[]; icuFree: number;
   events: EventRow[]; hourly: HourRow[]; // a caller drains them each hour with takeRows

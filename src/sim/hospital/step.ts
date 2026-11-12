@@ -28,7 +28,7 @@ import { drawCourse, drawPerson, DAY_MIN, stayDeathP } from "./people";
 import { PARAMS, UNITS, type Group, type UnitId } from "./params";
 import { poisson, rngFrom, stream, streamSeed } from "./rng";
 import type { Scenario } from "./scenario";
-import type { Acc, Counters, EventKind, EventRow, Hospital, HourRow, Person, Unit, W4Port, Where } from "./types";
+import type { Acc, Counters, EventKind, EventRow, Hospital, HourRow, Person, Unit, Visit, W4Port, Where } from "./types";
 
 const START = PARAMS.clock.startMinuteOfDay.value;
 const RANK = { emergent: 0, urgent: 1, non_urgent: 2 };
@@ -41,7 +41,7 @@ const unitOf = (h: Hospital, id: UnitId) => h.units.find((u) => u.id === id)!;
 const blank = (): Counters => ({ admittedIn: 0, discharged: 0, transferredIn: 0, transferredOut: 0, died: 0, obsDue: 0, obsDone: 0, obsLate: 0, obsRel: [], deteriorated: 0, noticed: 0, noticedLate: 0, delays: [] });
 const emptyAcc = (): Acc => ({
   by: { ER: blank(), MORGUE: blank(), ICU: blank(), MED3A: blank(), MED3B: blank(), W4: blank(), SURG5A: blank() },
-  arrivals: 0, lwbs: 0, boardMin: 0, d2d: [],
+  arrivals: 0, returns: 0, lwbs: 0, boardMin: 0, d2d: [],
 });
 
 /** Units as the scenario sets them; W4 and the morgue are fixed. */
@@ -59,7 +59,7 @@ export function createHospital(seed: number, scenario: Scenario, peopleCap: numb
   const units = buildUnits(scenario);
   const h: Hospital = {
     seed, scenario, units, arrivalRng: streamSeed(seed, "arrivals"), nextN: 1, lastMinute: -1,
-    people: [], gone: [], goneCount: 0, createdCount: 0, turnedAway: 0, peopleCap,
+    people: [], gone: [], returning: [], goneCount: 0, createdCount: 0, turnedAway: 0, peopleCap,
     doctorsFreeAt: Array<number>(Math.max(scenario.er.doctorsDay, scenario.er.doctorsNight)).fill(0),
     icuFree: 0, events: [], hourly: [], acc: emptyAcc(),
   };
@@ -87,7 +87,7 @@ function push(h: Hospital, row: EventRow) {
   if (h.events.length > cap) h.events.splice(0, h.events.length - cap);
 }
 const log = (c: Ctx, p: Person, unit: UnitId, kind: EventKind, detail: string, news2Independent = true) =>
-  push(c.h, { minute: c.minute, person: p.id, w4_id: p.w4Id, unit, kind, detail, news2_independent: news2Independent });
+  push(c.h, { minute: c.minute, person: p.id, visit: p.visit, w4_id: p.w4Id, unit, kind, detail, news2_independent: news2Independent });
 
 /** A discharge hour on the clock, as W4's dueAt does: nearest day, then the drawn hour. */
 function dueAt(minute: number, stayMin: number, hour: number) {
@@ -143,7 +143,7 @@ function notice(h: Hospital, p: Person, minute: number) {
   by.noticed += 1;
   by.delays.push(delay);
   if (delay > PARAMS.obs.lateThresholdMin.value) by.noticedLate += 1;
-  push(h, { minute, person: p.id, w4_id: p.w4Id, unit: p.unit, kind: "noticed", detail: `delay ${delay} min`, news2_independent: true });
+  push(h, { minute, person: p.id, visit: p.visit, w4_id: p.w4Id, unit: p.unit, kind: "noticed", detail: `delay ${delay} min`, news2_independent: true });
   // Never overrides a pre-drawn death: only someone not already fated to die can die of the delay.
   if (p.dieMin === null && k.excessU < 1 - Math.exp(-PARAMS.obs.excessDeathPerHour.value * delay / 60)) {
     p.dieMin = minute + PARAMS.course.deathAfterNoticedH.value * 60;
@@ -186,12 +186,12 @@ function tryPlace(c: Ctx, p: Person): boolean {
   return false;
 }
 
-function newPerson(h: Hospital, n: number, arrivedMin: number): Person {
-  const d = drawPerson(h.seed, n);
+function newPerson(h: Hospital, n: number, arrivedMin: number, visit = 1, history: Visit[] = []): Person {
+  const d = drawPerson(h.seed, n, visit);
   return {
     ...d, arrivedMin, unit: "ER", where: "waiting", sinceMin: arrivedMin, slot: null, wants: null, seenMin: null, decideMin: null, dueMin: null,
     dieMin: d.erDeathAfterMin === null ? null : arrivedMin + d.erDeathAfterMin, boardedMin: 0, w4Id: null, fromW4: false,
-    obsDueMin: arrivedMin, obsLastMin: null, course: null,
+    obsDueMin: arrivedMin, obsLastMin: null, course: null, visit, history,
   };
 }
 
@@ -205,7 +205,7 @@ function seedResidents(h: Hospital) {
   const room = (p: Person) => {
     if (h.people.length < h.peopleCap) return true;
     h.turnedAway += 1;
-    push(h, { minute: 0, person: p.id, w4_id: null, unit: "ER", kind: "turned_away", detail: "people cap reached at start", news2_independent: true });
+    push(h, { minute: 0, person: p.id, visit: 1, w4_id: null, unit: "ER", kind: "turned_away", detail: "people cap reached at start", news2_independent: true });
     return false;
   };
   // First rounds spread over one interval by number, with no draw.
@@ -257,6 +257,25 @@ function die(c: Ctx, p: Person) {
   log(c, p, p.unit, "died", p.course?.excess ? `${p.where} after late recognition` : p.where);
   unnoticed(c, p);
   p.where = "awaiting_morgue"; p.sinceMin = c.minute; p.wants = null; // the bed or bay stays blocked until the body leaves
+}
+
+/** A3: someone discharged alive from a ward may come back within 30 days. Every draw is from the person's own stream for this visit,
+ *  so whether and when never moves anyone else; the dead never get here. The return later takes the place of a new arrival. */
+function scheduleReturn(c: Ctx, p: Person) {
+  const R = PARAMS.returns;
+  if (!R.enabled.value) return;
+  const r = stream(c.h.seed, `person:${p.n}:v${p.visit}:return`);
+  const [retU, dayU, minU] = [r(), r(), r()];
+  const rate = p.group === "hypertensive" || p.group === "respiratory" || p.group === "infection" ? R.readmit30.medicine : R.readmit30.other;
+  if (retU >= rate.value) return;
+  const days = 1 + Math.floor(dayU * 29);
+  const due = { n: p.n, visit: p.visit + 1, atMin: (Math.floor(c.minute / DAY_MIN) + days) * DAY_MIN + Math.floor(minU * DAY_MIN),
+    history: [...p.history, { visit: p.visit, arrivedMin: p.arrivedMin, leftMin: c.minute, lastUnit: p.unit, outcome: "discharged" as const }].slice(-5) };
+  const w4 = p.unit === "W4"; // W4 decides its own discharge time with NEWS2, so the rows that follow it are not independent of it
+  if (c.h.returning.length >= R.cap.value) { log(c, p, p.unit, "return_dropped", `visit ${due.visit}`, !w4); return; }
+  const at = c.h.returning.findIndex((x) => x.atMin > due.atMin);
+  c.h.returning.splice(at < 0 ? c.h.returning.length : at, 0, due);
+  log(c, p, p.unit, "return_scheduled", `in ${days} d`, !w4);
 }
 
 function leaveEr(c: Ctx, p: Person, kind: EventKind, detail: string) {
@@ -341,15 +360,19 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     h.nextN += 1;
     if (h.people.length >= h.peopleCap) { // never dropped silently
       h.turnedAway += 1;
-      push(h, { minute, person: `h-${String(n).padStart(6, "0")}`, w4_id: null, unit: "ER", kind: "turned_away", detail: "people cap reached", news2_independent: true });
+      push(h, { minute, person: `h-${String(n).padStart(6, "0")}`, visit: 1, w4_id: null, unit: "ER", kind: "turned_away", detail: "people cap reached", news2_independent: true });
       continue;
     }
-    const p = newPerson(h, n, minute);
+    // A3: a return that has come due takes this slot; slot n is used up either way, so every other arrival keeps its number.
+    const back = h.returning.length > 0 && h.returning[0].atMin <= minute ? h.returning.shift() : undefined;
+    const p = back ? newPerson(h, back.n, minute, back.visit, back.history) : newPerson(h, n, minute);
+    if (back) h.gone = h.gone.filter((g) => g.n !== back.n); // one record per person: the earlier visit's lives on in `history`
     h.people.push(p);
     h.createdCount += 1;
     h.acc.arrivals += 1;
     log(c, p, "ER", "arrive", `${p.group}: ${p.complaint}`);
     log(c, p, "ER", "triage", p.triage);
+    if (back) { h.acc.returns += 1; log(c, p, "ER", "return", `visit ${p.visit}`); }
   }
 
   // 2. Deaths and the morgue. A death is a pre-drawn time, whatever the person is doing.
@@ -388,6 +411,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     if (left.outcome === "discharged") {
       h.acc.by.W4.discharged += 1;
       log(c, p, "W4", "discharge", "", false); // W4's discharge time is NEWS2-decided
+      scheduleReturn(c, p);
       finish(c, p);
       continue;
     }
@@ -415,6 +439,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
     if (!settled(p) || p.unit === "ICU") continue;
     h.acc.by[p.unit].discharged += 1;
     log(c, p, p.unit, "discharge", "");
+    scheduleReturn(c, p);
     unnoticed(c, p);
     finish(c, p);
   }
@@ -455,7 +480,7 @@ export function stepHospital(h: Hospital, port: W4Port, minute: number) {
       leaveEr(c, p, "decide_home", "");
       continue;
     }
-    p.course = drawCourse(h.seed, p.n, p.group, p.stayMin, minute);
+    p.course = drawCourse(h.seed, p.n, p.group, p.stayMin, minute, p.visit);
     p.wants = wantsIcu(p) ? "ICU" : p.group === "cardiac" ? "W4" : wardsOf(p.group)[0];
     log(c, p, "ER", "decide_admit", p.icuIndicated ? `${p.group}, ICU-indicated` : p.group);
     if (!tryPlace(c, p)) {
@@ -509,7 +534,7 @@ function hourRows(h: Hospital, hour: number) {
     const row: HourRow = {
       hour, unit: u.id, census, beds: u.beds, stretchers_used: stay.filter((p) => p.slot !== null && p.slot >= u.beds).length,
       occupancy_pct: u.beds > 0 ? round((census / u.beds) * 100, 1) : 0, // a raw scenario with no beds must not give NaN
-      arrivals: er ? a.arrivals : 0,
+      arrivals: er ? a.arrivals : 0, returns: er ? a.returns : null,
       admitted_in: a.by[u.id].admittedIn, discharged: a.by[u.id].discharged, transferred_in: a.by[u.id].transferredIn,
       transferred_out: a.by[u.id].transferredOut, died: a.by[u.id].died,
       nurses: u.nurses, patients_per_nurse: u.nurses > 0 ? round(census / u.nurses, 1) : null,

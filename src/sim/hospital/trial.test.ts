@@ -15,15 +15,22 @@ const sha = (t: TrialResult) => [t.hourlyCsv, t.eventsCsv, t.summaryJson].map((x
 const UNITS = 7;
 const DAYS = 30;
 
-/** Runs `f` with A2's response off (no class flip or ICU request, no death from the delay, stay deaths unscaled). */
+/** Runs `f` with A3 off (no returns, the old name lists). */
+function a3Off<T>(f: () => T): T {
+  const keep = PARAMS.returns.enabled.value;
+  PARAMS.returns.enabled.value = false;
+  try { return f(); } finally { PARAMS.returns.enabled.value = keep; }
+}
+
+/** Runs `f` with A2's response and A3 off (no class flip or ICU request, no death from the delay, stay deaths unscaled, no returns). */
 function a2Off<T>(f: () => T): T {
   const C = PARAMS.course, keep = [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] as const;
   C.escalate.value = false; PARAMS.obs.excessDeathPerHour.value = 0; C.stayDeathScale.value = 1;
-  try { return f(); } finally { [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] = keep; }
+  try { return a3Off(f); } finally { [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] = keep; }
 }
 
 describe("hospital trial", () => {
-  let day: TrialResult, again: TrialResult, long: TrialResult, off: TrialResult, secs: number;
+  let day: TrialResult, again: TrialResult, long: TrialResult, off: TrialResult, off3: TrialResult, secs: number;
   beforeAll(() => {
     day = runHospitalTrial(101, typical, 1);
     again = runHospitalTrial(101, typical, 1);
@@ -31,6 +38,7 @@ describe("hospital trial", () => {
     long = runHospitalTrial(101, typical, DAYS);
     secs = Math.round((performance.now() - t0) / 100) / 10;
     off = a2Off(() => runHospitalTrial(101, typical, DAYS));
+    off3 = a3Off(() => runHospitalTrial(101, typical, DAYS));
   }, 600_000);
 
   it("gives byte-identical files for the same seed and scenario", () => {
@@ -46,10 +54,11 @@ describe("hospital trial", () => {
     const rows = long.hourlyCsv.trimEnd().split("\n");
     expect(rows[0]).toBe("hour,unit,census,beds,stretchers_used,occupancy_pct,arrivals,admitted_in,discharged,transferred_in,transferred_out,died,nurses,patients_per_nurse,er_waiting,er_consult,er_workup,er_boarding,er_boarding_hours,er_lwbs,door_to_doctor_median_min,icu_indicated_not_in_icu,morgue" +
       ",obs_due,obs_done,obs_late,obs_overdue_now,obs_longest_overdue_min,care_min_demanded,care_min_available,obs_longest_since_round_min,obs_rel_late_median" +
-      ",deteriorated,noticed,noticed_late,unnoticed_now,recognition_delay_median_min");
+      ",deteriorated,noticed,noticed_late,unnoticed_now,recognition_delay_median_min,returns");
     expect(rows.length - 1).toBe(UNITS * DAYS * 24);
     expect(long.hourlyRows).toBe(UNITS * DAYS * 24);
-    for (const r of rows) expect(r.split(",")).toHaveLength(37);
+    for (const r of rows) expect(r.split(",")).toHaveLength(38);
+    for (const r of rows.slice(1)) { const f = r.split(","); expect(f[37], r).toMatch(f[1] === "ER" ? /^\d+$/ : /^$/); } // A3: returns, ER only
     const er = rows.filter((r) => r.split(",")[1] === "ER" && r.split(",")[0] !== "hour");
     expect(er.every((r) => r.split(",")[14] !== "")).toBe(true); // ER-only columns filled on the ER
     expect(rows.filter((r) => r.split(",")[1] === "ICU").every((r) => r.split(",")[14] === "")).toBe(true); // blank elsewhere
@@ -64,12 +73,13 @@ describe("hospital trial", () => {
     }
   });
 
-  it("writes events in minute order, seven fields, news2_independent yes or no, w4_higher_care no", () => {
+  it("writes events in minute order, eight fields, news2_independent yes or no, w4_higher_care no", () => {
     const rows = long.eventsCsv.trimEnd().split("\n").slice(1).map((r) => r.split(","));
     expect(rows.length).toBe(long.eventRows);
     let last = 0;
     for (const f of rows) {
-      expect(f).toHaveLength(7);
+      expect(f).toHaveLength(8);
+      expect(f[7]).toMatch(/^[1-9]\d*$/); // A3: the visit
       expect(["yes", "no"]).toContain(f[6]);
       expect(Number(f[0])).toBeGreaterThanOrEqual(last);
       last = Number(f[0]);
@@ -88,12 +98,12 @@ describe("hospital trial", () => {
   }, 120_000);
 
   it("labels a W4 move for higher care, and a W4 discharge is also not NEWS2-independent", () => {
-    const row = { minute: 1, person: "h-000001", w4_id: "p-001", unit: "ICU" as const, kind: "transfer" as const, news2_independent: false };
+    const row = { minute: 1, person: "h-000001", visit: 1, w4_id: "p-001", unit: "ICU" as const, kind: "transfer" as const, news2_independent: false };
     expect(isHigherCare({ ...row, detail: "W4 to ICU" })).toBe(true);
     expect(isHigherCare({ ...row, kind: "board", detail: "W4 higher care, no ICU bed" })).toBe(true);
     expect(isHigherCare({ ...row, detail: "ICU to MED3A" })).toBe(false);
     const w4Discharges = long.eventsCsv.split("\n").filter((l) => l.split(",")[3] === "W4" && l.split(",")[4] === "discharge");
-    expect(w4Discharges.every((l) => l.endsWith(",no"))).toBe(true);
+    expect(w4Discharges.every((l) => l.split(",")[6] === "no")).toBe(true);
   });
 
   it("holds no name from the names lists in any file", () => {
@@ -109,7 +119,13 @@ describe("hospital trial", () => {
     expect(s.limits).toContain("observation workload uses judgement values (share of nurse time); see params");
     expect(s.limits).toContain("deaths after late recognition come from one judgement number (obs.excessDeathPerHour); all other deaths are pre-drawn");
     expect(s.limits).toContain("not evidence about real wards");
-    expect(s.format_version).toBe(3);
+    expect(s.format_version).toBe(4);
+    expect(s.limits).toContain("A return takes the place of a new arrival");
+    for (const b of [s.all_days, s.after_warm_up]) {
+      expect(Object.keys(b).slice(-5)).toEqual(["returns", "return_scheduled", "return_dropped", "return_share_of_discharges", "return_share_of_arrivals"]);
+      expect(b.returns).toBeGreaterThan(5);
+      expect(b.return_share_of_discharges).toBeGreaterThan(0.1);
+    }
     const rec = s.all_days.recognition;
     expect(Object.keys(rec)).toEqual(["per_unit", "excess_deaths_total", "excess_deaths_share_of_deaths", "excess_deaths_label", "w4"]);
     expect(Object.keys(rec.per_unit)).toEqual(["ER", "MED3A", "MED3B", "SURG5A", "ICU"]);
@@ -159,14 +175,32 @@ describe("hospital trial", () => {
   it("keeps every v1 and v2 byte of the 30-day typical trial when A2's additions are stripped and its response is off", () => {
     const h = (x: string) => createHash("sha256").update(x).digest("hex").slice(0, 16);
     const A2_KINDS = new Set(["deteriorate", "noticed", "unnoticed"]);
-    const events = off.eventsCsv.split("\n").filter((l) => !A2_KINDS.has(l.split(",")[4])).join("\n");
-    expect(off.eventsCsv.split("\n").length - events.split("\n").length).toBeGreaterThan(10); // A2 rows were there to strip
+    const A3_KINDS = new Set(["return_scheduled", "return", "return_dropped"]);
+    const v7 = (l: string) => l.split(",").slice(0, 7).join(","); // A3 appends the visit column
+    const events = off.eventsCsv.split("\n").filter((l) => !A2_KINDS.has(l.split(",")[4])).map(v7).join("\n");
+    expect(off.eventsCsv.split("\n").length - events.split("\n").length).toBeGreaterThan(10);
+    expect(off.eventsCsv.split("\n").some((l) => A3_KINDS.has(l.split(",")[4]))).toBe(false); // A2 rows were there to strip
     const cols = (n: number) => off.hourlyCsv.split("\n").map((l) => l.split(",").slice(0, n).join(",")).join("\n");
     const strip = (keys: string[]) => { const ks = new Set(keys); return JSON.stringify(JSON.parse(off.summaryJson), (k, v) => (ks.has(k) ? undefined : v)); };
     const A1_SUMMARY = ["obs_late_share", "obs_longest_overdue_max_min", "care_demand_over_available", "obs_longest_since_round_max_min", "obs_rel_late_median_of_hours"];
-    const OUT = ["format_version", "limits", "recognition"];
+    const A3_SUMMARY = ["returns", "return_scheduled", "return_dropped", "return_share_of_discharges", "return_share_of_arrivals"];
+    const OUT = ["format_version", "limits", "recognition", ...A3_SUMMARY];
     expect([h(events), h(cols(23)), h(strip([...OUT, ...A1_SUMMARY]))]).toEqual(["06bcca99478acddf", "72abf5628b361263", "6b841afc19dc32a4"]);
     expect([h(events), h(cols(32)), h(strip(OUT))]).toEqual(["06bcca99478acddf", "6b503e0176568031", "616a37b838e19926"]);
+  });
+
+  // v3 is origin/main 8616326's own output (A2 on, no A3 code) for seed 101, typical, 30 days. With returns off (and the old name lists), the
+  // visit column, A3's event kinds, the `returns` column and A3's summary keys taken out, every v3 byte must be the same.
+  it("keeps every v3 byte of the 30-day typical trial when returns are off and A3's additions are stripped", () => {
+    const h = (x: string) => createHash("sha256").update(x).digest("hex").slice(0, 16);
+    const events = off3.eventsCsv.split("\n").map((l) => l.split(",").slice(0, 7).join(",")).join("\n");
+    const cols = off3.hourlyCsv.split("\n").map((l) => l.split(",").slice(0, 37).join(",")).join("\n");
+    const out = ["format_version", "limits", "returns", "return_scheduled", "return_dropped", "return_share_of_discharges", "return_share_of_arrivals"];
+    const summary = JSON.stringify(JSON.parse(off3.summaryJson), (k, v) => (out.includes(k) ? undefined : v));
+    expect([h(events), h(cols), h(summary)]).toEqual(["2f1da5ca8d6b81b3", "ec1c816fe4d8938e", "1a8566d828e2d1f4"]);
+    expect(JSON.parse(off3.summaryJson).all_days.returns).toBe(0);
+    expect(long.eventsCsv).not.toBe(off3.eventsCsv); // and with returns on, people do come back
+    expect(long.eventsCsv.split("\n").filter((l) => l.split(",")[4] === "return").length).toBeGreaterThan(10);
   });
 
   it("finishes a 30-day typical trial", () => {
@@ -177,7 +211,7 @@ describe("hospital trial", () => {
 
 describe("summary figures", () => {
   const ev = (minute: number, person: string, kind: string, detail = "", unit: UnitId = "ER"): TrialEvent =>
-    ({ minute, person, w4_id: null, unit, kind: kind as TrialEvent["kind"], detail, news2_independent: true });
+    ({ minute, person, visit: 1, w4_id: null, unit, kind: kind as TrialEvent["kind"], detail, news2_independent: true });
   const hr = (hour: number, unit: UnitId, occ: number, admitted = 0, died = 0) => ({ hour, unit, occupancy_pct: occ, admitted_in: admitted, died }) as HourRow;
   // Warm-up ends at minute 4320. p6 and p7 are minute-0 residents (no arrive event). The trial is 5 days: minute 7200 is outside.
   const events: TrialEvent[] = [
