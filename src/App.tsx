@@ -258,9 +258,15 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         const f0 = PERF ? performance.now() : 0;
         const painted = renderer.frame(s, selectedRef.current, hoveredRef.current, pending, now / 1000);
         perf?.frame(now, performance.now() - f0, painted);
-        lastDraw = now;
+        lastDraw = Math.max(lastDraw + DRAW_MS, now - DRAW_MS); // not `now`: that would halve 75 to 144 Hz displays
         pending = 0;
-      } else perf?.frame(now, null, false);
+      } else {
+        perf?.frame(now, null, false);
+        if (!onScreen) {
+          s.moves.length = 0; // nobody sees them; a backlog would all arrive in one frame on return
+          pending = Math.min(pending, 0.25);
+        }
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -274,7 +280,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     let shownKey: unknown[] = [];
     const panelKey = () => {
       const { s } = worldRef.current;
-      return [s, s.clockS, s.speed, s.ended, s.log.length, s.patients.length, s.tasks.length, s.stays.length, s.hospital?.lastMinute, skippingRef.current, syncRef.current?.stopped, renderer.userZoom()];
+      return [s, s.clockS, s.speed, s.ended, s.log[s.log.length - 1], s.patients.length, s.tasks.length, s.stays.length, s.hospital?.lastMinute, skippingRef.current, syncRef.current?.stopped, renderer.userZoom()];
     };
     const stopPanels = whileVisible(document, () => {
       redraw(); // shown again: the canvas may have been dropped while hidden
