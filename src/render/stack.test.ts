@@ -4,6 +4,7 @@ import { floorSummary } from "../building";
 import { floorOf } from "../hospital-panels";
 import { createHospitalSim } from "../sim/hospital/attach";
 import { parseScenario } from "../sim/hospital/scenario";
+import { BEDS } from "../sim/map";
 import { createSim, step } from "../sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "../sim/source";
 import typical from "../../scenarios/hospital/typical.json?raw";
@@ -243,7 +244,7 @@ describe("the closed building paints only when what it shows changed", () => {
 });
 
 describe("the open stack's ghosts", () => {
-  it("are repainted only when their scene or a drawer's blink changed; W4's, which moves, every frame", () => {
+  it("are repainted only when their scene or a drawer's blink changed; W4's when a quarter-second turns", () => {
     const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
     const real = document.createElement;
     Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
@@ -263,16 +264,56 @@ describe("the open stack's ghosts", () => {
       const w4 = slabIndex(4);
       const others = FLOORS.map((_, i) => i !== w4 && i !== slabIndex(3));
       painted(12, 0); // the first frame paints every ghost; let the opening settle too
-      expect(painted(12, 0)).toEqual(FLOORS.map((_, i) => i === w4)); // nothing changed: only W4's ghost
+      expect(painted(12, 0)).toEqual(FLOORS.map(() => false)); // nothing changed, not even the quarter-second
       const src = createSyntheticSource(FIXTURE_SEED, true);
       const m = s.hospital!.lastMinute;
       s.speed = 60;
       while (s.hospital!.lastMinute === m) step(s, src);
       s.speed = 0;
-      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4)); // a new minute: each once
-      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => i === w4));
+      expect(painted(FLOORS.length, 0)).toEqual(others); // a new minute: each once; W4's waits for its quarter-second
+      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map(() => false));
+      expect(painted(1, 0.25)).toEqual(FLOORS.map((_, i) => i === w4));
       st.redraw();
       expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4));
+    } finally {
+      Object.assign(document, { createElement: real });
+    }
+  });
+});
+
+describe("W4's ghost", () => {
+  it("is repainted at most four times a second, with the time summed; focused, W4 is live every frame and its ghost untouched", () => {
+    const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
+    const real = document.createElement;
+    Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
+    try {
+      const s = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+      let view = 3;
+      const st = createStackRenderer(counting().canvas, () => view);
+      const ghost = made.filter((c) => c.canvas.width === LOGICAL_W * 2 && c.canvas.height === LOGICAL_H * 2)[slabIndex(4)];
+      st.resize(656, 382, 1);
+      s.speed = 1;
+      let repaints = 0;
+      for (let i = 0; i < 120; i += 1) {
+        const before = ghost.calls.n;
+        st.frame(s, null, null, 1 / 60, i / 60);
+        if (ghost.calls.n > before) repaints += 1;
+      }
+      expect(repaints).toBeGreaterThanOrEqual(8);
+      expect(repaints).toBeLessThanOrEqual(9); // 2 s: the first frame, then one per quarter-second
+      // A trolley waits for W4's next paint, then is launched: the queue drains within a quarter-second.
+      const bed = BEDS[0].label;
+      s.moves.push({ bed, kind: "in" } as (typeof s.moves)[number]);
+      for (let i = 0; i < 16; i += 1) st.frame(s, null, null, 1 / 60, 2 + i / 60);
+      expect(s.moves).toEqual([]);
+      view = 4;
+      const before = ghost.calls.n;
+      for (let i = 0; i < 30; i += 1) {
+        s.moves.push({ bed, kind: "in" } as (typeof s.moves)[number]);
+        st.frame(s, null, null, 1 / 60, 3 + i / 60);
+        expect(s.moves).toEqual([]); // live: launched the frame it arrives
+      }
+      expect(ghost.calls.n).toBe(before);
     } finally {
       Object.assign(document, { createElement: real });
     }

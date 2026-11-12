@@ -96,6 +96,10 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   }
   ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
   const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
+  // W4 moves its own trolleys by the time since it was last painted, live or into its ghost. Its ghost is repainted once a
+  // quarter-second (its machines blink at that rate), not every frame: w4Phase is the quarter it holds, null for none.
+  let w4Dt = 0;
+  let w4Phase: number | null = null;
   let open = 0; // 0 the closed building, 1 the open stack
   // The closed building at rest changes only with what it is drawn from: the key of the picture on the canvas, or null.
   let painted: unknown[] | null = null;
@@ -182,6 +186,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     redraw() {
       painted = null;
       ghostOf = FLOORS.map(() => null);
+      w4Phase = null;
     },
 
     figures: (i: number) => figuresOn(i),
@@ -224,6 +229,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       movers = [];
       clock = 0;
       painted = null;
+      w4Dt = 0;
+      w4Phase = null;
       w4.reset();
     },
 
@@ -264,6 +271,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       ctx.imageSmoothingEnabled = false;
 
       if (open === 0) {
+        w4Dt = 0; // closed, W4 is not painted and its trolleys hold still, as before
+        w4Phase = null;
         closed(s, live.floors, hovered);
         return true;
       }
@@ -286,21 +295,26 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
         if (spec !== W4 && i !== focus && (first || turn % FLOORS.length === i)) paintGhost(i, live.scenes[i], now);
       });
       turn += 1;
-      // Painter's order, GF first. W4 is painted exactly once a frame (it moves its own trolleys): live, or into its ghost.
+      w4Dt += dt;
+      // Painter's order, GF first. W4 is painted live every frame, or into its ghost once a quarter-second.
       FLOORS.forEach((spec, i) => {
         const alpha = focus < 0 || i === focus ? 1 : 1 + ((i > focus ? ABOVE : BELOW) - 1) * e;
         ctx.save();
         if (alpha === 1) {
           ctx.translate(0, storeyY(i, open));
-          if (spec === W4) w4.paint(ctx, s, i === focus ? selected : null, i === focus ? hovered : null, dt, now);
+          if (spec === W4) {
+            w4.paint(ctx, s, i === focus ? selected : null, i === focus ? hovered : null, w4Dt, now);
+            [w4Dt, w4Phase] = [0, null];
+          }
           else if (i === focus) slabs[i]!.paint(ctx, animated(i, live.scenes[i]), selected, hovered, now, figuresOn(i));
           else ctx.drawImage(ghosts[i], 0, 0, LOGICAL_W, LOGICAL_H); // closing: every slab from its cache
         } else {
-          if (spec === W4) {
+          if (spec === W4 && w4Phase !== Math.floor(now * 4)) {
             w4Ghost.setTransform(1, 0, 0, 1, 0, 0);
             w4Ghost.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
             w4Ghost.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
-            w4.paint(w4Ghost, s, null, null, dt, now);
+            w4.paint(w4Ghost, s, null, null, w4Dt, now);
+            [w4Dt, w4Phase] = [0, Math.floor(now * 4)];
           }
           ctx.globalAlpha = alpha;
           ctx.translate(0, storeyY(i, open));
