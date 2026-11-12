@@ -249,6 +249,7 @@ describe("the open stack's ghosts", () => {
     Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
     try {
       const s = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+      s.speed = 0; // paused: staff and movers hold still, so a ghost repaints only for its scene or blink
       const st = createStackRenderer(counting().canvas, () => 3);
       const ghosts = made.filter((c) => c.canvas.width === LOGICAL_W * 2 && c.canvas.height === LOGICAL_H * 2);
       expect(ghosts.length).toBe(FLOORS.length);
@@ -272,6 +273,42 @@ describe("the open stack's ghosts", () => {
       expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => i === w4));
       st.redraw();
       expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4));
+    } finally {
+      Object.assign(document, { createElement: real });
+    }
+  });
+});
+
+describe("moving people and the frame skipping", () => {
+  it("a running hospital repaints its ghosts for their moving staff, a paused one only W4's, and the closed building not at all", () => {
+    const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
+    const real = document.createElement;
+    Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
+    try {
+      const s = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+      let view: number | null = 3;
+      const st = createStackRenderer(counting().canvas, () => view);
+      const ghosts = made.filter((c) => c.canvas.width === LOGICAL_W * 2 && c.canvas.height === LOGICAL_H * 2);
+      st.resize(656, 382, 1);
+      const run = (seconds: number, t0: number) => {
+        const before = ghosts.map((g) => g.calls.n);
+        for (let i = 0; i < seconds * 60; i += 1) st.frame(s, null, null, 1 / 60, t0 + i / 60);
+        return ghosts.map((g, i) => g.calls.n > before[i]);
+      };
+      run(2, 0);
+      s.speed = 0;
+      expect(run(1, 2)).toEqual(FLOORS.map((_, i) => i === slabIndex(4))); // paused: nothing but W4's moves
+      const calls = () => ghosts.map((g) => g.calls.n);
+      s.speed = 1;
+      const [a, b] = [calls(), (run(1, 3), calls())];
+      const floor = slabIndex(1); // MEDICINE has staff
+      expect(b[floor]).toBeGreaterThan(a[floor]);
+      s.speed = 0;
+      view = null;
+      run(3, 4);
+      s.speed = 1;
+      const quiet = Array.from({ length: 120 }, (_, i) => st.frame(s, null, null, 1 / 60, 8 + i / 60));
+      expect(quiet.some(Boolean)).toBe(false);
     } finally {
       Object.assign(document, { createElement: real });
     }

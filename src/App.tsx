@@ -209,7 +209,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer = HOSPITAL ? createStackRenderer(canvas, () => viewRef.current) : createRenderer(canvas);
+    const renderer: Renderer = HOSPITAL ? createStackRenderer(canvas, () => viewRef.current) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -285,6 +285,13 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     const stopPanels = whileVisible(document, () => {
       redraw(); // shown again: the canvas may have been dropped while hidden
       const timer = setInterval(() => {
+        // Following a person: the open floor changes to the one they are on (the camera follows within it every frame).
+        const { s } = worldRef.current;
+        const sel = selectedRef.current;
+        if (HOSPITAL && sel !== null && s.hospital && viewRef.current !== null) {
+          const f = renderer.floorOf?.(s, sel) ?? floorOf(s.hospital, sel);
+          if (f !== null && f !== viewRef.current) setView(f);
+        }
         const key = panelKey();
         if (!VIEW_API && key.length === shownKey.length && key.every((v, i) => v === shownKey[i])) return;
         shownKey = key;

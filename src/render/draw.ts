@@ -5,6 +5,7 @@ import { clampCam, fitCam, panBy, zoomAbout, type Cam } from "../camera";
 import { findPath, nurseStand, BEDS, CORRIDOR, MAP_H, MAP_W, STATIONS, bedByLabel, type Bed, type Tile } from "../sim/map";
 import { GROUP_COLOURS, type Cell } from "../building";
 import { W4, type FloorSpec, type SpecRoom, type Tint } from "./floors";
+import type { Figure } from "./move";
 import type { Scene } from "./scene";
 import { staffById, staffStatus, type Sim } from "../sim/sim";
 import {
@@ -388,7 +389,7 @@ const stationPoint = (tile: Tile, lift = 18): [number, number] => {
 
 export const ZOOM = 2.4;
 const ENTRY: Tile = [34, 8];
-const TROLLEY_TILES_PER_S = 7;
+export const TROLLEY_TILES_PER_S = 7;
 
 // id, tile, tag text, tag height above the machine (staggered so neighbours do not overlap)
 const MACHINES: [string, Tile, string, number][] = [
@@ -531,7 +532,7 @@ export function createFloor(spec: FloorSpec) {
   }
 
   return {
-    paint(ctx: Ctx, scene: Scene, selected: string | null, hovered: string | null, now: number) {
+    paint(ctx: Ctx, scene: Scene, selected: string | null, hovered: string | null, now: number, figures: Figure[] = []) {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(floor, 0, 0);
       floorText(ctx, spec);
@@ -545,6 +546,16 @@ export function createFloor(spec: FloorSpec) {
             ctx.fillStyle = "rgba(26,19,32,.28)";
             ctx.fillRect(sx - 5, sy - 1, 10, 2);
             ctx.drawImage(nurses[m.i % nurses.length], sx - 6, sy - 20);
+          },
+        })),
+        ...figures.map((f) => ({
+          depth: depthOf(f.tile),
+          draw: () => {
+            if (!f.walk) return drawSpot(ctx, f.tile, f.cell, f.body);
+            const [sx, sy] = iso(f.tile[0] + 0.5, f.tile[1] + 0.5);
+            ctx.fillStyle = "rgba(26,19,32,.28)";
+            ctx.fillRect(sx - 5, sy - 1, 10, 2);
+            ctx.drawImage(figure(f.colour, personN(f.id)), sx - 6, sy - 20);
           },
         })),
         ...scene.queue.map((q) => ({
@@ -603,6 +614,11 @@ export function createFloor(spec: FloorSpec) {
         const [x, y] = tilePoint(p.tile, 0);
         cellTag(ctx, p.unit === "MORGUE" ? { ...p.cell, dead: true } : p.cell, x, y - 14); // every body's tag is inverted
       }
+      for (const f of figures) {
+        const [x, y] = tilePoint(f.tile, 0);
+        if (!f.walk) cellTag(ctx, f.body ? { ...f.cell, dead: true } : f.cell, x, y - 14);
+        else if (marked(f.id)) tag(ctx, f.cell.initials, x, y - 22, f.colour);
+      }
       for (const q of scene.queue) {
         if (!marked(q.id)) continue;
         const [x, y] = tilePoint(q.tile, 0);
@@ -620,8 +636,9 @@ export function createFloor(spec: FloorSpec) {
     },
 
     /** The thing at a logical point of this floor: people, tags, beds and drawers, labels. */
-    hit(scene: Scene, x: number, y: number): string | null {
+    hit(scene: Scene, x: number, y: number, figures: Figure[] = []): string | null {
       const people = [
+        ...figures.map((f) => ({ id: f.id, tile: f.tile, h: 20 })),
         ...scene.queue.map((q) => ({ id: q.id, tile: q.tile, h: q.seated ? 17 : 20 })),
         ...scene.staff.map((m) => ({ id: m.id, tile: m.tile, h: 20 })),
       ].sort((a, b) => b.tile[0] + b.tile[1] - (a.tile[0] + a.tile[1]));
@@ -658,7 +675,9 @@ export function createFloor(spec: FloorSpec) {
     },
 
     /** Where the camera goes for a selection on this floor; null when it is not drawn here. */
-    focusPoint(scene: Scene, id: string): [number, number] | null {
+    focusPoint(scene: Scene, id: string, figures: Figure[] = []): [number, number] | null {
+      const f = figures.find((x) => x.id === id);
+      if (f) return tilePoint(f.tile, f.walk ? 10 : 3);
       const b = scene.beds.find((x) => x.id === id || x.slot === id);
       if (b) return bedPoint(b.bed);
       const p = scene.spots.find((x) => x.id === id || x.slot === id);
@@ -981,4 +1000,5 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   };
 }
 
-export type Renderer = ReturnType<typeof createRenderer>;
+/** `floorOf`: the stack's own answer to which floor a person is on this moment (a mover is still on the floor they leave by). */
+export type Renderer = ReturnType<typeof createRenderer> & { floorOf?: (s: Sim, id: string) => number | null };

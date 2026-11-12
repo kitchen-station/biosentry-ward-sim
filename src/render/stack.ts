@@ -9,6 +9,7 @@ import { MAP_H } from "../sim/map";
 import { backingFor, createFloor, createW4, iso, LOGICAL_H, LOGICAL_W, onSlab, tag, ZOOM, type Renderer } from "./draw";
 import { BUILDING, createFacade, ease, lift, QUEUE_SHOWN, QUEUE_SPOTS, STOREY, storeyAt, storeyLit } from "./facade";
 import { FLOORS, W4 } from "./floors";
+import { animate, figureOf, newMovers, placesOf, type Mover, type Place } from "./move";
 import { EMPTY, floorScene, slabTag, type Scene } from "./scene";
 
 export const GAP = 200; // logical px from one floor to the next when open; a slab's diamond is 324 px tall, so the one above hides only a strip of its back wall
@@ -54,10 +55,23 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     if (!h) return { floors: null, scenes: FLOORS.map(() => EMPTY) };
     if (memo?.h !== h || memo.minute !== h.lastMinute) {
       const floors = floorSummary(h);
-      memo = { h, minute: h.lastMinute, floors, scenes: FLOORS.map((spec) => floorScene(h, spec, floors)) };
+      const next = FLOORS.map((spec) => floorScene(h, spec, floors));
+      const now = placesOf(next);
+      const still = new Map(h.people.map((p) => [`h:${p.n}`, p]));
+      const fresh = places && memo?.h === h && open > 0 && h.lastMinute - memo.minute <= 5 // closed, or a skip: nobody is walked
+        ? newMovers(places, now, clock, (id) => { const p = still.get(id); return !p || p.unit === "W4"; }) : [];
+      movers = [...movers.filter((m) => !fresh.some((f) => f.id === m.id) && memo?.h === h), ...fresh];
+      places = now;
+      memo = { h, minute: h.lastMinute, floors, scenes: next };
     }
     return memo;
   }
+  // Display-only motion (move.ts): the clock runs while the hospital does and a floor is open; movers are people on their way.
+  let clock = 0;
+  let movers: Mover[] = [];
+  let places: Map<string, Place> | null = null; // who was drawn where at the last minute
+  const figuresOn = (i: number) => movers.flatMap((m) => { const f = figureOf(m, clock); return f && f.floor === i ? [f] : []; });
+  const animated = (i: number, scene: Scene) => animate(scene, FLOORS[i].map, new Set(movers.map((m) => m.id)), clock);
   let turn = 0; // the ghost repainted this frame, round-robin
   // Ghosts are pictures of a whole slab, so a translucent floor does not show its own walls through its floor.
   const ghosts = FLOORS.map(() => {
@@ -67,7 +81,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     return c;
   });
   // What each ghost was painted from: its scene (a new object each minute) and the drawers' blink, the slab's one use of now.
-  const blink = (scene: Scene, now: number) => scene.drawers.map((d) => d.full && Math.floor(now * 2 + d.tile[0]) % 6 === 0).join();
+  // Moving people repaint a ghost four times a second, and only while the hospital runs.
+  const blink = (scene: Scene, now: number) => scene.drawers.map((d) => d.full && Math.floor(now * 2 + d.tile[0]) % 6 === 0).join() + (scene.staff.length + movers.length > 0 ? `|${Math.floor(clock * 4)}` : "");
   let ghostOf: ({ scene: Scene; blink: string } | null)[] = FLOORS.map(() => null);
   function paintGhost(i: number, scene: Scene, now: number) {
     const b = blink(scene, now);
@@ -77,7 +92,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
     g.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
-    slabs[i]?.paint(g, scene, null, null, now);
+    slabs[i]?.paint(g, animated(i, scene), null, null, now, figuresOn(i));
   }
   ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
   const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
@@ -99,7 +114,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   function focusPoint(s: Sim, view: number, id: string): [number, number] | null {
     const i = slabIndex(view);
     if (FLOORS[i] === W4) return w4.focusPoint(s, id);
-    return slabs[i]?.focusPoint(scenes(s).scenes[i], id) ?? null;
+    return slabs[i]?.focusPoint(animated(i, scenes(s).scenes[i]), id, figuresOn(i)) ?? null;
   }
 
   function target(s: Sim, view: number | null, selected: string | null): Cam {
@@ -169,6 +184,14 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       ghostOf = FLOORS.map(() => null);
     },
 
+    /** The floor a person is on now: a mover's current floor, else where they are drawn; null when unseen. */
+    floorOf(s: Sim, id: string): number | null {
+      scenes(s);
+      const f = movers.map((m) => figureOf(m, clock)).find((x) => x?.id === id);
+      const i = f ? f.floor : places?.get(id)?.floor;
+      return i === undefined ? null : FLOORS[i].floor;
+    },
+
     /** 1 is one floor fitting the stage; the building shows below that. */
     userZoom: () => (getView() === null ? buildingZoom() : user.zoom),
     canPan: () => getView() !== null && user.zoom > 1,
@@ -194,6 +217,9 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       turn = 0;
       ghostOf = FLOORS.map(() => null);
       memo = null;
+      places = null;
+      movers = [];
+      clock = 0;
       painted = null;
       w4.reset();
     },
@@ -204,6 +230,8 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       const snap = shown === undefined;
       const want = view === null ? 0 : 1;
       open = snap ? want : open < want ? Math.min(want, open + dt / OPEN_S) : Math.max(want, open - dt / OPEN_S);
+      if (open > 0 && s.speed > 0) clock += dt;
+      movers = movers.filter((m) => figureOf(m, clock) !== null);
       const t = target(s, view, selected);
       const k = snap ? 1 : 1 - Math.exp(-dt * 6);
       shown = view;
@@ -262,7 +290,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
         if (alpha === 1) {
           ctx.translate(0, storeyY(i, open));
           if (spec === W4) w4.paint(ctx, s, i === focus ? selected : null, i === focus ? hovered : null, dt, now);
-          else if (i === focus) slabs[i]!.paint(ctx, live.scenes[i], selected, hovered, now);
+          else if (i === focus) slabs[i]!.paint(ctx, animated(i, live.scenes[i]), selected, hovered, now, figuresOn(i));
           else ctx.drawImage(ghosts[i], 0, 0, LOGICAL_W, LOGICAL_H); // closing: every slab from its cache
         } else {
           if (spec === W4) {
@@ -304,7 +332,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       const i = slabIndex(view);
       const ly = y - slabTop(i);
       if (!onSlab(x, ly)) return null;
-      return (FLOORS[i] === W4 ? w4.hit(s, x, ly) : slabs[i]!.hit(scenes(s).scenes[i], x, ly)) ?? "";
+      return (FLOORS[i] === W4 ? w4.hit(s, x, ly) : slabs[i]!.hit(animated(i, scenes(s).scenes[i]), x, ly, figuresOn(i))) ?? "";
     },
   };
 }
