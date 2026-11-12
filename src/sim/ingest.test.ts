@@ -3,6 +3,7 @@
 // real API: BIOSENTRY_API=http://127.0.0.1:8123 BIOSENTRY_INGEST_KEY=dev-local BIOSENTRY_PASSPHRASE=... npx vitest run src/sim/ingest.test.ts
 import { describe, expect, it } from "vitest";
 import type { Action } from "./actions";
+import type { Command } from "./commands";
 import { createSim, detachPatch, injectDeterioration, minuteOf, recordBp, setSpeed, step, type Obs, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 import { createSync } from "./sync";
@@ -24,20 +25,22 @@ function run(s: Sim, src: VitalsSource, minutes: number) {
   while (s.clockS < until) step(s, src);
 }
 
-/** A fetch that records the requests, can be switched offline, and answers with a chosen status. `feed` is the actions route's rows. */
+/** A fetch that records the requests, can be switched offline, and answers with a chosen status. `feed` and `commandFeed` are the actions and commands routes' rows. */
 function fake(clientId = "page-1") {
   const calls: { path: string; key: string | null; body: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const net = { offline: false, register: 201, batch: 204, actions: 200, feed: [] as Action[] };
+  const net = { offline: false, register: 201, run: 7, batch: 204, actions: 200, feed: [] as Action[], commands: 200, commandFeed: [] as Command[], hold: null as { suffix: string; until: Promise<void> } | null };
   const f = (async (url: string, init: RequestInit) => {
     if (net.offline) throw new Error("offline");
     const path = url.replace("http://api", "");
+    if (net.hold && path.split("?")[0].endsWith(net.hold.suffix)) await net.hold.until; // an answer that arrives late
     calls.push({ path, key: (init.headers as Record<string, string>)["X-Ingest-Key"] ?? null, body: init.body ? JSON.parse(init.body as string) : null });
     if (!init.method) {
       const after = Number(new URL(url).searchParams.get("after"));
+      if (path.includes("/commands")) return new Response(JSON.stringify({ commands: net.commandFeed.filter((c) => c.seq > after) }), { status: net.commands });
       return new Response(JSON.stringify({ actions: net.feed.filter((a) => a.seq > after) }), { status: net.actions });
     }
     return path === "/sim/runs"
-      ? new Response(net.register === 201 ? '{"run_id":7}' : "{}", { status: net.register })
+      ? new Response(net.register === 201 ? `{"run_id":${net.run}}` : "{}", { status: net.register })
       : new Response(null, { status: net.batch });
   }) as unknown as typeof fetch;
   return { calls, net, sync: createSync({ apiUrl: "http://api", key: "k", clientId, fetch: f }) };
@@ -246,7 +249,7 @@ describe("sync, with a fake fetch", () => {
     run(s, src, 10);
     const { calls, sync } = fake();
     await sync.resume(s, src, first.sync.run);
-    expect(first.sync.run).toEqual({ runId: 7, origin: first.calls[0].body.origin, cursor: 0 });
+    expect(first.sync.run).toEqual({ runId: 7, origin: first.calls[0].body.origin, cursor: 0, commandCursor: 0 });
     expect(sync.run).toEqual(first.sync.run);
     expect(calls.map((c) => c.path)).toEqual(["/sim/runs/7/batch"]);
     expect(calls[0].body.minute).toBe(10);
@@ -275,7 +278,7 @@ describe("sync, with a fake fetch", () => {
   it("registers a ward that was saved before the API ever answered", async () => {
     const { s, src } = start();
     const { calls, sync } = fake();
-    await sync.resume(s, src, { runId: null, origin: "2026-11-11T00:00:00.000Z", cursor: 0 });
+    await sync.resume(s, src, { runId: null, origin: "2026-11-11T00:00:00.000Z", cursor: 0, commandCursor: 0 });
     expect(calls.map((c) => c.path)).toEqual(["/sim/runs", "/sim/runs/7/batch"]);
     expect(calls[0].body.origin).toBe("2026-11-11T00:00:00.000Z");
   });
@@ -339,6 +342,142 @@ describe("sync, with a fake fetch", () => {
     const sent = calls.length;
     expect(await sync.pull()).toEqual([]);
     expect(calls).toHaveLength(sent);
+  });
+
+  it("pulls the viewer commands after their own cursor, one at a time, apart from the actions", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    expect(await sync.pullCommands()).toEqual([]); // no run yet: nothing is asked
+    expect(calls).toHaveLength(0);
+    await sync.start(s, src);
+    const command = (seq: number) => ({ seq, kind: "set_speed", patient_id: null, clinician_id: "md-santos", speed: 10 }) as Command;
+    net.commandFeed = [command(1), command(2)];
+    net.feed = [{ seq: 9, kind: "add_note", patient_id: "p-001", clinician_id: "rn-reyes" } as Action];
+    expect((await sync.pullCommands()).map((c) => c.seq)).toEqual([1, 2]);
+    expect([calls.at(-1)!.path, calls.at(-1)!.key]).toEqual(["/sim/runs/7/commands?after=0", "k"]);
+    expect(sync.run).toMatchObject({ cursor: 0, commandCursor: 2 });
+    await sync.pull();
+    expect(sync.run).toMatchObject({ cursor: 9, commandCursor: 2 });
+    net.commandFeed.push(command(3));
+    net.offline = true;
+    expect(await sync.pullCommands()).toEqual([]);
+    net.offline = false;
+    const both = [sync.pullCommands(), sync.pullCommands()];
+    expect((await both[0]).map((c) => c.seq)).toEqual([3]);
+    expect(await both[1]).toEqual([]);
+
+    const again = fake();
+    await again.sync.resume(s, src, sync.run);
+    expect(again.sync.run.commandCursor).toBe(3);
+    await again.sync.pullCommands();
+    expect(again.calls.at(-1)!.path).toBe("/sim/runs/7/commands?after=3");
+  });
+
+  it("stops on 409 for a command pull, and leaves a 404 to the next flush", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    await sync.start(s, src);
+    net.commands = 404;
+    expect(await sync.pullCommands()).toEqual([]);
+    await sync.flush();
+    expect(calls.filter((c) => c.path === "/sim/runs")).toHaveLength(1);
+    net.commands = 409;
+    expect(await sync.pullCommands()).toEqual([]);
+    expect(sync.stopped).toBe("superseded");
+  });
+
+  it("ignores a 409 that answers a run the sync has since replaced", async () => {
+    for (const route of ["commands", "actions", "view"] as const) {
+      const { s, src } = start();
+      const { net, sync } = fake();
+      await sync.start(s, src);
+      let release!: () => void;
+      net.hold = { suffix: route === "view" ? "/view" : `/${route}`, until: new Promise<void>((resolve) => (release = resolve)) };
+      const late = route === "commands" ? sync.pullCommands() : route === "actions" ? sync.pull() : sync.publish({});
+      net.hold = null;
+      net.run = 8;
+      const fresh = createSim(src);
+      await sync.start(fresh, src); // run 8 now
+      net.commands = net.actions = net.batch = 409; // what run 7 is told
+      release();
+      await late;
+      expect([route, sync.stopped, fresh.outbox !== undefined, sync.run.runId]).toEqual([route, null, true, 8]);
+    }
+  });
+
+  it("ignores a refusal of a registration or a batch sent for a world the sync has since left", async () => {
+    for (const [route, refuse] of [["/runs", { register: 409 }], ["/runs", { register: 403 }], ["/batch", { batch: 409 }], ["/batch", { batch: 404 }]] as const) {
+      const { s, src } = start();
+      const { calls, net, sync } = fake();
+      let release!: () => void;
+      net.hold = { suffix: route, until: new Promise<void>((resolve) => (release = resolve)) };
+      const first = sync.start(s, src); // its registration or first batch is on its way
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      net.hold = null;
+      const fresh = createSim(src);
+      await sync.start(fresh, src); // the sync is busy: this flush is skipped
+      Object.assign(net, refuse);
+      release();
+      await first;
+      expect([route, sync.stopped, fresh.outbox !== undefined]).toEqual([route, null, true]); // the new world keeps its outbox
+      Object.assign(net, { register: 201, batch: 204 });
+      await sync.flush();
+      expect([route, sync.run.runId, calls.at(-1)!.path]).toEqual([route, 7, "/sim/runs/7/batch"]); // and registers and sends
+    }
+  });
+
+  it("starts a second run for a new world: cursors back to 0, the old world's queue dropped", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    await sync.start(s, src);
+    net.commandFeed = [{ seq: 5, kind: "reset", patient_id: null, clinician_id: "md-santos", speed: null }];
+    await sync.pullCommands();
+    net.batch = 500; // the old world's rows stay queued
+    run(s, src, 10);
+    await sync.flush();
+    expect(s.outbox!.observations.length).toBeGreaterThan(0);
+    net.batch = 204;
+    const fresh = createSim(src);
+    await sync.start(fresh, src);
+    expect(sync.run).toMatchObject({ runId: 7, cursor: 0, commandCursor: 0 });
+    expect(calls.filter((c) => c.path === "/sim/runs")).toHaveLength(2);
+    const last = calls.at(-1)!;
+    expect([last.path, last.body.minute]).toEqual(["/sim/runs/7/batch", 0]);
+    expect(fresh.outbox!.observations).toHaveLength(0); // sent
+    await sync.flush();
+    run(fresh, src, 5);
+    await sync.flush();
+    expect(calls.at(-1)!.body.minute).toBe(5); // the new world's, not the old world's
+    expect(s.outbox!.observations.length).toBeGreaterThan(0); // never sent
+  });
+
+  it("does not go on sending the old world's rows once the sync has another world", async () => {
+    const { s, src } = start();
+    const { calls, net, sync } = fake();
+    let release!: () => void;
+    net.hold = { suffix: "/batch", until: new Promise<void>((resolve) => (release = resolve)) };
+    const first = sync.start(s, src);
+    await new Promise((resolve) => setTimeout(resolve, 0)); // registered, and the first batch is on its way
+    run(s, src, 10); // rows queued behind it
+    net.hold = null;
+    await sync.start(createSim(src), src); // the sync is busy: this flush is skipped
+    release();
+    await first;
+    expect(calls.filter((c) => c.path.includes("null") || c.body?.minute === 10)).toEqual([]);
+  });
+
+  it("does not let a flush in flight for the old world register or send over the new one", async () => {
+    const { s, src } = start();
+    const { calls, sync } = fake();
+    const first = sync.start(s, src); // registering: the response has not been read yet
+    const fresh = createSim(src);
+    await sync.start(fresh, src);
+    await first;
+    await sync.flush();
+    const runs = calls.filter((c) => c.path === "/sim/runs");
+    expect(runs).toHaveLength(2);
+    expect(calls.filter((c) => c.path === "/sim/runs/7/batch").every((c) => c.body.minute === 0)).toBe(true);
+    expect(fresh.outbox!.observations).toHaveLength(0);
   });
 
   it("still retries on a 500, at registration and for a batch", async () => {

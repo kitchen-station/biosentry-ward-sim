@@ -38,10 +38,11 @@ export interface ViewBody {
   shared: Shared;
   patients: PatientEntry[];
 }
-/** What GET /wards/W4/live answers. `shared` is null while no ward is being published. */
+/** What GET /wards/W4/live answers. `shared` is null while no ward is being published. `can_control` is absent from an older API: false. */
 export interface LiveView {
   shared: Shared | null;
   patients: PatientEntry[];
+  can_control?: boolean;
 }
 
 // A requested BP is a patient's reading: it stays out of `shared`.

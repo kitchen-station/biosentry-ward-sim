@@ -105,7 +105,7 @@ describe("Medicine 1A on its own floor", () => {
       const s = createHospitalSim(src, parseScenario(typical), 101);
       setSpeed(s, 60);
       for (let i = 0; i < 2 * 1440 * 60; i += 1) step(s, src);
-      return saveWard(s, src, { runId: null, origin: "", cursor: 0 });
+      return saveWard(s, src, { runId: null, origin: "", cursor: 0, commandCursor: 0 });
     };
     const now = twoDays();
     const row = UNITS.find((u) => u.id === "MED3B")!;

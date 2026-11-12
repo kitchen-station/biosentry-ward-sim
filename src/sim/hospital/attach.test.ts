@@ -14,7 +14,7 @@ import type { EventRow, Person } from "./types";
 const TYPICAL = parseScenario(typical);
 // Enough arrivals and ER doctors that W4 fills inside two days (under typical it runs at about half).
 const BUSY: Scenario = { ...TYPICAL, arrivalsPerDay: 500, er: { ...TYPICAL.er, doctorsDay: 10, doctorsNight: 10 } };
-const RUN = { runId: null, origin: "", cursor: 0 };
+const RUN = { runId: null, origin: "", cursor: 0, commandCursor: 0 };
 const DAY = 1440;
 const HOLD_MIN = 48 * 60; // sim.ts HOLD_IF_UNWELL_MIN
 

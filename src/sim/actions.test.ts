@@ -138,7 +138,7 @@ describe("a clinician action from the dashboard", () => {
     const a = ward();
     applyAction(a.s, a.src, newPatient("B5", { systolic: 125, diastolic: 78 }));
     runUntil(a.s, a.src, () => patientById(a.s, "p-900").patch);
-    const b = loadWard(saveWard(a.s, a.src, { runId: 7, origin: "2026-11-11T00:00:00.000Z", cursor: 1 }));
+    const b = loadWard(saveWard(a.s, a.src, { runId: 7, origin: "2026-11-11T00:00:00.000Z", cursor: 1, commandCursor: 0 }));
     expect(b.run.cursor).toBe(1);
     for (const w of [a, b]) for (let tick = 0; tick < 240 * 60; tick += 1) step(w.s, w.src);
     const plain = (s: Sim) => JSON.parse(JSON.stringify({ ...s, outbox: { ...s.outbox, sent: [...s.outbox!.sent].sort() } }));

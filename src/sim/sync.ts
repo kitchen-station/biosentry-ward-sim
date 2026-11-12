@@ -4,6 +4,7 @@
 // wrong key) stops the sync for good: the sim carries on locally and `stopped` says why.
 
 import type { Action } from "./actions";
+import type { Command } from "./commands";
 import type { Run } from "./persist";
 import { minuteOf, patientRow, record, signalQuality, type Patient, type Sim } from "./sim";
 import { FIXTURE_SEED, type VitalsSource } from "./source";
@@ -44,10 +45,10 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   let registration: object | null = null;
   let runId: number | null = null;
   let origin = "";
-  let cursor = 0; // the highest clinician action read
+  const cursor = { actions: 0, commands: 0 }; // the highest clinician action and viewer command read
   let sentEnded = false;
   let busy = false;
-  let pulling = false;
+  const pulling = { actions: false, commands: false };
   let dropped = 0;
   let stopped: StopReason | null = null;
 
@@ -116,6 +117,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
         out.departures.unshift(...departures);
         throw error;
       }
+      if (s !== sim) return; // start() gave the sync another world meanwhile: this one's rows are not sent
       sentEnded = ended;
     } while (pending() || sim.ended !== sentEnded);
   }
@@ -124,12 +126,16 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   async function flush() {
     if (busy || !s || stopped || sentEnded) return;
     busy = true;
+    const world = s;
     try {
       trim();
       if (runId === null) {
         try {
-          runId = ((await (await post("/sim/runs", registration!)).json()) as { run_id: number }).run_id;
+          const id = ((await (await post("/sim/runs", registration!)).json()) as { run_id: number }).run_id;
+          if (s !== world) return; // start() began another run while this one registered: the next flush registers that one
+          runId = id;
         } catch (error) {
+          if (s !== world) return; // as below: an answer for a world the sync has since left
           if (error instanceof HttpError && error.status === 409) return stop("other_live");
           if (error instanceof HttpError && (error.status === 403 || error.status === 503)) return stop("bad_key");
           throw error;
@@ -137,6 +143,8 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       }
       await drain();
     } catch (error) {
+      // Only for the world this flush sent: a refusal of the old world's rows says nothing about the new world or its run.
+      if (s !== world) return;
       if (error instanceof HttpError && error.status === 409) stop("superseded");
       // The database no longer has this run (it was reset): the next flush registers the ward as it is now.
       else if (error instanceof HttpError && error.status === 404 && runId !== null) register(s);
@@ -150,7 +158,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   function register(world: Sim) {
     const minute = minuteOf(world);
     runId = null;
-    cursor = 0;
+    cursor.actions = cursor.commands = 0;
     world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
     for (const p of world.patients) record(world, p, minute);
     const initial = world.outbox.observations.splice(0);
@@ -184,39 +192,48 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     if (run.runId === null || !world.outbox) register(world); // saved before the API ever answered
     else {
       runId = run.runId;
-      cursor = run.cursor;
+      cursor.actions = run.cursor;
+      cursor.commands = run.commandCursor;
     }
     await flush();
   }
 
-  /** Reads what clinicians did on the dashboard since the last pull. One request at a time; a failure is retried by the next call. */
-  async function pull(): Promise<Action[]> {
+  /** Reads a feed of the run's rows past its cursor. One request at a time per feed; a failure is retried by the next call. */
+  async function pullFeed<T extends { seq: number }>(feed: "actions" | "commands"): Promise<T[]> {
     const run = runId;
-    if (pulling || !s || run === null || stopped) return [];
-    pulling = true;
+    if (pulling[feed] || !s || run === null || stopped) return [];
+    pulling[feed] = true;
     try {
-      const response = await send(`${apiUrl}/sim/runs/${run}/actions?after=${cursor}`, { headers: { "X-Ingest-Key": key } });
+      const response = await send(`${apiUrl}/sim/runs/${run}/${feed}?after=${cursor[feed]}`, { headers: { "X-Ingest-Key": key } });
       if (!response.ok) throw new HttpError(response.status);
-      const { actions } = (await response.json()) as { actions: Action[] };
+      const rows = ((await response.json()) as Record<string, T[]>)[feed];
       if (run !== runId || stopped) return []; // a flush replaced or stopped the run meanwhile
-      for (const a of actions) cursor = Math.max(cursor, a.seq);
-      return actions;
+      for (const row of rows) cursor[feed] = Math.max(cursor[feed], row.seq);
+      return rows;
     } catch (error) {
-      if (error instanceof HttpError && error.status === 409) stop("superseded");
+      // Only if the answer is for the run still current: one for a run start() has since replaced says nothing about the new one.
+      if (error instanceof HttpError && error.status === 409 && run === runId) stop("superseded");
       // A 404 is left to the next flush: an API without this route answers 404 too, and registering on that would start a run every poll.
       return [];
     } finally {
-      pulling = false;
+      pulling[feed] = false;
     }
   }
 
+  /** Reads what clinicians did on the dashboard since the last pull. */
+  const pull = () => pullFeed<Action>("actions");
+
+  /** Reads what clinicians sent from the viewer (speed, reset, a patient's controls) since the last pull. */
+  const pullCommands = () => pullFeed<Command>("commands");
+
   /** Sends the ward as viewers draw it. Never queued: the next view replaces a missed one. */
   async function publish(body: object) {
-    if (runId === null || stopped) return;
+    const run = runId;
+    if (run === null || stopped) return;
     try {
-      await post(`/sim/runs/${runId}/view`, body);
+      await post(`/sim/runs/${run}/view`, body);
     } catch (error) {
-      if (error instanceof HttpError && error.status === 409) stop("superseded");
+      if (error instanceof HttpError && error.status === 409 && run === runId) stop("superseded");
     }
   }
 
@@ -225,10 +242,11 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     resume,
     flush,
     pull,
+    pullCommands,
     publish,
     /** What a saved ward needs to continue this run. */
     get run() {
-      return { runId, origin, cursor };
+      return { runId, origin, cursor: cursor.actions, commandCursor: cursor.commands };
     },
     get stopped() {
       return stopped;

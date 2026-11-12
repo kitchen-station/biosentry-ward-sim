@@ -11,6 +11,7 @@ import { parseScenario } from "./sim/hospital/scenario";
 import doh from "../scenarios/hospital/doh-standard.json?raw";
 import surge from "../scenarios/hospital/surge.json?raw";
 import typical from "../scenarios/hospital/typical.json?raw";
+import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
 import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
@@ -125,6 +126,9 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const viewRef = useRef(view);
   viewRef.current = view;
   const [viewNotice, setViewNotice] = useState<string | null>(null);
+  const [canControl, setCanControl] = useState(false); // viewer mode: the last answer said this clinician may control the runner
+  const [commandText, setCommandText] = useState<string | null>(null);
+  const commandTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const clientId = useRef<string>(null);
   const syncRef = useRef<ReturnType<typeof createSync>>(null);
   const worldRef = useRef(world);
@@ -195,6 +199,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         glideRef.current = { ...glide, at: performance.now(), from: new Map(glide.drawn), to: new Map(sim.staff.map((m) => [m.id, { x: m.x, y: m.y }])) };
         setWorld({ s: sim, src: VIEW_SOURCE });
         setViewNotice(live.shared ? null : "No live ward yet");
+        setCanControl(live.can_control === true);
       } catch {
         if (!off) setViewNotice("Not updating"); // the last ward stays drawn
       }
@@ -319,6 +324,17 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     };
   }, []);
 
+  // Viewer mode: the runner takes the command and the next answer shows it. Nothing is changed here.
+  const send = canControl
+    ? async (body: CommandBody) => {
+        const status = await sendCommand(VIEW_API!, token, body);
+        if (status === 401) return onSignedOut();
+        setCommandText(commandNotice(status));
+        clearTimeout(commandTimer.current);
+        commandTimer.current = setTimeout(() => setCommandText(null), 6000);
+      }
+    : undefined;
+
   const select = (id: string | null) => {
     setSelected(id);
     setTimeline(false);
@@ -436,8 +452,9 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
       <TopBar
         s={world.s}
         src={world.src}
-        notice={viewNotice ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
-        onReset={VIEW_API ? undefined : () => restart()}
+        notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
+        onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
+        onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
         hospital={
           world.s.hospital
             ? {
@@ -511,7 +528,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           {selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} />
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
