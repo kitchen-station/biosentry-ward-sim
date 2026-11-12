@@ -6,11 +6,12 @@ import { createSyntheticSource, type SavedSource, type VitalsSource } from "./so
 
 const VERSION = 1;
 
-/** The API run a ward is written to, the wall time of its minute 0, and the last clinician action applied. */
+/** The API run a ward is written to, the wall time of its minute 0, and the last clinician action and viewer command applied. */
 export interface Run {
   runId: number | null;
   origin: string;
   cursor: number;
+  commandCursor: number;
 }
 
 export function saveWard(s: Sim, src: VitalsSource, run: Run): string {
@@ -43,5 +44,5 @@ export function loadWard(text: string): { s: Sim; src: VitalsSource; run: Run } 
     if (!stay) throw new Error(`The ward state has no open stay for ${p.id}`);
     p.stay = stay;
   }
-  return { s, src: createSyntheticSource(saved.source.seed, saved.source.flow, saved.source), run: { ...saved.run, cursor: saved.run.cursor ?? 0 } }; // saved before the cursor existed: 0
+  return { s, src: createSyntheticSource(saved.source.seed, saved.source.flow, saved.source), run: { ...saved.run, cursor: saved.run.cursor ?? 0, commandCursor: saved.run.commandCursor ?? 0 } }; // saved before a cursor existed: 0
 }

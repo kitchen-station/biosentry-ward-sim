@@ -3,7 +3,7 @@ import { loadWard, saveWard } from "./persist";
 import { createSim, record, step, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 
-const RUN = { runId: 7, origin: "2026-11-11T00:00:00.000Z", cursor: 4 };
+const RUN = { runId: 7, origin: "2026-11-11T00:00:00.000Z", cursor: 4, commandCursor: 3 };
 const TICKS_PER_DAY = 1440 * 60; // at 60x, one tick is one sim second
 
 function ward() {
@@ -50,6 +50,19 @@ describe("a saved ward", () => {
     const saved = JSON.parse(saveWard(s, src, RUN));
     delete saved.run.cursor;
     expect(loadWard(JSON.stringify(saved)).run).toEqual({ ...RUN, cursor: 0 });
+  });
+
+  it("reads a ward saved before the command cursor existed as command cursor 0", () => {
+    const { s, src } = ward();
+    const saved = JSON.parse(saveWard(s, src, RUN));
+    delete saved.run.commandCursor;
+    expect(loadWard(JSON.stringify(saved)).run).toEqual({ ...RUN, commandCursor: 0 });
+  });
+
+  it("keeps the speed a clinician set", () => {
+    const { s, src } = ward();
+    s.speed = 10;
+    expect(loadWard(saveWard(s, src, RUN)).s.speed).toBe(10);
   });
 
   it("refuses text it cannot continue from", () => {

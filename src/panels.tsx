@@ -6,6 +6,7 @@ import { floorSummary, type FloorSummary } from "./building";
 import { HospitalPanel, isHospitalId, W4HospitalSections } from "./hospital-panels";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
+import type { CommandBody } from "./sim/commands";
 import { BEDS } from "./sim/map";
 import {
   applyPatch,
@@ -75,13 +76,16 @@ export function TopBar({
   src,
   notice,
   onReset,
+  onSpeed,
   hospital,
 }: {
   s: Sim;
   src: VitalsSource;
   notice: string | null;
-  /** Left out in viewer mode, which has no clock of its own to change. */
+  /** Left out in viewer mode unless the clinician may control the runner's ward, which has no clock of its own here. */
   onReset?: () => void;
+  /** Viewer mode: the speed is asked of the runner, not set here. */
+  onSpeed?: (speed: Speed) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: string[]; onScenario: (name: string) => void };
 }) {
@@ -117,7 +121,7 @@ export function TopBar({
               className={s.speed === speed ? "on" : ""}
               aria-pressed={s.speed === speed}
               disabled={hospital?.skipping}
-              onClick={() => setSpeed(s, speed)}
+              onClick={() => (onSpeed ? onSpeed(speed) : setSpeed(s, speed))}
             >
               {speed === 0 ? "Pause" : `${speed}x`}
             </button>
@@ -368,7 +372,7 @@ function BpForm({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
   );
 }
 
-function PatientPanel({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
+function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patient; send?: (body: CommandBody) => void }) {
   const id = p.id;
   const minute = minuteOf(s);
   const d = p.decision;
@@ -387,6 +391,8 @@ function PatientPanel({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) 
   );
   const patchRequested = s.tasks.some((t) => t.patient === id && t.kind === "apply_patch") ||
     s.staff.some((m) => m.task?.patient === id && m.task.kind === "apply_patch");
+  // Viewer mode with control: each button asks the runner and shows the ward as it publishes it.
+  const ask = (kind: CommandBody["kind"], local: () => void) => () => (send ? send({ kind, patient_id: id, speed: null }) : local());
   return (
     <>
       <div className="chead">
@@ -427,20 +433,20 @@ function PatientPanel({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) 
         />
       </div>
       <div className="actions">
-        {src.inject && (
-          <button disabled={p.injected} onClick={() => injectDeterioration(s, src, id)}>
+        {(src.inject || send) && (
+          <button disabled={p.injected} onClick={ask("inject_deterioration", () => injectDeterioration(s, src, id))}>
             {p.injected ? "Deteriorating" : "Start deterioration"}
           </button>
         )}
-        {src.startAf && (
-          <button disabled={p.irregular} onClick={() => startArrhythmia(s, src, id)}>
+        {(src.startAf || send) && (
+          <button disabled={p.irregular} onClick={ask("start_arrhythmia", () => startArrhythmia(s, src, id))}>
             {p.irregular ? "In AF" : "Start AF"}
           </button>
         )}
-        {VIEW_API ? null : p.patch ? (
-          <button onClick={() => detachPatch(s, id)}>Detach patch</button>
+        {VIEW_API && !send ? null : p.patch ? (
+          <button onClick={ask("detach_patch", () => detachPatch(s, id))}>Detach patch</button>
         ) : (
-          <button disabled={patchRequested} onClick={() => applyPatch(s, id)}>
+          <button disabled={patchRequested} onClick={ask("apply_patch", () => applyPatch(s, id))}>
             {patchRequested ? "Nurse on the way" : "Apply patch"}
           </button>
         )}
@@ -784,6 +790,7 @@ export function Inspector({
   onTimeline,
   floors,
   building = false,
+  send,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -792,6 +799,7 @@ export function Inspector({
   onTimeline: () => void;
   floors?: FloorSummary[];
   building?: boolean; // the hospital seen from outside: no floor is out yet
+  send?: (body: CommandBody) => void; // viewer mode with control: a patient's buttons ask the runner
 }) {
   if (selected === null) {
     return (
@@ -833,7 +841,7 @@ export function Inspector({
           <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} />
         ) : patient ? (
           <>
-            <PatientPanel s={s} src={src} p={patient} />
+            <PatientPanel s={s} src={src} p={patient} send={send} />
             <W4HospitalSections s={s} p={patient} onSelect={onSelect} />
           </>
         ) : staff ? (
