@@ -1,4 +1,4 @@
-// The hospital's floors as tile maps, each 36 x 18 like W4, so the renderer's geometry and art stay as they are.
+// The hospital's six floors as tile maps, each 36 x 18 like W4, so the renderer's geometry and art stay as they are.
 // 4F is W4's own map. Rows 0 and 17 are rim walls; rows 8-9 are W4's corridor on every floor; the east doors are the lift.
 //   new tiles: c waiting chair   M morgue drawer   V bedside monitor (the rest as in sim/map.ts)
 import { BEDS, MAP, ROOMS, type Bed, type Floor, type Room, type Tile } from "../sim/map";
@@ -35,7 +35,7 @@ const south = { y0: 11, y1: 16 };
 
 export const W4: FloorSpec = { floor: 4, name: "WARD W4 · CARDIOLOGY", short: "W4", map: MAP, rooms: ROOMS, beds: BEDS };
 
-const BAYS = [2, 5, 8, 11, 14]; // ER and ICU: two rows of five, heads on y1 and y6
+const BAYS = [2, 5, 8, 11, 14]; // ER: two rows of five, heads on y1 and y6
 
 const GF: FloorSpec = {
   floor: 0, name: "EMERGENCY AND MORGUE", short: "ER",
@@ -71,7 +71,7 @@ const GF: FloorSpec = {
   ...plans(
     {
       unit: "ER", beds: [...row("ER", BAYS, 1, 2, 0), ...row("ER", BAYS, 6, 5, 5)],
-      spots: [...along(range(2, 30, 2), 8), ...along(range(2, 30, 2), 9)], // trolleys in the corridor, slot 10 on
+      spots: [...along(range(2, 30, 2), 8), ...along([...range(2, 16, 2), ...range(20, 30, 2), 31], 9)], // trolleys in the corridor, slot 10 on; none at the triage door
       staff: [[17, 11], [19, 11], [16, 13], [18, 13], [20, 13], [17, 15], [19, 15], [16, 14]], more: [32, 9],
     },
     {
@@ -87,79 +87,96 @@ const GF: FloorSpec = {
   },
 };
 
+// ICU beds four tiles apart (a ward's are three), each with its monitor; the station faces them through the glass.
+const ICU_XS = [2, 6, 10, 14, 18];
 const ICU: FloorSpec = {
   floor: 2, name: "INTENSIVE CARE", short: "ICU",
   map: [
     WALL,
-    "#.bV.bV.bV.bV.bV..#....#.....#.....#",
-    "#.b..b..b..b..b...#....#.....#.....#",
-    "#.................#.U..#.D.D.#.....#",
-    "#S................#.U..#.....#.H.H.#",
-    "#.b..b..b..b..b...#.L..#.....#.....#",
-    "#.bV.bV.bV.bV.bV..#.L..#..L..#..T..#",
-    "#gggggg+ggggggggg##+####+#####+#####",
+    "#.bV..bV..bV..bV..bV.#....#....#...#",
+    "#.b...b...b...b...b..#....#....#...#",
+    "#....................#.U..#.D.D#...#",
+    "#S...................#.U..#....#HH.#",
+    "#.b...b...b...b...b..#.L..#....#...#",
+    "#.bV..bV..bV..bV..bV.#.L..#.L..#.T.#",
+    "#ggggggggggg+gggggggg#+####+####+###",
     ...CORRIDOR,
-    "#####+#####.======.###+####+#####+##",
-    "#.........#........#....#...#..#...#",
-    "#.........#.UUU..L.#.D..#.W.#..#.S.#",
-    "#.........#........#....#...#..#...#",
-    "#..T..T...#........#.L..#...#..#...#",
-    "#.........#.L...U..#....#...#..#...#",
-    "#P...H....#........#....#...#..#..P#",
+    "#####+#.======.#+####+###+####+#####",
+    "#.....#........#....#...#....#.....#",
+    "#.....#.UUU..L.#.D..#.W.#.L..#...S.#",
+    "#.....#........#....#...#....#.....#",
+    "#..T..#........#.L..#...#....#.....#",
+    "#.....#.L...U..#....#...#....#.....#",
+    "#P..H.#........#....#...#....#...P.#",
     WALL,
   ],
   rooms: [
-    { label: "ICU", floor: "hdu", x0: 1, x1: 17, ...north, sel: "unit:ICU" },
-    { label: "EQUIPMENT", floor: "utility", x0: 19, x1: 22, ...north, sel: "unit:ICU" },
-    { label: "DOCTORS", floor: "office", x0: 24, x1: 28, ...north, sel: "unit:ICU" },
-    { label: "RELATIVES", floor: "family", x0: 30, x1: 34, ...north, sel: "unit:ICU" },
-    { label: "STAFF", floor: "office", x0: 1, x1: 9, ...south, sel: "unit:ICU" },
-    { label: "NURSE STATION", floor: "station", x0: 11, x1: 18, y0: 10, y1: 16, sel: "unit:ICU" },
-    { label: "MEDS", floor: "utility", x0: 20, x1: 23, ...south, sel: "unit:ICU" },
-    { label: "SLUICE", floor: "utility", x0: 25, x1: 27, ...south, sel: "unit:ICU" },
-    { label: "STORE", floor: "utility", x0: 29, x1: 30, ...south, sel: "unit:ICU" },
-    { label: "LINEN", floor: "utility", x0: 32, x1: 34, ...south, sel: "unit:ICU" },
+    { label: "ICU", floor: "hdu", x0: 1, x1: 20, ...north, sel: "unit:ICU" },
+    { label: "EQUIPMENT", floor: "utility", x0: 22, x1: 25, ...north, sel: "unit:ICU" },
+    { label: "DOCTORS", floor: "office", x0: 27, x1: 30, ...north, sel: "unit:ICU" },
+    { label: "RELATIVES", floor: "family", x0: 32, x1: 34, ...north, sel: "unit:ICU" },
+    { label: "STAFF", floor: "office", x0: 1, x1: 5, ...south, sel: "unit:ICU" },
+    { label: "NURSE STATION", floor: "station", x0: 7, x1: 14, y0: 10, y1: 16, sel: "unit:ICU" },
+    { label: "MEDS", floor: "utility", x0: 16, x1: 19, ...south, sel: "unit:ICU" },
+    { label: "SLUICE", floor: "utility", x0: 21, x1: 23, ...south, sel: "unit:ICU" },
+    { label: "STORE", floor: "utility", x0: 25, x1: 28, ...south, sel: "unit:ICU" },
+    { label: "LINEN", floor: "utility", x0: 30, x1: 34, ...south, sel: "unit:ICU" },
   ],
   ...plans({
-    unit: "ICU", beds: [...row("ICU", BAYS, 1, 2, 0), ...row("ICU", BAYS, 6, 5, 5)], spots: [],
-    staff: [[13, 11], [16, 11], [12, 13], [15, 13], [17, 14], [14, 16]], more: [16, 4],
+    unit: "ICU", beds: [...row("ICU", ICU_XS, 1, 2, 0), ...row("ICU", ICU_XS, 6, 5, 5)], spots: [],
+    staff: [[9, 11], [12, 11], [8, 13], [11, 13], [13, 14], [10, 16]], more: [16, 4],
   }),
 };
 
-// 3F: 3A north and 3B south, the south half the north one mirrored.
-const MED_NORTH = [
-  "#.b.b.b.b.b.b.b.b.b.b.b.b.b.b.b.#..#",
-  "#.b.b.b.b.b.b.b.b.b.b.b.b.b.b.b.#..#",
-  "#...............................#=.#",
-  "#...............................#..#",
-  "#.b.b.b.b.b.b.b.b.b.b.b.b.b.b.b.#..#",
-  "#.b.b.b.b.b.b.b.b.b.b.b.b.b.b.b.#S.#",
-  "#######+#######+#######+#######+##+#",
+// 1F and 3F: one medicine ward each, 30 beds in five bays of six as W4's (beds three tiles apart, a two-tile aisle
+// between facing feet), the station and treatment room south, stretchers along the corridor's north wall.
+const MED_BAY = [".b..b..b.", ".b..b..b.", ".........", "S........", ".b..b..b.", ".b..b..b."];
+const MED_UTILITY = ["U..U", "U...", "....", "S...", "...L", "U..L"]; // clean utility, x31-34
+const MED_SOUTH = [
+  "#########+#.======.######+######+###",
+  "#.b..b..b.#........#.b..b..b.#.....#",
+  "#.b..b..b.#........#.b..b..b.#.U.U.#",
+  "#.........#.UUU..L.#.........#.....#",
+  "#S........#........#S........#..T..#",
+  "#.b..b..b.#.L...U..#.b..b..b.#.....#",
+  "#.b..b..b.#........#.b..b..b.#S..L.#",
 ];
-const MED_XS = range(2, 30, 2);
-const STRETCHERS = range(3, 29, 2); // corridor stretcher spots, more than any shipped scenario's count
+const BAY_XS = [[2, 5, 8], [12, 15, 18], [22, 25, 28], [2, 5, 8], [21, 24, 27]];
+const STRETCHERS = range(2, 28, 2); // corridor stretcher spots, clear of the doors; more than any shipped scenario's count
 
-const MED: FloorSpec = {
-  floor: 3, name: "MEDICINE", short: "MEDICINE",
-  map: [WALL, ...MED_NORTH, ...CORRIDOR, ...[...MED_NORTH].reverse(), WALL],
-  rooms: [
-    { label: "STATION 3A", floor: "station", x0: 33, x1: 34, ...north, sel: "unit:MED3A" },
-    { label: "STATION 3B", floor: "station", x0: 33, x1: 34, ...south, sel: "unit:MED3B" },
-    // Each ward's rect runs under the station so its label sits mid-aisle; the station is listed first, so it keeps its tint.
-    { label: "MEDICINE 3A", floor: "bay", x0: 1, x1: 34, y0: 1, y1: 7, sel: "unit:MED3A" },
-    { label: "MEDICINE 3B", floor: "bay", x0: 1, x1: 34, y0: 10, y1: 16, sel: "unit:MED3B" },
-  ],
-  ...plans(
-    {
-      unit: "MED3A", beds: [...row("MED3A", MED_XS, 1, 2, 0), ...row("MED3A", MED_XS, 6, 5, 15)],
-      spots: along(STRETCHERS, 8), staff: [[33, 4], [34, 2], [34, 5], [33, 1]], more: [31, 8],
-    },
-    {
-      unit: "MED3B", beds: [...row("MED3B", MED_XS, 11, 12, 0), ...row("MED3B", MED_XS, 16, 15, 15)],
-      spots: along(STRETCHERS, 9), staff: [[33, 13], [34, 15], [34, 12], [33, 16]], more: [31, 9],
-    },
-  ),
-};
+function medicine(floor: number, unit: UnitId, name: string): FloorSpec {
+  const sel = `unit:${unit}`;
+  return {
+    floor, name, short: "MEDICINE",
+    map: [
+      WALL,
+      ...MED_BAY.map((r, y) => `#${r}#${r}#${r}#${MED_UTILITY[y]}#`),
+      "#########+#########+#########+##+###",
+      ...CORRIDOR,
+      ...MED_SOUTH,
+      WALL,
+    ],
+    rooms: [
+      { label: "BAY 1", floor: "bay", x0: 1, x1: 9, ...north, sel },
+      { label: "BAY 2", floor: "bay", x0: 11, x1: 19, ...north, sel },
+      { label: "BAY 3", floor: "bay", x0: 21, x1: 29, ...north, sel },
+      { label: "CLEAN UTILITY", floor: "utility", x0: 31, x1: 34, ...north, sel },
+      { label: "BAY 4", floor: "bay", x0: 1, x1: 9, ...south, sel },
+      { label: "NURSE STATION", floor: "station", x0: 11, x1: 18, y0: 10, y1: 16, sel },
+      { label: "BAY 5", floor: "bay", x0: 20, x1: 28, ...south, sel },
+      { label: "TREATMENT", floor: "side", x0: 30, x1: 34, ...south, sel },
+    ],
+    ...plans({
+      unit,
+      beds: BAY_XS.flatMap((xs, k) => (k < 3
+        ? [...row(unit, xs, 1, 2, k * 6), ...row(unit, xs, 6, 5, k * 6 + 3)]
+        : [...row(unit, xs, 11, 12, k * 6), ...row(unit, xs, 16, 15, k * 6 + 3)])),
+      spots: along(STRETCHERS, 8), staff: [[13, 11], [16, 11], [12, 14], [15, 14]], more: [30, 9],
+    }),
+  };
+}
+const MED1 = medicine(1, "MED3B", "MEDICINE 1A"); // unit id kept from when it shared 3F
+const MED3 = medicine(3, "MED3A", "MEDICINE 3A");
 
 const SURG: FloorSpec = {
   floor: 5, name: "SURGERY", short: "SURGERY",
@@ -205,5 +222,5 @@ const SURG: FloorSpec = {
   }),
 };
 
-/** Bottom up: GF first, as the stack is drawn. There is no 1F unit, so no 1F slab. */
-export const FLOORS: FloorSpec[] = [GF, ICU, MED, W4, SURG];
+/** Bottom up: GF first, as the stack is drawn. */
+export const FLOORS: FloorSpec[] = [GF, MED1, ICU, MED3, W4, SURG];

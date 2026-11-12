@@ -276,7 +276,7 @@ describe("params", () => {
   it("holds the units of section 1", () => {
     expect(UNITS.map((u) => [u.id, u.floor, u.beds.value, u.stretchers.value, u.residents.value])).toEqual([
       ["ER", 0, 10, 0, 0], ["MORGUE", 0, 6, 0, 0], ["ICU", 2, 10, 0, 1], ["MED3A", 3, 30, 8, 1],
-      ["MED3B", 3, 30, 8, 1], ["W4", 4, 20, 0, 0], ["SURG5A", 5, 24, 6, 1],
+      ["MED3B", 1, 30, 8, 1], ["W4", 4, 20, 0, 0], ["SURG5A", 5, 24, 6, 1],
     ]);
     const inpatient = UNITS.filter((u) => !["ER", "MORGUE"].includes(u.id)).reduce((a, u) => a + u.beds.value, 0);
     expect(inpatient).toBe(114);

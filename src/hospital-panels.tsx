@@ -122,7 +122,7 @@ function whereNow(h: Hospital, p: Person): string {
     case "waiting": return `ER waiting room ${since}`;
     case "consult": return `ER, with a doctor${slot} ${since}`;
     case "workup": return `ER, work-up${slot} ${since}`;
-    case "boarding": return `ER, boarding for ${p.wants ?? "a bed"}${slot} ${since}`;
+    case "boarding": return `ER, boarding for ${p.wants ? unitName(h, p.wants) : "a bed"}${slot} ${since}`;
     case "awaiting_morgue": return `${u.name}, awaiting transfer to the morgue ${since}`;
     case "morgue": return `Morgue${slot} ${since}`;
     default: return `${u.name}${p.w4Id ? ` (${p.w4Id})` : slot} ${since}`;
@@ -275,7 +275,7 @@ function QueuePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => vo
       <h3>Boarding</h3>
       {boarders.length === 0 ? <p className="story">Nobody boarding.</p> : (
         <ul className="plist">
-          {boarders.map((p) => <li key={p.n}><PersonLink p={p} onSelect={onSelect} /> · for {p.wants ?? "?"} · {Math.floor((now(h) - p.sinceMin) / 60)} h</li>)}
+          {boarders.map((p) => <li key={p.n}><PersonLink p={p} onSelect={onSelect} /> · for {p.wants ? unitName(h, p.wants) : "?"} · {Math.floor((now(h) - p.sinceMin) / 60)} h</li>)}
         </ul>
       )}
     </>

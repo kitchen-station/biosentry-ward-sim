@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { floorName, floorSummary } from "./building";
 import { RISK_LIGHT } from "./render/draw";
+import { createHospitalSim } from "./sim/hospital/attach";
+import { UNITS } from "./sim/hospital/params";
 import { parseScenario } from "./sim/hospital/scenario";
+import { saveWard } from "./sim/persist";
+import { setSpeed, step } from "./sim/sim";
+import { createSyntheticSource } from "./sim/source";
 import { createHospital } from "./sim/hospital/step";
 import typical from "../scenarios/hospital/typical.json?raw";
 import type { Person, Where } from "./sim/hospital/types";
@@ -35,7 +40,7 @@ describe("floorSummary", () => {
   const f = floorSummary(fixed(), { "W4-01": "high", "W4-02": null });
   const at = (floor: number) => f.find((x) => x.floor === floor)!;
 
-  it("lists floors from 5F down to GF", () => expect(f.map((x) => x.label)).toEqual(["5F", "4F", "3F", "2F", "GF"]));
+  it("lists floors from 5F down to GF", () => expect(f.map((x) => x.label)).toEqual(["5F", "4F", "3F", "2F", "1F", "GF"]));
 
   it("counts the ER queue in seeing order, bays, trolleys and boarders", () => {
     const er = at(0).units.find((u) => u.id === "ER")!;
@@ -50,17 +55,18 @@ describe("floorSummary", () => {
     expect(floorName(at(0))).toBe("GF: Emergency Room, 3 waiting, 2 boarding");
   });
 
-  it("counts beds, stretchers, occupancy and the nurse ratio on 3F", () => {
+  it("counts beds, stretchers, occupancy and the nurse ratio on 3F and 1F", () => {
     const a = at(3).units.find((u) => u.id === "MED3A")!;
     expect([a.beds.filter(Boolean).length, a.stretchers.filter(Boolean).length, a.census]).toEqual([3, 1, 4]); // 3 beds: the ICU-indicated one is a patient too
-    const b = at(3).units.find((u) => u.id === "MED3B")!;
+    const b = at(1).units.find((u) => u.id === "MED3B")!; // Medicine 1A
     expect([b.census, b.bodies, b.beds[3]?.dead]).toEqual([0, 1, true]); // a body holds its bed but is no patient
     expect(at(3).census).toBe(4);
-    expect(at(3).occupancyPct).toBe(7);
-    expect(at(3).ratio).toBe(1); // 4 patients over 4 nurses: the body is not in it
-    expect(at(3).awaitingMorgue).toBe(1);
+    expect(at(3).occupancyPct).toBe(13); // 4 of 30
+    expect(at(3).ratio).toBe(2); // 4 patients over 2 nurses
+    expect([at(1).census, at(1).ratio, at(1).awaitingMorgue, at(3).awaitingMorgue]).toEqual([0, 0, 1, 0]); // the body is not a patient
     expect(a.beds[5]?.icu).toBe(true);
-    expect(floorName(at(3))).toMatch(/^3F: Medicine 3A and Medicine 3B, 4 patients/);
+    expect(floorName(at(3))).toMatch(/^3F: Medicine 3A, 4 patients/);
+    expect(floorName(at(1))).toMatch(/^1F: Medicine 1A, 0 patients/);
   });
 
   it("counts boarders on the floor they wait for, and a zero-nurse unit has no ratio", () => {
@@ -90,4 +96,25 @@ describe("floorSummary", () => {
     h.lastMinute = 1500; // 15:00 + 1500 min is day 1; minute 1000 is day 1 too, minute 400 is day 0
     expect(floorSummary(h).find((x) => x.floor === 0)!.deathsToday).toBe(1);
   });
+});
+
+describe("Medicine 1A on its own floor", () => {
+  it("changes only that unit's floor and name: two days of the hospital are otherwise identical, draw for draw", () => {
+    const twoDays = () => {
+      const src = createSyntheticSource(101, true);
+      const s = createHospitalSim(src, parseScenario(typical), 101);
+      setSpeed(s, 60);
+      for (let i = 0; i < 2 * 1440 * 60; i += 1) step(s, src);
+      return saveWard(s, src, { runId: null, origin: "", cursor: 0 });
+    };
+    const now = twoDays();
+    const row = UNITS.find((u) => u.id === "MED3B")!;
+    expect([row.floor, row.name]).toEqual([1, "Medicine 1A"]);
+    Object.assign(row, { floor: 3, name: "Medicine 3B" }); // the table as it was, both medicine wards on 3F
+    let before: string;
+    try { before = twoDays(); } finally { Object.assign(row, { floor: 1, name: "Medicine 1A" }); }
+    const was = '"id":"MED3B","name":"Medicine 3B","floor":3,';
+    expect(before.split(was).length).toBe(2); // exactly once: the unit table inside the state
+    expect(before.replace(was, '"id":"MED3B","name":"Medicine 1A","floor":1,')).toBe(now);
+  }, 120_000);
 });
