@@ -5,9 +5,10 @@ import surge from "../../../scenarios/hospital/surge.json?raw";
 import typical from "../../../scenarios/hospital/typical.json?raw";
 import { GIVEN, SURNAMES } from "./names";
 import { PARAMS } from "./params";
-import { drawPerson, GROUPS, stayDeathP, TRIAGES } from "./people";
+import { drawCourse, drawPerson, GROUPS, stayDeathP, TRIAGES } from "./people";
 import { parseScenario, type Scenario } from "./scenario";
-import { createHospital, stepHospital, takeRows } from "./step";
+import { stream } from "./rng";
+import { createHospital, noticedLateMin, overdueRounds, stepHospital, takeRows } from "./step";
 import type { EventKind, EventRow, Hospital, HourRow, Person, Sex, UnitId, W4Port } from "./types";
 
 // These tests simulate days of a hospital and take 2-3 s each on a busy machine: only the time limit is raised.
@@ -211,7 +212,7 @@ describe("state", () => {
   it("writes no name into any row, and every event kind and every unit appears in the rows scanned", () => {
     const KINDS: Record<EventKind, true> = {
       arrive: true, triage: true, consult: true, decide_home: true, decide_admit: true, board: true, place: true, transfer: true, discharge: true,
-      lwbs: true, transfer_out: true, died: true, to_morgue: true, released: true, turned_away: true,
+      lwbs: true, transfer_out: true, died: true, to_morgue: true, released: true, turned_away: true, deteriorate: true, noticed: true, unnoticed: true,
     };
     const UNIT_IDS: Record<UnitId, true> = { ER: true, MORGUE: true, ICU: true, MED3A: true, MED3B: true, W4: true, SURG5A: true };
     const events: EventRow[] = [];
@@ -221,6 +222,8 @@ describe("state", () => {
     scan(createHospital(52, SC.surge), 4);
     scan(createHospital(53, tight), 6);
     scan(createHospital(54, { ...SC.typical, startOccupancy: 0, er: { ...SC.typical.er, bays: 2 } }, 40), 4); // the people cap
+    const noRounds = (u: Scenario["units"]["MED3A"]) => ({ ...u, nurses: 0 });
+    scan(createHospital(55, { ...tight, units: { ...tight.units, MED3A: noRounds(tight.units.MED3A), MED3B: noRounds(tight.units.MED3B), SURG5A: noRounds(tight.units.SURG5A) } }), 8); // no rounds: unnoticed
     expect([...new Set(events.map((e) => e.kind))].sort()).toEqual(Object.keys(KINDS).sort());
     expect([...new Set(hourly.map((r) => r.unit))].sort()).toEqual(Object.keys(UNIT_IDS).sort());
     const names = new RegExp(`\\b(${[...SURNAMES, ...GIVEN.F, ...GIVEN.M].join("|")})\\b`);
@@ -395,7 +398,7 @@ describe("the hospital's rules, checked every hour", () => {
     const craft = (n: number, o: Partial<Person>): Person => ({
       ...drawPerson(1, n), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
       deathU: 1, deathF: 0.5, stayMin: 5 * DAY, arrivedMin: 0, unit: "ER", where: "boarding", sinceMin: 0, slot: n, wants: "MED3A", seenMin: 0,
-      decideMin: 10, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 1e9, obsLastMin: null, ...o,
+      decideMin: 10, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 1e9, obsLastMin: null, course: null, ...o,
     });
     const house = (beds: [number, number], people: Person[]) => {
       const sc: Scenario = { ...SC.typical, startOccupancy: 0, er: { ...SC.typical.er, bays: 0 }, units: { ...SC.typical.units, MED3A: { beds: beds[0], stretchers: 0, nurses: 2 }, MED3B: { beds: beds[1], stretchers: 0, nurses: 2 } } };
@@ -469,10 +472,12 @@ describe("calibration", () => {
     occupancy: number; erFull: number; boardHours: number; deaths: number; admitShare: number; erDeathShare: number; lwbs: number; transfersOut: number; icuOcc: number;
     medLate: number; surgLate: number; erDemand: number; medDemand: number; medPpn: number; surgPpn: number; // A1: late over done; ER demand over available; patients per nurse
     gap: Record<"ER" | "MED" | "SURG5A", number>; // the longest any patient went without a round, minutes
+    excess: number; delays: Record<"MED" | "SURG5A", number[]>; late: number; noticed: number; // A2
   }
   const measure = (sc: Scenario): Measured => {
     let med = 0, medBeds = 0, icu = 0, icuBeds = 0, erHours = 0, erFull = 0, boardMin = 0, deaths = 0, arrived = 0, admitted = 0, erDeaths = 0, lwbs = 0, out = 0;
     const gap = { ER: 0, MED: 0, SURG5A: 0 };
+    const rec = { excess: 0, late: 0, noticed: 0, delays: { MED: [] as number[], SURG5A: [] as number[] } };
     const o = { medDone: 0, medLate: 0, surgDone: 0, surgLate: 0, erDem: 0, erAv: 0, medDem: 0, medAv: 0, medPpn: 0, medN: 0, surgPpn: 0, surgN: 0 };
     for (const seed of SEEDS) {
       const h = createHospital(seed, sc);
@@ -495,16 +500,25 @@ describe("calibration", () => {
       deaths += events.filter((e) => e.kind === "died").length;
       lwbs += events.filter((e) => e.kind === "lwbs").length;
       out += events.filter((e) => e.kind === "transfer_out").length;
+      rec.excess += events.filter((e) => e.kind === "died" && e.detail.endsWith("after late recognition")).length;
+      for (const e of events.filter((x) => x.kind === "noticed" && x.unit !== "ICU")) {
+        const d = Number(/^delay (\d+) min$/.exec(e.detail)![1]);
+        rec.noticed += 1; rec.late += d > PARAMS.obs.lateThresholdMin.value ? 1 : 0;
+        if (e.unit === "SURG5A") rec.delays.SURG5A.push(d); else if (e.unit !== "ER") rec.delays.MED.push(d);
+      }
     }
     return {
       occupancy: med / medBeds, erFull: erFull / erHours, boardHours: boardMin, deaths, admitShare: admitted / arrived, erDeathShare: erDeaths / arrived, lwbs, transfersOut: out, icuOcc: icu / icuBeds,
       medLate: o.medLate / o.medDone, surgLate: o.surgLate / o.surgDone, erDemand: o.erDem / o.erAv, medDemand: o.medDem / o.medAv, medPpn: o.medPpn / o.medN, surgPpn: o.surgPpn / o.surgN, gap,
+      ...rec,
     };
   };
   const line = (name: string, m: Measured) =>
     console.log(`hospital ${name}: medicine occupancy ${(m.occupancy * 100).toFixed(1)}%, ICU ${(m.icuOcc * 100).toFixed(1)}%, ER census >= 2 x bays ${(m.erFull * 100).toFixed(1)}% of hours, ` +
       `ER boarding ${m.boardHours.toFixed(0)} h, deaths ${m.deaths}, ER admit share ${(m.admitShare * 100).toFixed(1)}%, ER-phase deaths ${(m.erDeathShare * 100).toFixed(2)}%, lwbs ${m.lwbs}, transfers out ${m.transfersOut}; ` +
-      `rounds late: medicine ${(m.medLate * 100).toFixed(1)}% at ${m.medPpn.toFixed(1)} per nurse, SURG5A ${(m.surgLate * 100).toFixed(1)}% at ${m.surgPpn.toFixed(1)} per nurse; ER care demand / available ${m.erDemand.toFixed(2)}, medicine ${m.medDemand.toFixed(2)}; longest without a round ER ${m.gap.ER}, medicine ${m.gap.MED}, SURG5A ${m.gap.SURG5A} min (3 seeds x 30 d, W4 always full)`);
+      `rounds late: medicine ${(m.medLate * 100).toFixed(1)}% at ${m.medPpn.toFixed(1)} per nurse, SURG5A ${(m.surgLate * 100).toFixed(1)}% at ${m.surgPpn.toFixed(1)} per nurse; ER care demand / available ${m.erDemand.toFixed(2)}, medicine ${m.medDemand.toFixed(2)}; longest without a round ER ${m.gap.ER}, medicine ${m.gap.MED}, SURG5A ${m.gap.SURG5A} min; ` +
+      `A2: noticed ${m.noticed}, late ${(m.late / m.noticed * 100).toFixed(1)}%, median delay medicine ${mid(m.delays.MED)} min, SURG5A ${mid(m.delays.SURG5A)} min, deaths after late recognition ${m.excess} (3 seeds x 30 d, W4 always full)`);
+  const mid = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.ceil(xs.length / 2) - 1];
 
   const m = {} as Record<"standard" | "typical" | "surge", Measured>;
   beforeAll(() => {
@@ -561,6 +575,28 @@ describe("calibration", () => {
       for (const k of ["standard", "typical"] as const) expect(m[k].gap[g]).toBeLessThanOrEqual(24 * 60);
     }
   });
+
+  // A2, the orchestrator's ruling 1: deaths are calibrated, not added. origin/main (75fda0f, no A2) gives, in this harness,
+  // 186 / 282 / 352 deaths under doh-standard / typical / surge. The 5% window is a gross-break check only: at these numbers late
+  // recognition moves a few deaths, far inside it. The exact check of the mechanism is "scales stay deaths by exactly..." below.
+  const MAIN_DEATHS = { standard: 186, typical: 282, surge: 352 };
+  it("late recognition: typical deaths stay within 5% of origin/main's level; doh-standard and surge stay near theirs", () => {
+    expect(Math.abs(m.typical.deaths - MAIN_DEATHS.typical)).toBeLessThanOrEqual(0.05 * MAIN_DEATHS.typical);
+    // Reported, not tuned: doh-standard gives 187 against 186 (one more, from the changed ICU flow), surge 354 against 352.
+    for (const k of ["standard", "surge"] as const) expect(Math.abs(m[k].deaths - MAIN_DEATHS[k])).toBeLessThanOrEqual(0.05 * MAIN_DEATHS[k]);
+  });
+
+  it("late recognition: worse staffing gives longer delays and more deaths after late recognition, on the same seeds", () => {
+    expect(mid(m.standard.delays.MED)).toBeLessThan(mid(m.typical.delays.MED));
+    expect(m.standard.late / m.standard.noticed).toBeLessThan(m.typical.late / m.typical.noticed);
+    // Counts of 1, 2 and 4: only the extremes are compared, as a strict order between them would be seed noise.
+    expect(m.standard.excess).toBeLessThanOrEqual(m.surge.excess);
+    // design windows (workload-design.md A2): typical medicine 150-260 min, typical SURG5A >= 240, late share >= 50% at doh-standard
+    expect(mid(m.typical.delays.MED)).toBeGreaterThanOrEqual(150);
+    expect(mid(m.typical.delays.MED)).toBeLessThanOrEqual(260);
+    expect(mid(m.typical.delays.SURG5A)).toBeGreaterThanOrEqual(240);
+    expect(m.standard.late / m.standard.noticed).toBeGreaterThanOrEqual(0.5);
+  });
 });
 
 // ---- A1 (observation rounds) draws nothing and changes nothing that existed before it ----
@@ -570,18 +606,33 @@ const A1_KEYS = new Set([
   "obs_due", "obs_done", "obs_late", "obs_overdue_now", "obs_longest_overdue_min", "care_min_demanded", "care_min_available",
   "obsRel", "obs_longest_since_round_min", "obs_rel_late_median", // round 2
 ]);
-const withoutA1 = (x: unknown) => JSON.stringify(x, (k, v) => (A1_KEYS.has(k) ? undefined : v));
+// Every key and event kind A2 adds. With A2's response off (no class flip or ICU request, no death from the delay, stay deaths
+// unscaled) and these taken out too, the run must still hash to ae80706's value: courses are drawn and recorded, nothing else moves.
+const A2_KEYS = new Set(["course", "deteriorated", "noticed", "noticedLate", "delays", "noticed_late", "unnoticed_now", "recognition_delay_median_min"]);
+const A2_KINDS = new Set<string>(["deteriorate", "noticed", "unnoticed"]);
+const withoutA1A2 = (x: unknown) => JSON.stringify(x, (k, v) => (A1_KEYS.has(k) || A2_KEYS.has(k) ? undefined : v));
+/** Runs `f` with A2's response switched off, then puts the values back. */
+function a2Off<T>(f: () => T): T {
+  const C = PARAMS.course, keep = [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] as const;
+  C.escalate.value = false; PARAMS.obs.excessDeathPerHour.value = 0; C.stayDeathScale.value = 1;
+  try { return f(); } finally { [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] = keep; }
+}
 
-describe("A1 leaves every old output as it was", () => {
+describe("A1 and A2 leave every old output as it was", () => {
   it("seeds 101-103 under all three scenarios, 6 days: events, old hourly columns and the final state hash as on main", () => {
     const hash = createHash("sha256");
-    for (const k of ["standard", "typical", "surge"] as const) {
-      for (const seed of [101, 102, 103]) {
-        const h = createHospital(seed, SC[k]);
-        const { events, hourly } = run(h, acceptingPort(), 0, 6 * DAY);
-        hash.update(withoutA1({ events, hourly, h }));
+    let recorded = 0;
+    a2Off(() => {
+      for (const k of ["standard", "typical", "surge"] as const) {
+        for (const seed of [101, 102, 103]) {
+          const h = createHospital(seed, SC[k]);
+          const { events, hourly } = run(h, acceptingPort(), 0, 6 * DAY);
+          recorded += events.filter((e) => A2_KINDS.has(e.kind)).length;
+          hash.update(withoutA1A2({ events: events.filter((e) => !A2_KINDS.has(e.kind)), hourly, h }));
+        }
       }
-    }
+    });
+    expect(recorded).toBeGreaterThan(20); // courses were drawn and recorded in these runs
     expect(hash.digest("hex").slice(0, 16)).toBe("9096414920e7a93f");
   }, 240_000);
 });
@@ -597,7 +648,7 @@ describe("observation rounds (A1)", () => {
   const resident = (unit: UnitId, slot: number, o: Partial<Person> = {}): Person => ({
     ...drawPerson(1, (k += 1)), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
     deathU: 1, deathF: 0.5, arrivedMin: 0, unit, where: "bed", sinceMin: 0, slot, wants: null, seenMin: 0, decideMin: 0, dueMin: 1e9, dieMin: null,
-    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 0, obsLastMin: null, ...o,
+    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 0, obsLastMin: null, course: null, ...o,
   });
   const fill = (h: Hospital, people: Person[]) => { h.people = people; h.createdCount = people.length; };
 
@@ -749,4 +800,189 @@ describe("observation rounds (A1)", () => {
     }
     expect(of("MED3A").every((r) => r.census === 0 && r.obs_due === 0 && r.obs_overdue_now === 0 && r.obs_longest_overdue_min === 0)).toBe(true);
   });
+});
+
+// ---- late recognition (A2) ----
+describe("late recognition (A2)", () => {
+  const O = PARAMS.obs, C = PARAMS.course;
+  const still = (units: Partial<Scenario["units"]> = {}) =>
+    createHospital(94, { ...SC.typical, arrivalsPerDay: 0, startOccupancy: 0, er: { ...SC.typical.er, bays: 0 }, units: { ...SC.typical.units, ...units } });
+  let k = 5000;
+  const course = (atMin: number | null, excessU = 1) => ({ atMin, excessU, onsetMin: null, noticedMin: null, unnoticedMin: null, escalated: false, excess: false });
+  const resident = (unit: UnitId, slot: number | null, o: Partial<Person> = {}): Person => ({
+    ...drawPerson(1, (k += 1)), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
+    deathU: 1, deathF: 0.5, arrivedMin: 0, unit, where: "bed", sinceMin: 0, slot, wants: null, seenMin: 0, decideMin: 0, dueMin: 1e9, dieMin: null,
+    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: unit === "ICU" || unit === "W4" ? null : 0, obsLastMin: null, course: null, ...o,
+  });
+  const go = (h: Hospital, people: Person[], to: number) => {
+    h.people = people; h.createdCount = people.length;
+    const { events, hourly } = run(h, fullPort(), 0, to);
+    return { events: events.filter((e) => people.some((p) => p.id === e.person)), hourly };
+  };
+
+  it("draws the course from the person's own stream: the same under every scenario, and person n's other draws do not move", () => {
+    for (let n = 1; n <= 500; n += 1) {
+      const a = drawCourse(7, n, "infection", 9000, 100), b = drawCourse(7, n, "infection", 9000, 5000);
+      expect(b.excessU).toBe(a.excessU);
+      expect(b.atMin === null ? null : b.atMin - 5000).toBe(a.atMin === null ? null : a.atMin - 100); // relative to the decision
+    }
+    // inside whole runs: whoever is admitted in all three scenarios has the same course relative to the decision
+    const runs = (["standard", "typical", "surge"] as const).map((s) => { const h = createHospital(12, SC[s]); run(h, fullPort(), 0, 3 * DAY); return peopleOf(h); });
+    let same = 0;
+    for (const p of runs[0].filter((q) => q.course !== null && q.n <= 500)) {
+      for (const other of runs.slice(1)) {
+        const q = other.find((x) => x.n === p.n);
+        if (!q || q.course === null) continue;
+        expect([q.course.excessU, q.course.atMin === null ? null : q.course.atMin - q.decideMin!]).toEqual([p.course!.excessU, p.course!.atMin === null ? null : p.course!.atMin - p.decideMin!]);
+        same += 1;
+      }
+    }
+    expect(same).toBeGreaterThan(30);
+    // the rate is per patient-day of the drawn ward stay: about 1 - exp(-0.01 x 7.9) of medicine admissions deteriorate
+    let det = 0;
+    for (let n = 1; n <= 20_000; n += 1) det += drawCourse(3, n, "infection", 8 * DAY, 0).atMin === null ? 0 : 1;
+    expect(Math.abs(det / 20_000 - (1 - Math.exp(-C.ratePerDay.medicine.value * 8)))).toBeLessThan(0.006);
+  });
+
+  it("nothing is noticed before a round: onset just after a round is noticed at the next round, which flips the class first", () => {
+    const h = still({ ICU: { beds: 0, stretchers: 0, nurses: 3 } }); // no ICU bed: the noticed patient stays on the ward
+    const p = resident("MED3A", 0, { course: course(10) });
+    const { events, hourly } = go(h, [p], 5 * 60);
+    // 2 nurses earn 0.5 min a minute: the first round at minute 9, the onset one minute after it, the next round 240 min later
+    expect(events.filter((e) => e.kind === "deteriorate").map((e) => e.minute)).toEqual([10]);
+    expect(events.filter((e) => e.kind === "noticed").map((e) => [e.minute, e.detail])).toEqual([[249, "delay 239 min"]]);
+    expect(noticedLateMin(p)).toBe(239);
+    expect([p.obsLastMin, p.obsDueMin]).toEqual([249, 249 + O.intervalMin.watch.value]); // hourly after the notice, not four-hourly
+    expect(hourly.filter((r) => r.unit === "MED3A" && r.hour < 4).map((r) => r.unnoticed_now)).toEqual([1, 1, 1, 1]);
+    const at4 = hourly.find((r) => r.unit === "MED3A" && r.hour === 4)!;
+    expect([at4.deteriorated, at4.noticed, at4.noticed_late, at4.recognition_delay_median_min, at4.unnoticed_now]).toEqual([0, 1, 1, 239, 0]);
+    expect(hourly.find((r) => r.unit === "MED3A" && r.hour === 0)!.deteriorated).toBe(1);
+    expect(overdueRounds(h, "MED3A", 309 + 11)).toEqual({ count: 1, longestMin: 11 }); // the seam the screen reads
+    expect(overdueRounds(h, "ICU", 320)).toBeNull();
+  });
+
+  it("the notice asks for the ICU: a ward patient moves to a free ICU bed, and an onset in the ICU is seen at once (delay 0)", () => {
+    const h = still();
+    const ward = resident("MED3A", 0, { course: course(10) });
+    const icu = resident("ICU", 0, { course: course(20) });
+    const { events } = go(h, [ward, icu], 6 * 60);
+    expect(events.filter((e) => e.person === ward.id && e.kind === "transfer").map((e) => [e.minute, e.unit, e.detail])).toEqual([[250, "ICU", "MED3A to ICU after notice"]]);
+    expect(ward.course!.escalated).toBe(true);
+    expect(events.filter((e) => e.person === icu.id).map((e) => [e.minute, e.kind, e.detail])).toEqual([[20, "deteriorate", ""], [20, "noticed", "delay 0 min"]]);
+    expect(noticedLateMin(icu)).toBeNull();
+  });
+
+  it("W4 gets no course event; a person who leaves before the round is recorded as unnoticed", () => {
+    const h = still();
+    const w4 = resident("W4", null, { w4Id: "w4-x", course: course(5) });
+    const leaver = resident("MED3B", 0, { course: course(30), dueMin: 100 });
+    const { events } = go(h, [w4, leaver], 4 * 60);
+    expect(events.filter((e) => e.person === w4.id)).toEqual([]);
+    expect(w4.course!.atMin).toBeNull();
+    expect(events.filter((e) => e.person === leaver.id).map((e) => [e.minute, e.kind, e.detail])).toEqual([[30, "deteriorate", ""], [100, "discharge", ""], [100, "unnoticed", "70 min after onset"]]);
+  });
+
+  it("a delay can cause a death 6 h after the notice; no delay causes none, and it never overrides a pre-drawn death", () => {
+    const h = still();
+    const late = resident("MED3A", 0, { course: course(10, 0) }); // excessU 0: any positive chance kills
+    const fated = resident("MED3A", 1, { course: course(10, 0), dieMin: 5000 });
+    const icu = resident("ICU", 0, { course: course(10, 0) }); // seen at once: chance 1 - exp(0) = 0
+    const { events } = go(h, [late, fated, icu], 2 * DAY);
+    const died = events.filter((e) => e.kind === "died");
+    expect(late.course!.excess).toBe(true);
+    expect(died.filter((e) => e.person === late.id).map((e) => [e.minute, e.detail])).toEqual([[late.course!.noticedMin! + C.deathAfterNoticedH.value * 60, "bed after late recognition"]]);
+    expect(fated.course!.excess).toBe(false);
+    expect(died.some((e) => e.person === fated.id)).toBe(false); // its pre-drawn minute 5000 is after these two days
+    expect(fated.dieMin).toBe(5000);
+    expect(icu.course!.excess).toBe(false);
+    expect(died.some((e) => e.person === icu.id)).toBe(false);
+  });
+
+  it("scales the pre-drawn stay death of people admitted in the run (they carry a course), and only theirs", () => {
+    const P = stayDeathP("infection", false), u = P * (1 + C.stayDeathScale.value) / 2; // between the scaled and the unscaled chance
+    const board = (o: Partial<Person>) => resident("ER", null, { where: "boarding", wants: "MED3A", obsDueMin: 0, deathU: u, ...o });
+    const admitted = board({ course: course(null) }), resident0 = board({});
+    go(still(), [admitted, resident0], 2);
+    expect([admitted.unit, resident0.unit]).toEqual(["MED3A", "MED3A"]);
+    expect(admitted.dieMin).toBeNull();
+    expect(resident0.dieMin).not.toBeNull();
+  });
+
+  it("calls a notice exactly lateThresholdMin after onset on time, one minute more late", () => {
+    const h = still({ ICU: { beds: 0, stretchers: 0, nurses: 3 } });
+    const L = O.lateThresholdMin.value;
+    // the first rounds fall at minutes 9 and 19 (2 nurses, 0.5 min a minute); onsets L and L + 1 minutes before the next ones
+    const onTime = resident("MED3A", 0, { course: course(249 - L) }), late = resident("MED3A", 1, { course: course(259 - L - 1) });
+    const { hourly } = go(h, [onTime, late], 5 * 60);
+    expect([onTime.course!.noticedMin! - onTime.course!.onsetMin!, late.course!.noticedMin! - late.course!.onsetMin!]).toEqual([L, L + 1]);
+    expect([noticedLateMin(onTime), noticedLateMin(late)]).toEqual([null, L + 1]);
+    expect(hourly.filter((r) => r.unit === "MED3A").reduce((a, r) => a + r.noticed_late!, 0)).toBe(1);
+  });
+
+  it("the chance of a death from the delay is 1 - exp(-rate x delay in hours): an excessU just below it dies, just above it lives", () => {
+    const h = still({ ICU: { beds: 0, stretchers: 0, nurses: 3 } });
+    const pAt = (delayMin: number) => 1 - Math.exp(-O.excessDeathPerHour.value * delayMin / 60);
+    // rounds at 9 and 19, onsets at 20, so noticed at 249 (delay 229) and at 259 (delay 239)
+    const dies = resident("MED3A", 0, { course: course(20, pAt(229) * 0.99) }), lives = resident("MED3A", 1, { course: course(20, pAt(239) * 1.01) });
+    go(h, [dies, lives], 5 * 60);
+    expect([dies.course!.noticedMin, lives.course!.noticedMin]).toEqual([249, 259]);
+    expect([dies.course!.excess, lives.course!.excess]).toEqual([true, false]);
+  });
+
+  it("draws the course from its own stream, not the shared person stream", () => {
+    for (const n of [1, 2, 17, 500]) {
+      const r = stream(7, `person:${n}:course`);
+      r(); r();
+      expect(drawCourse(7, n, "infection", 9000, 0).excessU).toBe(r());
+    }
+  });
+
+  it("stay deaths of people admitted in the run: response off equals origin/main exactly, the scale on removes one (typical, seeds 101-103, 30 d)", () => {
+    const stayDeaths = (scale: number) => a2Off(() => {
+      C.stayDeathScale.value = scale;
+      let n = 0;
+      for (const seed of [101, 102, 103]) {
+        const { events } = run(createHospital(seed, SC.typical), fullPort(), 0, 30 * DAY);
+        const admitted = new Set(events.filter((e) => e.kind === "decide_admit").map((e) => e.person));
+        n += events.filter((e) => e.kind === "died" && admitted.has(e.person)).length;
+      }
+      return n;
+    });
+    const off = stayDeaths(1), on = stayDeaths(0.98);
+    expect([off, on]).toEqual([115, 114]); // off equals origin/main (75fda0f): 115, measured on its own code; on: one fewer (about 1%)
+  }, 600_000);
+
+  it("a JSON round trip part-way through a course (onset, not yet noticed) continues as straight through", () => {
+    const straight = createHospital(33, SC.typical), split = createHospital(33, SC.typical);
+    const p1 = acceptingPort(), p2 = acceptingPort();
+    let N = 0;
+    for (; N < 12 * DAY; N += 1) {
+      p2.now = N; stepHospital(split, p2, N);
+      if (split.people.some((p) => p.course?.onsetMin != null && p.course.noticedMin === null && p.course.unnoticedMin === null)) break;
+    }
+    expect(N).toBeLessThan(12 * DAY);
+    const resumed = JSON.parse(JSON.stringify(split)) as Hospital;
+    run(resumed, p2, N + 1, N + 1 + DAY, undefined, false);
+    run(straight, p1, 0, N + 1 + DAY, undefined, false);
+    expect(resumed).toEqual(straight);
+    expect(peopleOf(straight).some((p) => p.course?.noticedMin != null)).toBe(true);
+  });
+
+  it("starved rounds give longer recognition delays than well-staffed ones on the same seeds and arrivals", () => {
+    const staffed = (n: number): Scenario => ({ ...SC.typical, units: { ...SC.typical.units, MED3A: { ...SC.typical.units.MED3A, nurses: n }, MED3B: { ...SC.typical.units.MED3B, nurses: n } } });
+    const delays = (sc: Scenario) => {
+      const d: number[] = [];
+      for (const seed of [101, 102]) {
+        const { events } = run(createHospital(seed, sc), fullPort(), 0, 12 * DAY);
+        for (const e of events) if (e.kind === "noticed" && (e.unit === "MED3A" || e.unit === "MED3B")) d.push(Number(/^delay (\d+) min$/.exec(e.detail)![1]));
+      }
+      return d.sort((a, b) => a - b);
+    };
+    const well = delays(staffed(4)), starved = delays(staffed(1));
+    const med = (xs: number[]) => xs[Math.floor(xs.length / 2)];
+    expect(well.length).toBeGreaterThan(10);
+    expect(starved.length).toBeGreaterThan(10);
+    expect(med(starved)).toBeGreaterThan(1.5 * med(well));
+    expect(well.at(-1)!).toBeLessThanOrEqual(O.intervalMin.routine.value + O.graceMin.routine.value); // well staffed: never past the band
+  }, 120_000);
 });

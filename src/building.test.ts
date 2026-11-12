@@ -13,7 +13,7 @@ import type { Person, Where } from "./sim/hospital/types";
 import type { Group, Triage, UnitId } from "./sim/hospital/params";
 
 // A fixed hand-built state: createHospital's own residents are removed, then people are placed by hand.
-const base = { arrivedMin: 0, sinceMin: 0, wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: null, obsLastMin: null } as const;
+const base = { arrivedMin: 0, sinceMin: 0, wants: null, seenMin: null, decideMin: null, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: null, obsLastMin: null, course: null } as const;
 let n = 0;
 function person(unit: UnitId, where: Where, slot: number | null, o: Partial<Person> = {}): Person {
   n += 1;

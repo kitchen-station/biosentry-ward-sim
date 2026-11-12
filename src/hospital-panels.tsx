@@ -47,6 +47,9 @@ const EVENT_TEXT: Record<EventKind, (h: Hospital, unit: UnitId, d: string) => st
   to_morgue: () => "Moved to the morgue",
   released: () => "Released from the morgue",
   turned_away: (_h, _u, d) => `Turned away (${d})`,
+  deteriorate: () => "Began to deteriorate (not yet known to the staff)",
+  noticed: (_h, _u, d) => `Deterioration noticed (${d.replace("delay ", "")} after onset)`,
+  unnoticed: (_h, _u, d) => `Left with a deterioration nobody noticed (${d})`,
 };
 
 /** A person's events in time order, and why the list may be short. `note` is null only when the path starts at the arrival. */

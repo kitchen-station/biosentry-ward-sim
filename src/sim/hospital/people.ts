@@ -3,7 +3,7 @@
 import { GIVEN, INITIALS, SURNAMES } from "./names";
 import { PARAMS, type Group, type Triage } from "./params";
 import { exponential, lognormal, normal, stream, weightedPick } from "./rng";
-import type { PersonDraw } from "./types";
+import type { Course, PersonDraw } from "./types";
 
 export const GROUPS: Group[] = ["cardiac", "stroke", "hypertensive", "respiratory", "infection", "trauma", "minor"];
 export const TRIAGES: Triage[] = ["emergent", "urgent", "non_urgent"];
@@ -73,4 +73,16 @@ export function drawPerson(seed: number, n: number): PersonDraw {
     erDeathAfterMin: erU < PARAMS.death.erPhase[triage].value ? 1 + Math.floor(erF * PARAMS.death.erPhaseWindowH.value * 60) : null,
     deathU, deathF,
   };
+}
+
+/** Slice A2: person n's course for an admission decided at `decidedMin`, from its own stream `person:${n}:course` (three draws, in
+ *  this order), so no draw of `person:${n}` moves and nobody else's fate shifts. Whether and when relative to the decision is the
+ *  same under every scenario; where the person is at onset, and when the next round comes, are not. */
+export function drawCourse(seed: number, n: number, group: Group, stayMin: number, decidedMin: number): Course {
+  const r = stream(seed, `person:${n}:course`);
+  const [detU, detF, excessU] = [r(), r(), r()];
+  const R = PARAMS.course.ratePerDay;
+  const rate = (group === "stroke" || group === "cardiac" || group === "trauma" || group === "minor" ? R[group] : R.medicine).value;
+  const deteriorates = detU < 1 - Math.exp(-rate * stayMin / DAY_MIN);
+  return { atMin: deteriorates ? decidedMin + Math.floor(detF * stayMin) : null, excessU, onsetMin: null, noticedMin: null, unnoticedMin: null, escalated: false, excess: false };
 }
