@@ -111,7 +111,7 @@ export function App() {
 function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () => void }) {
   const [world, setWorld] = useState(() => newWorld());
   const [scenario, setScenario] = useState("typical");
-  const [view, setView] = useState<number | null>(null); // hospital world: null is the whole stack, else the focused floor
+  const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else the floor pulled out
   const [skipping, setSkipping] = useState(false);
   const skippingRef = useRef(false);
   const skipTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -265,7 +265,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     const h = worldRef.current.s.hospital;
     if (id !== null && h) setView(floorOf(h, id) ?? viewRef.current); // a panel link or the list goes to that thing's floor
   };
-  // Hospital world: the stage's three levels (stack, floor, thing). The table is nextLevel in render/stack.ts.
+  // Hospital world: the stage's three levels (building, floor, thing). The table is nextLevel in render/stack.ts.
   const go = (e: LevelEvent) => {
     const next = nextLevel({ view: viewRef.current, selected: selectedRef.current }, e);
     setView(next.view);
@@ -389,7 +389,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
             ref={canvasRef}
             aria-label={
               HOSPITAL
-                ? "Isometric view of the hospital, one slab per floor. Use the floor buttons, and the list after this view for ward W4, to select by keyboard."
+                ? "Isometric view of the hospital building. Choosing a floor slides it out of the building. Use the floor buttons, and the list after this view for ward W4, to select by keyboard."
                 : "Isometric view of ward W4. Use the list after this view to select by keyboard."
             }
             onClick={(e) => {
@@ -447,7 +447,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           <SelectList s={world.s} onSelect={select} />
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} />
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>

@@ -783,6 +783,7 @@ export function Inspector({
   onSelect,
   onTimeline,
   floors,
+  building = false,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -790,12 +791,22 @@ export function Inspector({
   onSelect: (id: string | null) => void;
   onTimeline: () => void;
   floors?: FloorSummary[];
+  building?: boolean; // the hospital seen from outside: no floor is out yet
 }) {
   if (selected === null) {
     return (
       <aside className="panel command">
-        <h2 className="ptitle">Click anything on the ward</h2>
-        <p className="story">A bed, a person or a machine. It zooms in and its details show here. Click ENTRANCE to see who came and went.</p>
+        {building ? (
+          <>
+            <h2 className="ptitle">Pick a floor of the hospital</h2>
+            <p className="story">Click a storey of the building, its sign or a floor button. The building opens up so you can see inside.</p>
+          </>
+        ) : (
+          <>
+            <h2 className="ptitle">Click anything on the ward</h2>
+            <p className="story">A bed, a person or a machine. It zooms in and its details show here. Click ENTRANCE to see who came and went.</p>
+          </>
+        )}
         <ul className="key">
           {Object.entries(RISK_WORDS).map(([risk, word]) => (
             <li key={risk}>
