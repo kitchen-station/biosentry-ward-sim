@@ -34,7 +34,7 @@ const LINK = {
   news2: "https://www.rcp.ac.uk/media/mrllczrj/news2-chart-4_clinical-response-to-news-trigger-thresholds_0.pdf",
   obsTime: "https://pmc.ncbi.nlm.nih.gov/articles/PMC8249906",
   barwise: "https://psnet.ahrq.gov/issue/delayed-rapid-response-team-activation-associated-increased-hospital-mortality-morbidity-and",
-  rrtRates: "https://www.scribd.com/document/662345354/nejmra0910926",
+  rrtRates: "https://doi.org/10.1056/NEJMra0910926", // Jones, DeVita, Bellomo, N Engl J Med 2011; the table was not read
 };
 
 export type ScenarioKind = "standard" | "typical" | "surge";
@@ -318,7 +318,7 @@ export const PARAMS = {
     },
     roundMin: cited(5, `One set of observations takes 5 min 01 s per round (authors' preferred figure; 3 min 45 s bedside only, 6 min 26 s with all interruptions), 16 English wards, 680 sets [Dall'Ora 2021, read] ${LINK.obsTime}; England, not PH. Better: a PH time-motion study.`),
     shareOfNurseTime: judgement(0.25, "Each nurse gives a quarter of each minute (15 min per nurse-hour) to observation rounds; the rest is medicines, admissions, charting [judgement; no nurse share of time on observations found]. Better: a PH nurse activity study."),
-    lateThresholdMin: cited(60, `Recognition is late when the round that notices a deterioration comes over 60 min after onset: Barwise 2016's delay definition (over 1 h from first abnormal sign to the call; abstract via search, not read on the page) ${LINK.barwise}, and NEWS2 Chart 4's 60-min review ${LINK.news2}.`),
+    lateThresholdMin: judgement(60, `[judgement: Barwise's figure was read in a search abstract only, not on the page] Recognition is late when the round that notices a deterioration comes over 60 min after onset: Barwise 2016's delay definition (over 1 h from first abnormal sign to the call; abstract via search, not read on the page) ${LINK.barwise}, and NEWS2 Chart 4's 60-min review ${LINK.news2}. Better: Barwise 2016 read in full, or a PH escalation standard.`),
     excessDeathPerHour: judgement(0.02, `P(death caused by the delay) = 1 - exp(-0.02 x delay in hours) [judgement, the one tunable number]: at 3.5 h it gives about 7%, near Barwise 2016's 15% vs 8% hospital mortality for delayed vs not (adjusted OR 1.6; an association, not a cause; search excerpt only) ${LINK.barwise}. Better: a PH study of time to escalation and death.`),
   },
   // Late recognition outside W4 and the ICU (slice A2, workload-design.md). A course is drawn from its own stream per person;
@@ -332,7 +332,7 @@ export const PARAMS = {
       minor: judgement(0.002, "[judgement] Better: n/a (rarely admitted)."),
     },
     deathAfterNoticedH: judgement(6, "A death caused by late recognition falls 6 h after the notice [judgement]. Better: a PH time from late escalation to death."),
-    stayDeathScale: judgement(0.98, "Orchestrator ruling 2026-11-12: deaths are calibrated, not added. The pre-drawn stay-death probability of everyone admitted during the run is multiplied by this so typical total deaths stay at the origin/main level; late recognition supplies the rest. Derived from one measurement, not a source: typical, seeds 101-103, 30 d, W4 always full, scale 1 gave 2 deaths after late recognition against 114 pre-drawn deaths of people admitted in the run, 1 - 2 / 116 = 0.983, rounded to 0.98. Re-derive when a course number changes. Better: a PH ward death rate split by recognised and missed deterioration."),
+    stayDeathScale: judgement(0.98, "Orchestrator ruling 2026-11-12: deaths are calibrated, not added. The pre-drawn stay-death probability of everyone admitted during the run is multiplied by this; chosen from one measurement (2 excess deaths, seeds 101-103) so typical deaths stay within 5% of version 2's on those seeds; not shown in expectation. Not a source: typical, W4 always full, scale 1 gave 2 deaths after late recognition against 114 pre-drawn deaths of people admitted in the run, 1 - 2 / 116 = 0.983, rounded to 0.98. Re-derive when a course number changes. Better: a PH ward death rate split by recognised and missed deterioration."),
     escalate: judgement(true, "A noticed deterioration joins the hourly watch class and asks for an ICU bed (ward to ICU, or ICU first from ER boarding) [judgement; design A2]. Off only in tests, to show the course adds nothing else. Better: a PH hospital's escalation policy for a deteriorating ward patient."),
   },
 };
