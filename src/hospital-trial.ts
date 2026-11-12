@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { MAX_BYTES, parseScenario } from "./sim/hospital/scenario";
-import { runHospitalTrial, SPEED, WARM_UP_DAYS } from "./sim/hospital/trial";
+import { FORMAT_VERSION, runHospitalTrial, SPEED, WARM_UP_DAYS } from "./sim/hospital/trial";
 
 class Refusal extends Error {}
 const refuse = (message: string): never => { throw new Refusal(message); };
@@ -96,7 +96,7 @@ function main(): number {
   const commit = process.env.TRIAL_SIM_COMMIT;
   const result = runHospitalTrial(seed, scenario, days);
   const manifest = {
-    format_version: 1, synthetic: true, seed, days, speed: SPEED, scenario,
+    format_version: FORMAT_VERSION, synthetic: true, seed, days, speed: SPEED, scenario,
     scenario_sha256: createHash("sha256").update(raw).digest("hex"),
     sim_commit: commit !== undefined && /^[0-9a-f]{7,40}$/.test(commit) ? commit : "unknown",
     node_major: Number(process.versions.node.split(".")[0]),

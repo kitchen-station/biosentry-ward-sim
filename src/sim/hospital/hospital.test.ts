@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import dohStandard from "../../../scenarios/hospital/doh-standard.json?raw";
 import surge from "../../../scenarios/hospital/surge.json?raw";
@@ -136,19 +137,24 @@ describe("state", () => {
     expect(go(21, SC.surge)).not.toEqual(go(21, SC.typical));
   });
 
-  it("stepping N minutes, a JSON round trip and M more equals stepping N + M straight through", () => {
-    const N = 2 * DAY + 137; // not an hour boundary
-    const M = 2 * DAY + 411;
-    const straight = createHospital(31, SC.surge);
-    const p1 = acceptingPort();
-    run(straight, p1, 0, N + M, undefined, false);
-    const split = createHospital(31, SC.surge);
-    const p2 = acceptingPort();
-    run(split, p2, 0, N, undefined, false);
-    const resumed = JSON.parse(JSON.stringify(split)) as Hospital;
-    run(resumed, p2, N, N + M, undefined, false);
-    expect(resumed).toEqual(straight);
-    expect(straight.events.length).toBeGreaterThan(0);
+  it("stepping N minutes, a JSON round trip and M more equals stepping N + M straight through, observation rounds included", () => {
+    for (const N of [1000, 2 * DAY + 137]) { // not hour boundaries; 1,000 is the design's A1 case
+      const M = 2 * DAY + 411;
+      const straight = createHospital(31, SC.surge);
+      const p1 = acceptingPort();
+      run(straight, p1, 0, N + M, undefined, false);
+      const split = createHospital(31, SC.surge);
+      const p2 = acceptingPort();
+      run(split, p2, 0, N, undefined, false);
+      // the state carried across the split holds A1's part: credit part-way, rounds done and rounds due
+      expect(split.units.some((u) => u.obsCredit > 0 && u.obsCredit < u.nurses * PARAMS.obs.roundMin.value)).toBe(true);
+      expect(split.people.some((p) => p.obsLastMin !== null) && split.people.some((p) => p.obsDueMin !== null && p.obsDueMin <= N - 1)).toBe(true);
+      const resumed = JSON.parse(JSON.stringify(split)) as Hospital;
+      run(resumed, p2, N, N + M, undefined, false);
+      expect(resumed).toEqual(straight);
+      expect(straight.events.length).toBeGreaterThan(0);
+      expect(straight.hourly.some((r) => (r.obs_done ?? 0) > 0)).toBe(true);
+    }
   });
 
   it("holds a hard cap on people: arrivals beyond it are counted, recorded as events and never silently dropped", () => {
@@ -389,7 +395,7 @@ describe("the hospital's rules, checked every hour", () => {
     const craft = (n: number, o: Partial<Person>): Person => ({
       ...drawPerson(1, n), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
       deathU: 1, deathF: 0.5, stayMin: 5 * DAY, arrivedMin: 0, unit: "ER", where: "boarding", sinceMin: 0, slot: n, wants: "MED3A", seenMin: 0,
-      decideMin: 10, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, ...o,
+      decideMin: 10, dueMin: null, dieMin: null, boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 1e9, obsLastMin: null, ...o,
     });
     const house = (beds: [number, number], people: Person[]) => {
       const sc: Scenario = { ...SC.typical, startOccupancy: 0, er: { ...SC.typical.er, bays: 0 }, units: { ...SC.typical.units, MED3A: { beds: beds[0], stretchers: 0, nurses: 2 }, MED3B: { beds: beds[1], stretchers: 0, nurses: 2 } } };
@@ -459,9 +465,15 @@ describe("calibration", () => {
   const SEEDS = [101, 102, 103];
   const DAYS = 30;
   const WARM = PARAMS.warmUpDays.value * DAY;
-  interface Measured { occupancy: number; erFull: number; boardHours: number; deaths: number; admitShare: number; erDeathShare: number; lwbs: number; transfersOut: number; icuOcc: number }
+  interface Measured {
+    occupancy: number; erFull: number; boardHours: number; deaths: number; admitShare: number; erDeathShare: number; lwbs: number; transfersOut: number; icuOcc: number;
+    medLate: number; surgLate: number; erDemand: number; medDemand: number; medPpn: number; surgPpn: number; // A1: late over done; ER demand over available; patients per nurse
+    gap: Record<"ER" | "MED" | "SURG5A", number>; // the longest any patient went without a round, minutes
+  }
   const measure = (sc: Scenario): Measured => {
     let med = 0, medBeds = 0, icu = 0, icuBeds = 0, erHours = 0, erFull = 0, boardMin = 0, deaths = 0, arrived = 0, admitted = 0, erDeaths = 0, lwbs = 0, out = 0;
+    const gap = { ER: 0, MED: 0, SURG5A: 0 };
+    const o = { medDone: 0, medLate: 0, surgDone: 0, surgLate: 0, erDem: 0, erAv: 0, medDem: 0, medAv: 0, medPpn: 0, medN: 0, surgPpn: 0, surgN: 0 };
     for (const seed of SEEDS) {
       const h = createHospital(seed, sc);
       const { events, hourly } = run(h, fullPort(), 0, DAYS * DAY);
@@ -469,6 +481,11 @@ describe("calibration", () => {
         if (r.unit === "MED3A" || r.unit === "MED3B") { med += r.census; medBeds += r.beds; }
         if (r.unit === "ICU") { icu += r.census; icuBeds += r.beds; }
         if (r.unit === "ER") { erHours += 1; erFull += r.census >= 2 * r.beds ? 1 : 0; boardMin += (r.er_boarding_hours ?? 0); }
+        if (r.unit === "MED3A" || r.unit === "MED3B") { o.medDem += r.care_min_demanded!; o.medAv += r.care_min_available!; o.medDone += r.obs_done!; o.medLate += r.obs_late!; o.medPpn += r.patients_per_nurse!; o.medN += 1; }
+        if (r.unit === "SURG5A") { o.surgDone += r.obs_done!; o.surgLate += r.obs_late!; o.surgPpn += r.patients_per_nurse!; o.surgN += 1; }
+        if (r.unit === "ER") { o.erDem += r.care_min_demanded!; o.erAv += r.care_min_available!; }
+        const g = r.unit === "MED3A" || r.unit === "MED3B" ? "MED" : r.unit === "ER" || r.unit === "SURG5A" ? r.unit : null;
+        if (g) gap[g] = Math.max(gap[g], r.obs_longest_since_round_min!);
       }
       // the cohort that arrived after the warm-up and early enough to have been decided
       const cohort = new Set(events.filter((e) => e.kind === "arrive" && e.minute >= WARM && e.minute < (DAYS - 3) * DAY).map((e) => e.person));
@@ -479,11 +496,15 @@ describe("calibration", () => {
       lwbs += events.filter((e) => e.kind === "lwbs").length;
       out += events.filter((e) => e.kind === "transfer_out").length;
     }
-    return { occupancy: med / medBeds, erFull: erFull / erHours, boardHours: boardMin, deaths, admitShare: admitted / arrived, erDeathShare: erDeaths / arrived, lwbs, transfersOut: out, icuOcc: icu / icuBeds };
+    return {
+      occupancy: med / medBeds, erFull: erFull / erHours, boardHours: boardMin, deaths, admitShare: admitted / arrived, erDeathShare: erDeaths / arrived, lwbs, transfersOut: out, icuOcc: icu / icuBeds,
+      medLate: o.medLate / o.medDone, surgLate: o.surgLate / o.surgDone, erDemand: o.erDem / o.erAv, medDemand: o.medDem / o.medAv, medPpn: o.medPpn / o.medN, surgPpn: o.surgPpn / o.surgN, gap,
+    };
   };
   const line = (name: string, m: Measured) =>
     console.log(`hospital ${name}: medicine occupancy ${(m.occupancy * 100).toFixed(1)}%, ICU ${(m.icuOcc * 100).toFixed(1)}%, ER census >= 2 x bays ${(m.erFull * 100).toFixed(1)}% of hours, ` +
-      `ER boarding ${m.boardHours.toFixed(0)} h, deaths ${m.deaths}, ER admit share ${(m.admitShare * 100).toFixed(1)}%, ER-phase deaths ${(m.erDeathShare * 100).toFixed(2)}%, lwbs ${m.lwbs}, transfers out ${m.transfersOut} (3 seeds x 30 d)`);
+      `ER boarding ${m.boardHours.toFixed(0)} h, deaths ${m.deaths}, ER admit share ${(m.admitShare * 100).toFixed(1)}%, ER-phase deaths ${(m.erDeathShare * 100).toFixed(2)}%, lwbs ${m.lwbs}, transfers out ${m.transfersOut}; ` +
+      `rounds late: medicine ${(m.medLate * 100).toFixed(1)}% at ${m.medPpn.toFixed(1)} per nurse, SURG5A ${(m.surgLate * 100).toFixed(1)}% at ${m.surgPpn.toFixed(1)} per nurse; ER care demand / available ${m.erDemand.toFixed(2)}, medicine ${m.medDemand.toFixed(2)}; longest without a round ER ${m.gap.ER}, medicine ${m.gap.MED}, SURG5A ${m.gap.SURG5A} min (3 seeds x 30 d, W4 always full)`);
 
   const m = {} as Record<"standard" | "typical" | "surge", Measured>;
   beforeAll(() => {
@@ -514,5 +535,218 @@ describe("calibration", () => {
 
   it("under surge the ER census is at least twice its bays for a quarter of the hours or more", () => {
     expect(m.surge.erFull).toBeGreaterThanOrEqual(0.25);
+  });
+
+  // A1's windows (workload-design.md), after the warm-up, under the round-2 order (relative lateness). A miss is reported, not tuned away.
+  it("observation rounds: typical SURG5A late >= 80% and typical ER demand over available > 1 (design windows that hold)", () => {
+    expect(m.typical.surgLate).toBeGreaterThanOrEqual(0.8);
+    expect(m.typical.erDemand).toBeGreaterThan(1);
+  });
+
+  it("observation demand is nominal need: surge medicine reads clearly above doh-standard and above 1", () => {
+    expect(m.surge.medDemand).toBeGreaterThan(1.2);
+    expect(m.surge.medDemand).toBeGreaterThan(1.5 * m.standard.medDemand);
+  });
+
+  // Two design windows MISS (reported 2026-11-12, not tuned): doh-standard medicine late <= 5% (measured 33.0%) and typical
+  // medicine 25-75% (measured 97.5%). Under relative lateness watch rounds (hourly, 30 min grace) run late too, and the
+  // ICU-indicated people a full ICU leaves on the medicine wards raise the demand past the design's routine-only arithmetic.
+  // Asserted instead: worse staffing gives more late rounds and longer gaps, and nobody waits a day for a round.
+  it("observation rounds: worse staffing gives more late rounds and longer gaps; nobody under doh-standard or typical goes 24 h without a round", () => {
+    expect(m.standard.medLate).toBeLessThan(m.typical.medLate);
+    expect(m.standard.surgLate).toBeLessThan(m.typical.surgLate);
+    expect(m.standard.erDemand).toBeLessThan(m.typical.erDemand);
+    for (const g of ["ER", "MED", "SURG5A"] as const) {
+      expect(m.standard.gap[g]).toBeLessThan(m.typical.gap[g]);
+      for (const k of ["standard", "typical"] as const) expect(m[k].gap[g]).toBeLessThanOrEqual(24 * 60);
+    }
+  });
+});
+
+// ---- A1 (observation rounds) draws nothing and changes nothing that existed before it ----
+// Every key A1 adds; with them taken out, the run must hash to what origin/main (ae80706, no A1 logic) gives; re-record from main when main changes.
+const A1_KEYS = new Set([
+  "obsCredit", "obsDueMin", "obsLastMin", "obsDue", "obsDone", "obsLate", "obsDemandMin",
+  "obs_due", "obs_done", "obs_late", "obs_overdue_now", "obs_longest_overdue_min", "care_min_demanded", "care_min_available",
+  "obsRel", "obs_longest_since_round_min", "obs_rel_late_median", // round 2
+]);
+const withoutA1 = (x: unknown) => JSON.stringify(x, (k, v) => (A1_KEYS.has(k) ? undefined : v));
+
+describe("A1 leaves every old output as it was", () => {
+  it("seeds 101-103 under all three scenarios, 6 days: events, old hourly columns and the final state hash as on main", () => {
+    const hash = createHash("sha256");
+    for (const k of ["standard", "typical", "surge"] as const) {
+      for (const seed of [101, 102, 103]) {
+        const h = createHospital(seed, SC[k]);
+        const { events, hourly } = run(h, acceptingPort(), 0, 6 * DAY);
+        hash.update(withoutA1({ events, hourly, h }));
+      }
+    }
+    expect(hash.digest("hex").slice(0, 16)).toBe("9096414920e7a93f");
+  }, 240_000);
+});
+
+describe("observation rounds (A1)", () => {
+  const O = PARAMS.obs;
+  /** A house of fixed people: no arrivals, no ER, no residents, nobody ever leaves. */
+  const still = (units: Partial<Scenario["units"]>) => {
+    const sc: Scenario = { ...SC.typical, arrivalsPerDay: 0, startOccupancy: 0, er: { ...SC.typical.er, bays: 0 }, units: { ...SC.typical.units, ...units } };
+    return createHospital(91, sc);
+  };
+  let k = 0;
+  const resident = (unit: UnitId, slot: number, o: Partial<Person> = {}): Person => ({
+    ...drawPerson(1, (k += 1)), group: "infection", admit: true, icuIndicated: false, triage: "urgent", patienceMin: null, erDeathAfterMin: null,
+    deathU: 1, deathF: 0.5, arrivedMin: 0, unit, where: "bed", sinceMin: 0, slot, wants: null, seenMin: 0, decideMin: 0, dueMin: 1e9, dieMin: null,
+    boardedMin: 0, w4Id: null, fromW4: false, obsDueMin: 0, obsLastMin: null, ...o,
+  });
+  const fill = (h: Hospital, people: Person[]) => { h.people = people; h.createdCount = people.length; };
+
+  // cycle = max(interval, census x roundMin / (nurses x share)) minutes: census x roundMin / (nurses x share x 60) hours when demand exceeds credit
+  it.each([
+    [35, 2, 0.25, 5], // typical medicine: 350 min
+    [26, 1, 0.25, 5], // typical surgery: 520 min
+    [30, 2, 0.5, 10], // 300 min
+    [27, 3, 0.25, 5], // 180 min of work in a 240 min interval: on time
+    [10, 4, 0.25, 5], // spare time: on time
+  ])("a unit held at census %i with %i nurses, share %f, %i min a round, cycles as the formula says, within 10 percent", (census, nurses, share, roundMin) => {
+    const keep = [O.shareOfNurseTime.value, O.roundMin.value];
+    O.shareOfNurseTime.value = share; O.roundMin.value = roundMin;
+    try {
+      const h = still({ MED3A: { beds: 40, stretchers: 0, nurses } });
+      const people = Array.from({ length: census }, (_, i) => resident("MED3A", i, { obsDueMin: i % 240 }));
+      fill(h, people);
+      const cycle = Math.max(O.intervalMin.routine.value, (census * roundMin) / (nurses * share));
+      const gaps: number[] = [];
+      let longest = 0;
+      const last = people.map((p) => p.obsLastMin);
+      for (let m = 0; m < 4 * DAY; m += 1) {
+        stepHospital(h, fullPort(), m);
+        people.forEach((p, i) => {
+          if (p.obsLastMin !== last[i]) { if (last[i] !== null && m >= DAY) gaps.push(p.obsLastMin! - last[i]!); last[i] = p.obsLastMin; }
+          if (m >= 3 * DAY && p.obsDueMin! <= m) longest = Math.max(longest, m - p.obsDueMin!);
+        });
+      }
+      const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+      expect(gaps.length).toBeGreaterThan(census * 3);
+      expect(Math.abs(mean - cycle) / cycle).toBeLessThan(0.1);
+      // the backlog stays bounded: nobody is overdue much longer than one cycle minus the interval
+      expect(longest).toBeLessThanOrEqual(Math.max(0, cycle - O.intervalMin.routine.value) * 1.1 + 2 * roundMin / (nurses * share));
+      expect(h.people.every((p) => p.unit === "MED3A")).toBe(true); // the census really was held
+    } finally {
+      [O.shareOfNurseTime.value, O.roundMin.value] = keep;
+    }
+  });
+
+  it("serves the largest relative lateness first (now - due over own interval); the next round counts from the round", () => {
+    const h = still({ MED3A: { beds: 10, stretchers: 0, nurses: 1 } }); // one nurse: a round every 20 min, the first at minute 19
+    const a = resident("MED3A", 0, { n: 50, obsDueMin: 0 });
+    const b = resident("MED3A", 1, { n: 40, obsDueMin: 0 });
+    const c = resident("MED3A", 2, { n: 60, obsDueMin: -100 });
+    const d = resident("MED3A", 3, { n: 70, obsDueMin: 5, icuIndicated: true }); // ICU-indicated, not in the ICU: watch
+    fill(h, [a, b, c, d]);
+    for (let m = 0; m < 60; m += 1) stepHospital(h, fullPort(), m);
+    // minute 19: c 119/240 = 0.50 beats d 14/60 = 0.23; minute 39: d 34/60 = 0.57 beats b, a 39/240; minute 59: b and a tie, lower number
+    expect([c.obsLastMin, d.obsLastMin, b.obsLastMin, a.obsLastMin]).toEqual([19, 39, 59, null]);
+    expect([c.obsDueMin, d.obsDueMin, b.obsDueMin]).toEqual([19 + O.intervalMin.routine.value, 39 + O.intervalMin.watch.value, 59 + O.intervalMin.routine.value]);
+    const row = takeRows(h).hourly.find((r) => r.unit === "MED3A")!;
+    expect([row.obs_done, row.obs_overdue_now, row.obs_longest_overdue_min, row.obs_longest_since_round_min]).toEqual([3, 1, 59, 59]);
+    expect(row.obs_rel_late_median).toBe(0.5); // 119/240, 34/60, 59/240
+  });
+
+  it("breaks a tie in relative lateness by the more acute class, then by the lower number", () => {
+    const h = still({ MED3A: { beds: 10, stretchers: 0, nurses: 1 } });
+    const W = O.intervalMin.watch.value, R = O.intervalMin.routine.value;
+    const routine = resident("MED3A", 0, { n: 10, obsDueMin: 19 - R }); // 1.0 intervals late at minute 19
+    const watch = resident("MED3A", 1, { n: 30, obsDueMin: 19 - W, icuIndicated: true }); // also 1.0
+    const routine2 = resident("MED3A", 2, { n: 20, obsDueMin: 39 - R }); // 1.0 at minute 59 less 20 min: (59 - 39 + R) / R
+    const routine3 = resident("MED3A", 3, { n: 25, obsDueMin: 39 - R }); // the same as routine2
+    fill(h, [routine, watch, routine2, routine3]);
+    for (let m = 0; m < 60; m += 1) stepHospital(h, fullPort(), m);
+    // 19: watch and routine tie at 1.0, the more acute class wins; 39: routine is the latest; 59: routine2 and routine3 tie, lower number
+    expect([watch.obsLastMin, routine.obsLastMin, routine2.obsLastMin, routine3.obsLastMin]).toEqual([19, 39, 59, null]);
+  });
+
+  // Starvation: 1 nurse gives c = 0.25 / 5 = 0.05 rounds a minute. Four watch (60 min) people alone want 4/60 = 0.067 > c, so
+  // under strict class order the one routine person never gets a round. Under relative lateness everyone settles at the same
+  // multiple k of their own interval: sum 1 / (I_i k) = c, so k = (4/60 + 1/240) / 0.05 = 1.417 and the routine cycle is
+  // 240 x 1.417 = 340 min. Bound: 1.25 x 340 + 20 (one round's spacing at 1 nurse) = 445 min.
+  it("starves nobody: a routine patient among watch patients who could use all the time is seen within the derived bound", () => {
+    const h = still({ MED3A: { beds: 10, stretchers: 0, nurses: 1 } });
+    const watch = [0, 1, 2, 3].map((i) => resident("MED3A", i, { icuIndicated: true, obsDueMin: i * 5 }));
+    const lone = resident("MED3A", 4, { obsDueMin: 0 });
+    fill(h, [...watch, lone]);
+    const k = (4 / O.intervalMin.watch.value + 1 / O.intervalMin.routine.value) / (O.shareOfNurseTime.value / O.roundMin.value);
+    const bound = 1.25 * O.intervalMin.routine.value * k + O.roundMin.value / O.shareOfNurseTime.value;
+    expect(Math.round(bound)).toBe(445);
+    let last = 0, longest = 0, rounds = 0;
+    for (let m = 0; m < 3 * DAY; m += 1) {
+      stepHospital(h, fullPort(), m);
+      if (lone.obsLastMin === m) { longest = Math.max(longest, m - last); last = m; rounds += 1; }
+      if (m % 60 === 59) takeRows(h);
+    }
+    longest = Math.max(longest, 3 * DAY - 1 - last);
+    expect(rounds).toBeGreaterThan(10);
+    expect(longest).toBeLessThan(bound);
+  });
+
+  it("a round is late only when done more than the grace after it fell due", () => {
+    const g = O.graceMin.routine.value;
+    const h = still({ MED3A: { beds: 2, stretchers: 0, nurses: 1 }, MED3B: { beds: 2, stretchers: 0, nurses: 1 } });
+    fill(h, [resident("MED3A", 0, { obsDueMin: 19 - g }), resident("MED3B", 0, { obsDueMin: 19 - g - 1 })]); // both done at minute 19
+    for (let m = 0; m < 60; m += 1) stepHospital(h, fullPort(), m);
+    const rows = takeRows(h).hourly;
+    const of = (id: UnitId) => rows.find((r) => r.unit === id)!;
+    expect([of("MED3A").obs_done, of("MED3A").obs_late]).toEqual([1, 0]);
+    expect([of("MED3B").obs_done, of("MED3B").obs_late]).toEqual([1, 1]);
+    expect([of("MED3A").obs_due, of("MED3A").care_min_demanded, of("MED3A").care_min_available]).toEqual([0, 1.25, 15]); // fell due before minute 0; one routine person needs 60 x 5 / 240 a hour
+  });
+
+  it("ER boarders are on the ER's rounds, and the ICU, W4 and the morgue have none", () => {
+    const h = still({ MED3A: { beds: 0, stretchers: 0, nurses: 2 }, MED3B: { beds: 0, stretchers: 0, nurses: 2 } });
+    const boarder = resident("ER", 0, { where: "boarding", wants: "MED3A", obsDueMin: 0 });
+    const icu = resident("ICU", 0, { obsDueMin: null });
+    fill(h, [boarder, icu]);
+    for (let m = 0; m < 60; m += 1) stepHospital(h, fullPort(), m);
+    expect(boarder.where).toBe("boarding");
+    expect(boarder.obsLastMin).toBe(9); // 2 ER nurses earn 0.5 min a minute: 5 min by minute 9
+    expect(icu.obsLastMin).toBeNull();
+    const rows = takeRows(h).hourly;
+    for (const r of rows.filter((x) => x.unit === "ICU" || x.unit === "W4" || x.unit === "MORGUE")) {
+      expect([r.obs_due, r.obs_done, r.obs_late, r.obs_overdue_now, r.obs_longest_overdue_min, r.care_min_demanded, r.care_min_available, r.obs_longest_since_round_min, r.obs_rel_late_median]).toEqual(Array(9).fill(null));
+    }
+  });
+
+  it("credit never goes below 0 or above nurses x roundMin, every minute; everyone in a workload unit has a due time", () => {
+    const h = createHospital(92, SC.standard);
+    const port = acceptingPort();
+    for (let m = 0; m < 2 * DAY; m += 1) {
+      port.now = m;
+      stepHospital(h, port, m);
+      for (const u of h.units) {
+        expect(u.obsCredit).toBeGreaterThanOrEqual(0);
+        expect(u.obsCredit).toBeLessThanOrEqual(u.nurses * O.roundMin.value);
+      }
+      if (m % 60 === 59) {
+        expect(h.people.filter((p) => ["ER", "MED3A", "MED3B", "SURG5A"].includes(p.unit) && p.where !== "awaiting_morgue").every((p) => p.obsDueMin !== null)).toBe(true);
+        expect(h.people.filter((p) => p.unit === "ICU" || p.unit === "W4").every((p) => p.obsDueMin === null)).toBe(true);
+        takeRows(h);
+      }
+    }
+    expect(h.units.filter((u) => u.id === "ICU" || u.id === "W4" || u.id === "MORGUE").every((u) => u.obsCredit === 0)).toBe(true);
+  });
+
+  it("with zero nurses or zero census the columns stay finite: no rounds, nothing available, no NaN or Infinity", () => {
+    const sc: Scenario = {
+      ...SC.typical, er: { ...SC.typical.er, nurses: 0 },
+      units: { ICU: { beds: 10, stretchers: 0, nurses: 3 }, MED3A: { beds: 0, stretchers: 0, nurses: 2 }, MED3B: { beds: 30, stretchers: 8, nurses: 0 }, SURG5A: { beds: 24, stretchers: 6, nurses: 0 } },
+    };
+    const { hourly } = run(createHospital(93, sc), fullPort(), 0, DAY);
+    for (const r of hourly) for (const v of Object.values(r)) if (typeof v === "number") expect(Number.isFinite(v)).toBe(true);
+    const of = (id: UnitId) => hourly.filter((r) => r.unit === id);
+    for (const id of ["ER", "MED3B", "SURG5A"] as const) {
+      expect(of(id).every((r) => r.obs_done === 0 && r.care_min_available === 0)).toBe(true);
+      expect(of(id).at(-1)!.obs_overdue_now).toBeGreaterThan(0);
+    }
+    expect(of("MED3A").every((r) => r.census === 0 && r.obs_due === 0 && r.obs_overdue_now === 0 && r.obs_longest_overdue_min === 0)).toBe(true);
   });
 });
