@@ -337,7 +337,7 @@ export const PARAMS = {
     escalate: judgement(true, "A noticed deterioration joins the hourly watch class and asks for an ICU bed (ward to ICU, or ICU first from ER boarding) [judgement; design A2]. Off only in tests, to show the course adds nothing else. Better: a PH hospital's escalation policy for a deteriorating ward patient."),
   },
   // Returning patients and more varied people (slice A3). A return takes the place of an arrival that would have happened, so
-  // arrivals per day stay where they are; admissions, boarding, occupancy and deaths move by path noise (seed 101 typical 30 d: boarding 200 to 154 h, deaths 96 to 99). The switch also selects the larger name pool.
+  // arrivals per day stay where they are; admissions, boarding, occupancy and deaths move by path noise (one check, seed 101 typical 30 d, made when returns came 1 to 29 days later: boarding 200 to 154 h, deaths 96 to 99). The switch also selects the larger name pool.
   returns: {
     enabled: judgement(true, "Off only in tests, to show the people, returns and look add nothing else; off also keeps the old lists (80 surnames, 40 given names per sex). Better: n/a."),
     readmit30: {
