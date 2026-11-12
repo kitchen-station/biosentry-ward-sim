@@ -101,7 +101,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
   const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
   // W4 moves its own trolleys by the time since it was last painted, live or into its ghost. Its ghost is repainted once a
-  // quarter-second (its machines blink at that rate), not every frame: w4Phase is the quarter it holds, null for none.
+  // blink turn (machines at 4 Hz, high-risk badges at 3 Hz), not every frame: w4Phase is the turn it holds, null for none.
   let w4Dt = 0;
   let w4Phase: number | null = null;
   let open = 0; // 0 the closed building, 1 the open stack
@@ -310,12 +310,14 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       turn += 1;
       w4Dt += dt;
       const w4i = slabIndex(W4.floor);
-      if (alphaOf(w4i) !== 1 && w4Phase !== Math.floor(now * 4)) {
+      // W4's machines blink at 4 Hz and its high-risk badges at 3 Hz: repaint on either turn, so both stay even.
+      const phase = Math.floor(now * 4) * 1e6 + Math.floor(now * 3);
+      if (alphaOf(w4i) !== 1 && w4Phase !== phase) {
         w4Ghost.setTransform(1, 0, 0, 1, 0, 0);
         w4Ghost.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
         w4Ghost.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
         w4.paint(w4Ghost, s, null, null, w4Dt, now);
-        [w4Dt, w4Phase] = [0, Math.floor(now * 4)];
+        [w4Dt, w4Phase] = [0, phase];
         version[w4i] += 1;
       }
       // Floor i in painter's order onto c (the canvas, or a layer), in the world transform. W4 alone is painted live, or

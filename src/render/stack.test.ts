@@ -282,7 +282,7 @@ describe("the open stack's ghosts", () => {
 });
 
 describe("W4's ghost", () => {
-  it("is repainted at most four times a second, with the time summed; focused, W4 is live every frame and its ghost untouched", () => {
+  it("is repainted only when a 4 Hz or 3 Hz blink turns, with the time summed; focused, W4 is live every frame and its ghost untouched", () => {
     const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
     const real = document.createElement;
     Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
@@ -299,8 +299,8 @@ describe("W4's ghost", () => {
         st.frame(s, null, null, 1 / 60, i / 60);
         if (ghost.calls.n > before) repaints += 1;
       }
-      expect(repaints).toBeGreaterThanOrEqual(8);
-      expect(repaints).toBeLessThanOrEqual(9); // 2 s: the first frame, then one per quarter-second
+      expect(repaints).toBeGreaterThanOrEqual(11);
+      expect(repaints).toBeLessThanOrEqual(12); // 2 s: the first frame, then six a second (quarters and thirds, which meet on the second)
       // A trolley waits for W4's next paint, then is launched: the queue drains within a quarter-second.
       const bed = BEDS[0].label;
       s.moves.push({ bed, kind: "in" } as (typeof s.moves)[number]);
@@ -557,7 +557,7 @@ describe("the open stack's two layers", () => {
       expect(recomposed[0]).toBeGreaterThan(0);
       expect(recomposed[0]).toBeLessThanOrEqual(repaints[0]);
       expect(recomposed[1]).toBeLessThanOrEqual(repaints[1]);
-      expect(recomposed[0] + recomposed[1]).toBeLessThanOrEqual(5 * 4 * 3); // five ghosts at most four times a second, 3 s
+      expect(recomposed[0] + recomposed[1]).toBeLessThanOrEqual((4 * 4 + 7) * 3); // four ghosts at most four times a second, W4 at most seven, 3 s
     }));
 });
 
@@ -566,6 +566,8 @@ describe("an open floor paints only when what it shows changed", () => {
     openStack(() => 3, ({ st, frame }) => {
       const drew = (now = 0, selected: string | null = null, hovered: string | null = null) => frame(now, selected, hovered).drew;
       expect([drew(), drew(), drew()]).toEqual([false, false, false]);
+      // An id with no place leaves the camera still, so only `selected` in the key makes this paint.
+      expect([drew(0, "no-such-id"), drew(0, "no-such-id"), drew()]).toEqual([true, false, true]);
       expect([drew(0, null, "unit:MED3A"), drew(0, null, "unit:MED3A"), drew(0, null, null), drew()]).toEqual([true, false, true, false]);
       const sel = Array.from({ length: 300 }, () => drew(0, "unit:MED3A")); // the camera eases onto it, then rests
       expect(sel[0]).toBe(true);
