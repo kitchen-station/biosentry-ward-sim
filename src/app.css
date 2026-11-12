@@ -674,3 +674,42 @@ summary {
 .floor canvas {
   touch-action: none; /* a touch drag pans the ward instead of scrolling the page */
 }
+
+/* What is real here: a modal in the panel style. */
+.realback {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.realpanel {
+  width: min(720px, 100%);
+  max-height: 100%;
+}
+
+.realhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.reallist {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+}
+
+.reallist small {
+  display: block;
+  opacity: 0.7;
+  word-break: break-word;
+}
+
+.notice button {
+  font-size: 15px;
+}
