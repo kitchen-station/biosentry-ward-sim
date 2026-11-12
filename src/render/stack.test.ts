@@ -613,5 +613,5 @@ describe("an open floor paints only when what it shows changed", () => {
       const turns = [0.6, 1.1, 1.6, 2.1, 2.6, 3.1].map(cream);
       expect(turns.some(Boolean)).toBe(true);
       expect(frame(3.1).drew).toBe(false);
-    }));
+    }), 60_000); // it runs the hospital until a morgue drawer fills: about 5 s on CI, over the default limit
 });
