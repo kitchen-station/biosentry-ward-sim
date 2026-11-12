@@ -57,7 +57,7 @@ export const iso = (x: number, y: number): [number, number] => [
 type Ctx = CanvasRenderingContext2D;
 
 /** An isometric box, rasterised in rows and columns so the edges stay hard. */
-function box(
+export function box(
   ctx: Ctx,
   x: number,
   y: number,
@@ -91,7 +91,7 @@ function box(
 }
 
 /** Marks on a box's left (south-facing) face: a band `from` to `to` px above the floor. */
-function leftFaceBand(ctx: Ctx, x: number, y: number, w: number, from: number, to: number, colour: string, inset = 0) {
+export function leftFaceBand(ctx: Ctx, x: number, y: number, w: number, from: number, to: number, colour: string, inset = 0) {
   const L = iso(x, y);
   const B = iso(x + w, y);
   ctx.fillStyle = colour;
@@ -102,7 +102,7 @@ function leftFaceBand(ctx: Ctx, x: number, y: number, w: number, from: number, t
 }
 
 /** The same, on a box's right (east-facing) face, for a wall running along y. */
-function rightFaceBand(ctx: Ctx, x: number, y: number, d: number, from: number, to: number, colour: string, inset = 0) {
+export function rightFaceBand(ctx: Ctx, x: number, y: number, d: number, from: number, to: number, colour: string, inset = 0) {
   const B = iso(x, y + d);
   const R = iso(x, y);
   ctx.fillStyle = colour;

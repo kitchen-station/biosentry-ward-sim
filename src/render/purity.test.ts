@@ -13,7 +13,7 @@ const BANNED: [string, RegExp][] = [
 ];
 
 it("render code reads no clock and draws no random numbers", () => {
-  expect(Object.keys(files)).toEqual(expect.arrayContaining(["/src/render/draw.ts", "/src/render/stack.ts", "/src/render/floors.ts", "/src/render/sprites.ts"]));
+  expect(Object.keys(files)).toEqual(expect.arrayContaining(["/src/render/draw.ts", "/src/render/stack.ts", "/src/render/floors.ts", "/src/render/sprites.ts", "/src/render/facade.ts"]));
   const hits = Object.entries(files).flatMap(([file, text]) =>
     text.split("\n").flatMap((line, n) => BANNED.filter(([, re]) => re.test(line)).map(([name]) => `${file}:${n + 1}: ${name}`)),
   );
