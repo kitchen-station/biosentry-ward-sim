@@ -4,13 +4,14 @@ import { floorSummary } from "../building";
 import { floorOf } from "../hospital-panels";
 import { createHospitalSim } from "../sim/hospital/attach";
 import { parseScenario } from "../sim/hospital/scenario";
+import { BEDS } from "../sim/map";
 import { createSim, step } from "../sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "../sim/source";
 import typical from "../../scenarios/hospital/typical.json?raw";
 import { backingFor, createRenderer, iso, LOGICAL_H, LOGICAL_W, onSlab } from "./draw";
 import { BUILDING, ease, lift, litCount, segments, storeyAt, storeyLit, STOREY } from "./facade";
 import { FLOORS } from "./floors";
-import { slabTag } from "./scene";
+import { floorScene, slabTag } from "./scene";
 import { CAMERA_AT, createStackRenderer, GAP, nextLevel, OPEN_S, slabIndex, slabTop, storeyY, WORLD_H, type Level, type LevelEvent } from "./stack";
 
 beforeAll(() => {
@@ -243,7 +244,7 @@ describe("the closed building paints only when what it shows changed", () => {
 });
 
 describe("the open stack's ghosts", () => {
-  it("are repainted only when their scene or a drawer's blink changed; W4's, which moves, every frame", () => {
+  it("are repainted only when their scene or a drawer's blink changed; W4's when a quarter-second turns", () => {
     const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
     const real = document.createElement;
     Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
@@ -263,16 +264,56 @@ describe("the open stack's ghosts", () => {
       const w4 = slabIndex(4);
       const others = FLOORS.map((_, i) => i !== w4 && i !== slabIndex(3));
       painted(12, 0); // the first frame paints every ghost; let the opening settle too
-      expect(painted(12, 0)).toEqual(FLOORS.map((_, i) => i === w4)); // nothing changed: only W4's ghost
+      expect(painted(12, 0)).toEqual(FLOORS.map(() => false)); // nothing changed, not even the quarter-second
       const src = createSyntheticSource(FIXTURE_SEED, true);
       const m = s.hospital!.lastMinute;
       s.speed = 60;
       while (s.hospital!.lastMinute === m) step(s, src);
       s.speed = 0;
-      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4)); // a new minute: each once
-      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => i === w4));
+      expect(painted(FLOORS.length, 0)).toEqual(others); // a new minute: each once; W4's waits for its quarter-second
+      expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map(() => false));
+      expect(painted(1, 0.25)).toEqual(FLOORS.map((_, i) => i === w4));
       st.redraw();
       expect(painted(FLOORS.length, 0)).toEqual(FLOORS.map((_, i) => others[i] || i === w4));
+    } finally {
+      Object.assign(document, { createElement: real });
+    }
+  });
+});
+
+describe("W4's ghost", () => {
+  it("is repainted only when a 4 Hz or 3 Hz blink turns, with the time summed; focused, W4 is live every frame and its ghost untouched", () => {
+    const made: { calls: { n: number }; canvas: HTMLCanvasElement }[] = [];
+    const real = document.createElement;
+    Object.assign(document, { createElement: () => (made.push(counting()), made[made.length - 1].canvas) });
+    try {
+      const s = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+      let view = 3;
+      const st = createStackRenderer(counting().canvas, () => view);
+      const ghost = made.filter((c) => c.canvas.width === LOGICAL_W * 2 && c.canvas.height === LOGICAL_H * 2)[slabIndex(4)];
+      st.resize(656, 382, 1);
+      s.speed = 1;
+      let repaints = 0;
+      for (let i = 0; i < 120; i += 1) {
+        const before = ghost.calls.n;
+        st.frame(s, null, null, 1 / 60, i / 60);
+        if (ghost.calls.n > before) repaints += 1;
+      }
+      expect(repaints).toBeGreaterThanOrEqual(11);
+      expect(repaints).toBeLessThanOrEqual(12); // 2 s: the first frame, then six a second (quarters and thirds, which meet on the second)
+      // A trolley waits for W4's next paint, then is launched: the queue drains within a quarter-second.
+      const bed = BEDS[0].label;
+      s.moves.push({ bed, kind: "in" } as (typeof s.moves)[number]);
+      for (let i = 0; i < 16; i += 1) st.frame(s, null, null, 1 / 60, 2 + i / 60);
+      expect(s.moves).toEqual([]);
+      view = 4;
+      const before = ghost.calls.n;
+      for (let i = 0; i < 30; i += 1) {
+        s.moves.push({ bed, kind: "in" } as (typeof s.moves)[number]);
+        st.frame(s, null, null, 1 / 60, 3 + i / 60);
+        expect(s.moves).toEqual([]); // live: launched the frame it arrives
+      }
+      expect(ghost.calls.n).toBe(before);
     } finally {
       Object.assign(document, { createElement: real });
     }
@@ -393,4 +434,184 @@ describe("stack hits", () => {
     expect(stack.userZoom()).toBeCloseTo(LANDING);
     expect(fitCam(LOGICAL_W, LOGICAL_H).zoom).toBe(1);
   });
+});
+
+// A context that writes down what it is asked to do; a canvas argument is named by its place in `made`.
+type Rec = { log: string[]; canvas: HTMLCanvasElement };
+function recorder(made: Rec[]): Rec {
+  const log: string[] = [];
+  const fmt = (v: unknown) => (typeof v === "number" ? String(Math.round(v * 1e6) / 1e6) : v && typeof v === "object" ? `c${made.findIndex((m) => m.canvas === v)}` : JSON.stringify(v));
+  const ctx = new Proxy({}, {
+    get: (_t, k: string) => (k === "measureText" ? () => ({ width: 1 }) : (...a: unknown[]) => (log.push(`${k}(${a.map(fmt).join(",")})`), { data: new Uint8ClampedArray(4) })),
+    set: (_t, k: string, v) => (log.push(`${k}=${fmt(v)}`), true),
+  });
+  return { log, canvas: { getContext: () => ctx, style: {}, width: 0, height: 0 } as unknown as HTMLCanvasElement };
+}
+
+/** A paused hospital open on a floor at 1000 x 382 (no baked picture is that size), settled, every ghost painted. */
+function openStack(view: () => number, test: (o: ReturnType<typeof setup>) => void) {
+  const real = document.createElement;
+  const made: Rec[] = [];
+  Object.assign(document, { createElement: () => (made.push(recorder(made)), made[made.length - 1].canvas) });
+  try {
+    test(setup(made, view));
+  } finally {
+    Object.assign(document, { createElement: real });
+  }
+}
+function setup(made: Rec[], view: () => number) {
+  const s = createHospitalSim(createSyntheticSource(FIXTURE_SEED, true), parseScenario(typical), 101);
+  s.speed = 0;
+  const main = recorder(made);
+  const st = createStackRenderer(main.canvas, view);
+  const ghosts = made.filter((c) => c.canvas.width === LOGICAL_W * 2 && c.canvas.height === LOGICAL_H * 2);
+  st.resize(1000, 382, 1);
+  for (let i = 0; i < 120; i += 1) st.frame(s, null, null, 1 / 60, 0);
+  const layers = made.filter((c) => c.canvas.width === 1000 && c.canvas.height === 382);
+  const name = (c: Rec) => `c${made.indexOf(c)}`;
+  /** Which of the two layers this frame recomposed, and whether it painted. */
+  const frame = (now = 0, selected: string | null = null, hovered: string | null = null, dt = 1 / 60) => {
+    const before = layers.map((l) => l.log.length);
+    const drew = st.frame(s, selected, hovered, dt, now);
+    return { layers: layers.map((l, i) => l.log.length > before[i]), drew };
+  };
+  return { s, st, main, ghosts, layers, name, frame };
+}
+
+describe("the open stack's two layers", () => {
+  let view = 3;
+  it("put together the picture a direct paint gives: same order, alphas, offsets and smoothing", () =>
+    openStack(() => 3, ({ st, main, layers, ghosts, name, frame }) => {
+      expect(layers.length).toBe(2);
+      const clear = () => [main, ...layers].forEach((c) => (c.log.length = 0));
+      st.redraw();
+      clear();
+      frame(0.1);
+      const [L0, L1] = layers.map((l) => [...l.log]);
+      const I = "setTransform(1,0,0,1,0,0)";
+      const world = main.log[2];
+      expect(world).toMatch(/^setTransform\(/);
+      expect(main.log.slice(0, 2)).toEqual([I, `drawImage(${name(layers[0])},0,0)`]);
+      expect(main.log.slice(-2)).toEqual([I, `drawImage(${name(layers[1])},0,0)`]);
+      expect(L0.slice(0, 5)).toEqual([I, 'fillStyle="#2A2036"', "fillRect(0,0,1000,382)", world, "imageSmoothingEnabled=false"]);
+      expect(L1.slice(0, 4)).toEqual([I, "clearRect(0,0,1000,382)", world, "imageSmoothingEnabled=false"]);
+      const ghost = (i: number, alpha: number) => ["save()", `globalAlpha=${alpha}`, `translate(0,${slabTop(i)})`, `drawImage(${name(ghosts[i])},0,0,${LOGICAL_W},${LOGICAL_H})`, "restore()"];
+      expect(L0.slice(5)).toEqual([0, 1, 2].flatMap((i) => ghost(i, 0.35)));
+      expect(L1.slice(4)).toEqual([4, 5].flatMap((i) => ghost(i, 0.15)));
+      const live = main.log.slice(2, -2); // a copy: the world transform, then the focused floor
+      // The same frame painted directly (the zoom eases, so the layers are not used): the same calls, but for the camera.
+      st.zoomAt(1.5, 500, 191, false);
+      clear();
+      frame(0.1);
+      expect(layers.every((l) => l.log.length === 0)).toBe(true);
+      const cam = (log: string[]) => log.map((x) => (x.startsWith("setTransform(") && x !== I ? "T" : x));
+      expect(cam(main.log)).toEqual(cam([...L0, ...live.slice(2), ...L1.slice(4)]));
+    }));
+
+  it("are recomposed only when a ghost they hold was repainted, the focus, the camera or the canvas changed, or redraw", () =>
+    openStack(() => view, ({ s, st, frame }) => {
+      const quiet = Array.from({ length: 30 }, () => frame(0).layers);
+      expect(quiet.flat().some(Boolean)).toBe(false); // nothing changed: neither
+      // A ghost repainted: the next minute, each ghost once within a round of frames, and the layer holding it.
+      const src = createSyntheticSource(FIXTURE_SEED, true);
+      const m = s.hospital!.lastMinute;
+      s.speed = 60;
+      while (s.hospital!.lastMinute === m) step(s, src);
+      s.speed = 0;
+      const round = Array.from({ length: FLOORS.length }, () => frame(0).layers);
+      expect([round.some((r) => r[0]), round.some((r) => r[1])]).toEqual([true, true]);
+      expect(frame(0).layers).toEqual([false, false]);
+      // W4's ghost (above 3F) at its quarter-second: the front layer only.
+      expect(frame(0.25).layers).toEqual([false, true]);
+      // The camera: an instant zoom, then a pan.
+      st.zoomAt(2, 500, 191, true);
+      expect(frame(0.25).layers).toEqual([true, true]);
+      expect(frame(0.25).layers).toEqual([false, false]);
+      st.pan(-20, 0);
+      expect(frame(0.25).layers).toEqual([true, true]);
+      expect(frame(0.25).layers).toEqual([false, false]);
+      // A resize, even to the same size, and redraw.
+      st.resize(1000, 382, 1);
+      expect(frame(0.25).layers).toEqual([true, true]);
+      expect(frame(0.25).layers).toEqual([false, false]);
+      st.redraw();
+      expect(frame(0.25).layers.every(Boolean)).toBe(true);
+      // The focus: 5F has every other floor below it, and nothing above.
+      view = 5;
+      const moved = Array.from({ length: 300 }, () => frame(0.25).layers);
+      expect(moved.some((r) => r[0])).toBe(true);
+      expect(frame(0.25).layers).toEqual([false, false]);
+    }));
+
+  it("a steady running floor recomposes a layer no more often than the ghosts it holds are repainted", () =>
+    openStack(() => 3, ({ s, ghosts, frame }) => {
+      s.speed = 1;
+      const repaints = [0, 0];
+      const recomposed = [0, 0];
+      for (let i = 0; i < 180; i += 1) {
+        const before = ghosts.map((g) => g.log.length);
+        const r = frame(1 + i / 60).layers;
+        ghosts.forEach((g, k) => { if (g.log.length > before[k] && k !== slabIndex(3)) repaints[k < slabIndex(3) ? 0 : 1] += 1; });
+        r.forEach((x, k) => (recomposed[k] += x ? 1 : 0));
+      }
+      expect(recomposed[0]).toBeGreaterThan(0);
+      expect(recomposed[0]).toBeLessThanOrEqual(repaints[0]);
+      expect(recomposed[1]).toBeLessThanOrEqual(repaints[1]);
+      expect(recomposed[0] + recomposed[1]).toBeLessThanOrEqual((4 * 4 + 7) * 3); // four ghosts at most four times a second, W4 at most seven, 3 s
+    }));
+});
+
+describe("an open floor paints only when what it shows changed", () => {
+  it("paused and settled, a frame repeats the last: hover, selection, a resize, redraw and W4's quarter-second paint again", () =>
+    openStack(() => 3, ({ st, frame }) => {
+      const drew = (now = 0, selected: string | null = null, hovered: string | null = null) => frame(now, selected, hovered).drew;
+      expect([drew(), drew(), drew()]).toEqual([false, false, false]);
+      // An id with no place leaves the camera still, so only `selected` in the key makes this paint.
+      expect([drew(0, "no-such-id"), drew(0, "no-such-id"), drew()]).toEqual([true, false, true]);
+      expect([drew(0, null, "unit:MED3A"), drew(0, null, "unit:MED3A"), drew(0, null, null), drew()]).toEqual([true, false, true, false]);
+      const sel = Array.from({ length: 300 }, () => drew(0, "unit:MED3A")); // the camera eases onto it, then rests
+      expect(sel[0]).toBe(true);
+      expect(sel.slice(-10)).toEqual(Array(10).fill(false));
+      expect(drew(0, null)).toBe(true);
+      Array.from({ length: 300 }, () => drew());
+      expect(drew()).toBe(false);
+      st.resize(1000, 382, 1);
+      expect([drew(), drew()]).toEqual([true, false]);
+      st.redraw(); // every ghost is repainted again, one a frame, and each repaint shows
+      const again = Array.from({ length: FLOORS.length + 1 }, () => drew());
+      expect(again[0]).toBe(true);
+      expect(again.slice(-1)).toEqual([false]);
+      expect([drew(0.25), drew(0.25), drew(0.3)]).toEqual([true, false, false]); // W4's ghost, above, repainted once
+    }));
+
+  it("a running hospital paints every frame; W4 focused is never skipped, paused or not", () => {
+    openStack(() => 3, ({ s, frame }) => {
+      s.speed = 1;
+      expect(Array.from({ length: 60 }, () => frame(0).drew).every(Boolean)).toBe(true); // the clock moves the staff
+      s.speed = 0;
+    });
+    openStack(() => 4, ({ frame }) => {
+      expect(Array.from({ length: 60 }, () => frame(0).drew).every(Boolean)).toBe(true);
+    });
+  });
+
+  it("a full drawer's blink on the focused floor paints the frame it turns, live", () =>
+    openStack(() => 0, ({ s, st, main, frame }) => {
+      const src = createSyntheticSource(FIXTURE_SEED, true);
+      s.speed = 60;
+      const gf = FLOORS[slabIndex(0)];
+      while (!floorScene(s.hospital!, gf).drawers.some((d) => d.full)) step(s, src);
+      s.speed = 0;
+      for (let i = 0; i < 300; i += 1) st.frame(s, null, null, 1 / 60, 0.1); // the new minute settles
+      expect(frame(0.1).drew).toBe(false);
+      // The blink turns on the half-second; the drawer's light is cream for one of every six.
+      const cream = (now: number) => {
+        main.log.length = 0;
+        const drew = frame(now).drew;
+        return drew && main.log.includes('fillStyle="#FFF8E7"');
+      };
+      const turns = [0.6, 1.1, 1.6, 2.1, 2.6, 3.1].map(cream);
+      expect(turns.some(Boolean)).toBe(true);
+      expect(frame(3.1).drew).toBe(false);
+    }));
 });

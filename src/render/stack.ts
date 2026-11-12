@@ -12,6 +12,8 @@ import { FLOORS, W4 } from "./floors";
 import { animate, figureOf, newMovers, placesOf, type Mover, type Place } from "./move";
 import { EMPTY, floorScene, slabTag, type Scene } from "./scene";
 
+type Ctx = CanvasRenderingContext2D;
+
 export const GAP = 200; // logical px from one floor to the next when open; a slab's diamond is 324 px tall, so the one above hides only a strip of its back wall
 export const WORLD_H = LOGICAL_H + (FLOORS.length - 1) * GAP;
 const ABOVE = 0.15; // ghost alpha of the floors above the focused one
@@ -88,17 +90,30 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     const b = blink(scene, now);
     if (ghostOf[i]?.scene === scene && ghostOf[i]!.blink === b) return; // the picture it holds is this one
     ghostOf[i] = { scene, blink: b };
+    version[i] += 1;
     const g = ghosts[i].getContext("2d")!;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
     g.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
     slabs[i]?.paint(g, animated(i, scene), null, null, now, figuresOn(i));
   }
+  const version = FLOORS.map(() => 0); // each ghost's repaints, so a layer knows when one it holds changed
   ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
   const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
+  // W4 moves its own trolleys by the time since it was last painted, live or into its ghost. Its ghost is repainted once a
+  // blink turn (machines at 4 Hz, high-risk badges at 3 Hz), not every frame: w4Phase is the turn it holds, null for none.
+  let w4Dt = 0;
+  let w4Phase: number | null = null;
   let open = 0; // 0 the closed building, 1 the open stack
   // The closed building at rest changes only with what it is drawn from: the key of the picture on the canvas, or null.
   let painted: unknown[] | null = null;
+  const same = (a: unknown[] | null, b: unknown[]) => a?.length === b.length && b.every((v, i) => v === a[i]);
+  // Open and settled, the stage with the ghosts below the focused floor (opaque), and the ghosts above it, as two pictures
+  // the size of the canvas. Each is recomposed when its key changes: a ghost it holds was repainted (version), the focus,
+  // the camera, the canvas; resize, redraw and reset forget both, and so does any frame painted without them.
+  const layers = [document.createElement("canvas"), document.createElement("canvas")];
+  const layerCtx = [layers[0].getContext("2d", { alpha: false })!, layers[1].getContext("2d")!];
+  let layerKey: (unknown[] | null)[] = [null, null];
 
   const cam: Cam = { zoom: 1, x: 0, y: 0 }; // world coordinates
   let user: Cam = fitCam(LOGICAL_W, LOGICAL_H); // FLOOR's resting camera, in the floor's own coordinates
@@ -177,11 +192,14 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       canvas.style.left = "0px";
       canvas.style.top = "0px";
       painted = null;
+      layerKey = [null, null];
     },
     /** The picture on the canvas was lost (context restored, fonts loaded, tab shown again): paint the next frame. */
     redraw() {
       painted = null;
       ghostOf = FLOORS.map(() => null);
+      w4Phase = null;
+      layerKey = [null, null];
     },
 
     figures: (i: number) => figuresOn(i),
@@ -224,6 +242,9 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       movers = [];
       clock = 0;
       painted = null;
+      layerKey = [null, null];
+      w4Dt = 0;
+      w4Phase = null;
       w4.reset();
     },
 
@@ -249,70 +270,125 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
       if (open === 0 && settled) {
         // Everything closed() draws: the minute's summary (a new object each minute or world), the hover, the canvas.
         const key = [live.floors, hovered, canvas.width, canvas.height, viewW, viewH, backing, ...[cam.zoom, cam.x, cam.y].map((v) => Math.round(v * 1e3))];
-        if (painted?.length === key.length && key.every((v, i) => v === painted![i])) {
+        if (same(painted, key)) {
           if (s.speed > 0) s.moves.length = 0; // as closed(): unseen inside, W4's trolleys are not saved up
           return false;
         }
         painted = key;
-      } else painted = null;
+      } else if (open === 0) painted = null; // open, the frame's own key is below
 
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = STAGE;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const stage = () => {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = STAGE;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      };
       const pixels = backing * cam.zoom;
-      ctx.setTransform(pixels, 0, 0, pixels, backing * (viewW / 2 - cam.x * cam.zoom), backing * (viewH / 2 - cam.y * cam.zoom));
-      ctx.imageSmoothingEnabled = false;
+      const toWorld = (c: Ctx) => {
+        c.setTransform(pixels, 0, 0, pixels, backing * (viewW / 2 - cam.x * cam.zoom), backing * (viewH / 2 - cam.y * cam.zoom));
+        c.imageSmoothingEnabled = false;
+      };
 
       if (open === 0) {
+        w4Dt = 0; // closed, W4 is not painted and its trolleys hold still, as before
+        w4Phase = null;
+        layerKey = [null, null];
+        stage();
+        toWorld(ctx);
         closed(s, live.floors, hovered);
         return true;
       }
 
       const e = ease(open);
       const walls = Math.round(STOREY * (1 - e)); // the outer walls sink to the slab's own low walls; no ceilings
-      if (e < 1) {
-        // The pavement and the queue outside fade as the building opens.
-        ctx.save();
-        ctx.globalAlpha = 1 - e;
-        ctx.translate(0, BASE);
-        facade.plate(ctx);
-        facade.queue(ctx, live.floors?.find((f) => f.floor === 0));
-        ctx.restore();
-      }
       const focus = view === null ? -1 : slabIndex(view);
+      const alphaOf = (i: number) => (focus < 0 || i === focus ? 1 : 1 + ((i > focus ? ABOVE : BELOW) - 1) * e);
       // Floors other than W4 show from their cached pictures unless focused; one of them is repainted a frame (all on the first).
       const first = turn === 0;
       FLOORS.forEach((spec, i) => {
         if (spec !== W4 && i !== focus && (first || turn % FLOORS.length === i)) paintGhost(i, live.scenes[i], now);
       });
       turn += 1;
-      // Painter's order, GF first. W4 is painted exactly once a frame (it moves its own trolleys): live, or into its ghost.
-      FLOORS.forEach((spec, i) => {
-        const alpha = focus < 0 || i === focus ? 1 : 1 + ((i > focus ? ABOVE : BELOW) - 1) * e;
-        ctx.save();
-        if (alpha === 1) {
-          ctx.translate(0, storeyY(i, open));
-          if (spec === W4) w4.paint(ctx, s, i === focus ? selected : null, i === focus ? hovered : null, dt, now);
-          else if (i === focus) slabs[i]!.paint(ctx, animated(i, live.scenes[i]), selected, hovered, now, figuresOn(i));
-          else ctx.drawImage(ghosts[i], 0, 0, LOGICAL_W, LOGICAL_H); // closing: every slab from its cache
-        } else {
-          if (spec === W4) {
-            w4Ghost.setTransform(1, 0, 0, 1, 0, 0);
-            w4Ghost.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
-            w4Ghost.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
-            w4.paint(w4Ghost, s, null, null, dt, now);
-          }
-          ctx.globalAlpha = alpha;
-          ctx.translate(0, storeyY(i, open));
-          ctx.drawImage(ghosts[i], 0, 0, LOGICAL_W, LOGICAL_H);
-        }
-        facade.walls(ctx, walls);
+      w4Dt += dt;
+      const w4i = slabIndex(W4.floor);
+      // W4's machines blink at 4 Hz and its high-risk badges at 3 Hz: repaint on either turn, so both stay even.
+      const phase = Math.floor(now * 4) * 1e6 + Math.floor(now * 3);
+      if (alphaOf(w4i) !== 1 && w4Phase !== phase) {
+        w4Ghost.setTransform(1, 0, 0, 1, 0, 0);
+        w4Ghost.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
+        w4Ghost.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
+        w4.paint(w4Ghost, s, null, null, w4Dt, now);
+        [w4Dt, w4Phase] = [0, phase];
+        version[w4i] += 1;
+      }
+      // Floor i in painter's order onto c (the canvas, or a layer), in the world transform. W4 alone is painted live, or
+      // shown from its ghost.
+      const slab = (c: Ctx, i: number) => {
+        const alpha = alphaOf(i);
+        c.save();
+        if (alpha !== 1) c.globalAlpha = alpha;
+        c.translate(0, storeyY(i, open));
+        if (alpha === 1 && FLOORS[i] === W4) {
+          w4.paint(c, s, i === focus ? selected : null, i === focus ? hovered : null, w4Dt, now);
+          [w4Dt, w4Phase] = [0, null];
+        } else if (alpha === 1 && i === focus) slabs[i]!.paint(c, animated(i, live.scenes[i]), selected, hovered, now, figuresOn(i));
+        else c.drawImage(ghosts[i], 0, 0, LOGICAL_W, LOGICAL_H); // a ghost; closing, every slab but W4 from its cache
+        facade.walls(c, walls);
         if (i === top && e < 1) {
-          ctx.globalAlpha = alpha * (1 - e); // the roof lifts away with the top storey and fades
-          facade.roof(ctx, walls);
+          c.globalAlpha = alpha * (1 - e); // the roof lifts away with the top storey and fades
+          facade.roof(c, walls);
         }
-        ctx.restore();
-      });
+        c.restore();
+      };
+
+      if (open < 1 || focus < 0 || !settled) {
+        // Opening, closing or the camera easing: everything changes every frame, so paint it all here, as before.
+        layerKey = [null, null];
+        painted = null;
+        stage();
+        toWorld(ctx);
+        if (e < 1) {
+          // The pavement and the queue outside fade as the building opens.
+          ctx.save();
+          ctx.globalAlpha = 1 - e;
+          ctx.translate(0, BASE);
+          facade.plate(ctx);
+          facade.queue(ctx, live.floors?.find((f) => f.floor === 0));
+          ctx.restore();
+        }
+        FLOORS.forEach((_, i) => slab(ctx, i));
+        return true;
+      }
+      // Open and settled: the stage and the ghosts below the focus, then the focus live, then the ghosts above it.
+      const base = [focus, canvas.width, canvas.height, viewW, viewH, backing, ...[cam.zoom, cam.x, cam.y].map((v) => Math.round(v * 1e3))];
+      const compose = (n: 0 | 1, floors: number[]) => {
+        const key = [...base, ...floors.map((i) => version[i])];
+        if (same(layerKey[n], key)) return;
+        layerKey[n] = key;
+        const [l, c] = [layers[n], layerCtx[n]];
+        if (l.width !== canvas.width || l.height !== canvas.height) [l.width, l.height] = [canvas.width, canvas.height];
+        c.setTransform(1, 0, 0, 1, 0, 0);
+        if (n === 0) {
+          c.fillStyle = STAGE;
+          c.fillRect(0, 0, l.width, l.height);
+        } else c.clearRect(0, 0, l.width, l.height);
+        toWorld(c);
+        for (const i of floors) slab(c, i);
+      };
+      compose(0, FLOORS.map((_, i) => i).filter((i) => i < focus));
+      compose(1, FLOORS.map((_, i) => i).filter((i) => i > focus));
+      // Everything the focused floor draws: its scene (a new object each minute), the clock (staff and movers; it stands
+      // still only while the hospital is paused or ended), the selection, the hover and its drawers' blink. The layers are
+      // new arrays whenever recomposed. W4 is never skipped: its machines and alarms blink from now even when paused.
+      const scene = live.scenes[focus];
+      const key = [layerKey[0], layerKey[1], scene, clock, selected, hovered, blink(scene, now)];
+      if (FLOORS[focus] !== W4 && same(painted, key)) return false;
+      painted = key;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(layers[0], 0, 0);
+      toWorld(ctx);
+      slab(ctx, focus);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(layers[1], 0, 0);
       return true;
     },
 
