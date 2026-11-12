@@ -313,6 +313,14 @@ function MorguePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => v
 /** Whether Inspector should hand this selection to HospitalPanel. */
 export const isHospitalId = (id: string) => /^(h:\d+|hbed:[A-Z0-9]+:\d+|unit:[A-Z0-9]+|queue:ER|morgue)$/.test(id);
 
+/** The floor a selection lives on: W4's own ids are on 4F; null when the record is gone or the unit unknown. */
+export function floorOf(h: Hospital, id: string): number | null {
+  if (!isHospitalId(id)) return h.units.find((u) => u.id === "W4")?.floor ?? null;
+  const [kind, a] = id.split(":");
+  const unit = kind === "h" ? findPerson(h, Number(a))?.unit : kind === "queue" ? "ER" : kind === "morgue" ? "MORGUE" : a;
+  return h.units.find((u) => u.id === unit)?.floor ?? null;
+}
+
 export function HospitalPanel({ h, id, onSelect, floors }: { h: Hospital; id: string; onSelect: (id: string) => void; floors: FloorSummary[] }) {
   const known = (x: string) => h.units.some((u) => u.id === x);
   const [kind, a, b] = id.split(":");

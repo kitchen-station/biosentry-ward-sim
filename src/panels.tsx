@@ -76,27 +76,20 @@ export function TopBar({
   notice,
   onReset,
   hospital,
-  zoom,
 }: {
   s: Sim;
   src: VitalsSource;
   notice: string | null;
   /** Left out in viewer mode, which has no clock of its own to change. */
   onReset?: () => void;
-  /** The view's own zoom (the canvas or the DOM view, whichever shows). Display only: it never reaches the sim. */
-  zoom?: { pct: number; onZoom: (action: "in" | "out" | "fit") => void };
-  /** Hospital world only: the view tabs, the scenario picker, the Panel toggle and +1 day. */
-  hospital?: {
-    skipping: boolean; onSkip: () => void;
-    view: number | null; onView: (view: number | null) => void; floors: { floor: number; label: string }[];
-    scenario: string; scenarios: string[]; onScenario: (name: string) => void; panel: boolean; onPanel: () => void;
-  };
+  /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
+  hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: string[]; onScenario: (name: string) => void };
 }) {
   const minute = minuteOf(s);
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
-      <span className="pill">W4</span>
+      <span className="pill">{hospital ? "Hospital" : "W4"}</span>
       <span className="clock">
         {src.synthetic
           ? `${dateText(minute)} 2026, ${clockText(src, minute)} Manila`
@@ -110,30 +103,11 @@ export function TopBar({
       {s.ended && <span className="pill solid">Run ended</span>}
       {hospital && (
         <>
-          <div className="speeds" role="group" aria-label="View">
-            {[{ floor: null, label: "Building" }, ...[...hospital.floors].reverse()].map((v) => (
-              <button key={v.label} className={hospital.view === v.floor ? "on" : ""} aria-pressed={hospital.view === v.floor} onClick={() => hospital.onView(v.floor)}>
-                {v.label}
-              </button>
-            ))}
-          </div>
-          <label>
-            Scenario{" "}
-            <select value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
-              {hospital.scenarios.map((n) => <option key={n}>{n}</option>)}
-            </select>
-          </label>
-          <button aria-pressed={hospital.panel} onClick={hospital.onPanel}>Panel</button>
+          <select aria-label="Scenario" value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
+            {hospital.scenarios.map((n) => <option key={n}>{n}</option>)}
+          </select>
           <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
         </>
-      )}
-      {zoom && (
-        <div className="speeds" role="group" aria-label="Zoom">
-          <button aria-label="Zoom out" title="Zoom out (-)" onClick={() => zoom.onZoom("out")}>-</button>
-          <span className="zoompct">{zoom.pct}%</span>
-          <button aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom.onZoom("in")}>+</button>
-          <button title="Fit: back to 100% (0)" onClick={() => zoom.onZoom("fit")}>Fit</button>
-        </div>
       )}
       {onReset && (
         <div className="speeds right" role="group" aria-label="Simulation speed">
@@ -152,6 +126,18 @@ export function TopBar({
         </div>
       )}
     </header>
+  );
+}
+
+/** The view's own zoom, on the stage. Display only: it never reaches the sim. */
+export function ZoomBar({ pct, onZoom, disabled }: { pct: number; onZoom: (action: "in" | "out" | "fit") => void; disabled?: boolean }) {
+  return (
+    <div className="stagebar zoombar" role="group" aria-label="Zoom">
+      <button aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom("out")}>-</button>
+      <span className="zoompct">{pct}%</span>
+      <button aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom("in")}>+</button>
+      <button title="Fit: back to 100% (0)" disabled={disabled} onClick={() => onZoom("fit")}>Fit</button>
+    </div>
   );
 }
 
@@ -830,7 +816,7 @@ export function Inspector({
   const staff = s.staff.find((m) => m.id === selected);
   return (
     <aside className="panel command">
-      <button onClick={() => onSelect(null)}>{s.hospital && isHospitalId(selected) ? "Close" : "Back to full ward"}</button>
+      <button onClick={() => onSelect(null)}>{s.hospital ? "Back to floor" : "Back to full ward"}</button>
       <div className="scroll">
         {s.hospital && isHospitalId(selected) ? (
           <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} />

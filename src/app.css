@@ -585,115 +585,44 @@ summary {
   }
 }
 
-/* Hospital layer: building strips and unit boards. Same palette; schematic, not to scale. */
-.main.collapsed {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.backbtn {
+/* Hospital layer: the floor rail and the zoom cluster sit on the stage; panel helpers. */
+.stagebar {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  display: flex;
+  gap: 4px;
   z-index: 1;
 }
 
-.building {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 8px;
-  color: var(--cream-100);
-  background: var(--night);
-  border: 2px solid var(--ink-900);
-  box-shadow: 0 0 0 2px var(--ink-500), 0 0 0 4px var(--ink-900);
+.rail {
+  top: 8px;
+  right: 8px;
+  flex-direction: column;
 }
 
-.strips {
-  display: grid;
-  gap: 6px;
-}
-
-.strip {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 112px;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 8px;
-  text-align: left;
-}
-
-.sleft b {
-  font: 600 20px var(--title);
-}
-
-.smid,
-.sright,
-.erline {
-  display: grid;
-  gap: 3px;
-  align-content: start;
-}
-
-.sright {
-  font-size: 16px;
-  line-height: 1;
-}
-
-.urow {
-  display: flex;
-  flex-wrap: wrap;
+.zoombar {
+  left: 8px;
+  bottom: 8px;
   align-items: center;
-  gap: 2px 6px;
 }
 
-.uname {
-  min-width: 96px;
-  font-size: 16px;
-}
-
-.badge {
-  margin-left: 4px;
-  padding: 0 3px;
-  font-style: normal;
-  font-size: 14px;
-  text-transform: uppercase;
+.zoombar .zoompct {
   color: var(--cream-100);
+}
+
+.stagebar .on,
+.stagebar .on:hover:not(:disabled) {
   background: var(--ink-900);
+  color: var(--cream-100);
+  box-shadow: none;
 }
 
-.cells {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px;
+.stagebar button:focus-visible {
+  outline-color: var(--lemon);
 }
 
-.cell,
-.fig {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--ink-900);
-  background: transparent;
-}
-
-.cell.str {
-  border-style: dashed;
-}
-
-.fig {
-  width: 6px;
-  height: 9px;
-  border: 1px solid var(--ink-900);
-}
-
-.fig.big {
-  width: 8px;
-  height: 16px;
-}
-
-.gap {
-  width: 8px;
+.topbar select {
+  font: inherit;
+  font-size: 16px;
 }
 
 .tiny {
@@ -708,139 +637,6 @@ summary {
   background: var(--cream-200);
 }
 
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 12px;
-  margin-top: 8px;
-  font-size: 15px;
-  color: var(--cream-300);
-}
-
-.boardhead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-}
-
-.board h2 {
-  margin-top: 10px;
-  font-size: 18px;
-}
-
-.board small {
-  font-size: 15px;
-  color: var(--cream-300);
-}
-
-.bedrows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.bedrows.corridor {
-  padding-top: 4px;
-  border-top: 2px dotted var(--ink-500);
-}
-
-.bcell {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  color: var(--cream-100);
-  border: 2px solid var(--ink-300);
-}
-
-.bcell.str {
-  border-style: dashed;
-}
-
-.bcell small {
-  position: absolute;
-  top: 0;
-  left: 2px;
-  font-size: 12px;
-  color: var(--ink-300);
-}
-
-.bcell .stripe {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 6px;
-}
-
-@media (max-width: 1100px) {
-  .strip {
-    grid-template-columns: 30px minmax(0, 1fr) 96px;
-  }
-}
-
-.building button {
-  color: var(--ink-900);
-}
-
-.building button:focus-visible,
-.backbtn:focus-visible {
-  outline-color: var(--lemon);
-}
-
-/* Hospital layer, H6: strips hold buttons, so the strip is a list item; cells, figures and chips are buttons. */
-.strips > li.strip {
-  color: var(--ink-900);
-  cursor: pointer;
-  background: var(--cream-100);
-  border: 2px solid var(--ink-900);
-  box-shadow: inset -2px -2px 0 var(--cream-300);
-}
-
-.strips > li.strip:hover {
-  background: var(--cream-200);
-}
-
-.building button.cell,
-.building button.fig,
-.building button.chip {
-  box-shadow: none;
-}
-
-.building button.cell,
-.building button.fig {
-  padding: 0;
-  min-width: 0;
-  font-size: 8px;
-  line-height: 1;
-  vertical-align: middle;
-}
-
-.building button.chip {
-  padding: 0 3px;
-}
-
-.strip .sleft {
-  align-self: start;
-  justify-self: start;
-  width: auto;
-  height: auto;
-  padding: 1px 4px;
-}
-
-.building button.cell:focus-visible,
-.building button.fig:focus-visible,
-.building button.chip:focus-visible,
-.building .linkbtn:focus-visible,
-.building .sleft:focus-visible {
-  position: relative;
-  z-index: 1;
-  outline: 2px solid var(--ink-900);
-  outline-offset: 1px;
-  box-shadow: 0 0 0 4px var(--lemon);
-}
-
 .linkbtn {
   padding: 0;
   text-align: left;
@@ -852,20 +648,6 @@ summary {
 
 .linkbtn:hover:not(:disabled) {
   background: none;
-}
-
-.building .linkbtn {
-  color: inherit;
-}
-
-.building button.bcell {
-  padding: 0;
-  box-shadow: none;
-  background: transparent;
-}
-
-.building button.bcell.full {
-  background: var(--night);
 }
 
 .plist {
@@ -882,15 +664,6 @@ summary {
   padding: 4px 6px;
   border: 2px dashed var(--ink-900);
   background: var(--cream-200);
-}
-
-/* Zoom (DOM views): the holder scrolls, the sizer is the scaled layout box, the inner is scaled from its top-left. */
-.zsizer {
-  min-width: 0;
-}
-
-.zinner {
-  transform-origin: 0 0;
 }
 
 .zoompct {

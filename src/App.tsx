@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
-import { BuildingView, floorSummary, UnitBoard } from "./building";
-import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API } from "./panels";
+import { floorSummary } from "./building";
+import { floorOf } from "./hospital-panels";
+import { BedTimeline, Inspector, SelectList, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
-import { createRenderer } from "./render/draw";
+import { createRenderer, type Renderer } from "./render/draw";
+import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
 import { createHospitalSim } from "./sim/hospital/attach";
 import { parseScenario } from "./sim/hospital/scenario";
 import doh from "../scenarios/hospital/doh-standard.json?raw";
@@ -109,10 +111,7 @@ export function App() {
 function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () => void }) {
   const [world, setWorld] = useState(() => newWorld());
   const [scenario, setScenario] = useState("typical");
-  const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else a floor
-  const [panel, setPanel] = useState(true);
-  const [domZoom, setDomZoom] = useState(1); // the building and the floor boards
-  const holderRef = useRef<HTMLElement>(null);
+  const [view, setView] = useState<number | null>(null); // hospital world: null is the whole stack, else the focused floor
   const [skipping, setSkipping] = useState(false);
   const skippingRef = useRef(false);
   const skipTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -122,7 +121,6 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   }, []);
   const viewRef = useRef(view);
   viewRef.current = view;
-  const onCanvas = !HOSPITAL || view === 4;
   const [viewNotice, setViewNotice] = useState<string | null>(null);
   const clientId = useRef<string>(null);
   const syncRef = useRef<ReturnType<typeof createSync>>(null);
@@ -134,7 +132,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   selectedRef.current = selected;
   const [, refresh] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<ReturnType<typeof createRenderer>>(null);
+  const rendererRef = useRef<Renderer>(null);
   const hoveredRef = useRef<string | null>(null);
   // Viewer mode: where each staff member is drawn, was drawn at the last answer, and is heading.
   const glideRef = useRef({ at: 0, from: new Map<string, Point>(), to: new Map<string, Point>(), drawn: new Map<string, Point>() });
@@ -208,7 +206,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer = createRenderer(canvas);
+    const renderer = HOSPITAL ? createStackRenderer(canvas, () => viewRef.current) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -240,7 +238,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           [m.x, m.y] = [at.x, at.y];
         }
       }
-      if (!HOSPITAL || viewRef.current === 4) renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
+      renderer.frame(s, selectedRef.current, hoveredRef.current, dt, now / 1000);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -264,8 +262,20 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const select = (id: string | null) => {
     setSelected(id);
     setTimeline(false);
-    if (id !== null) setPanel(true); // selecting while the panel is collapsed reopens it
+    const h = worldRef.current.s.hospital;
+    if (id !== null && h) setView(floorOf(h, id) ?? viewRef.current); // a panel link or the list goes to that thing's floor
   };
+  // Hospital world: the stage's three levels (stack, floor, thing). The table is nextLevel in render/stack.ts.
+  const go = (e: LevelEvent) => {
+    const next = nextLevel({ view: viewRef.current, selected: selectedRef.current }, e);
+    setView(next.view);
+    if (next.selected !== selectedRef.current) {
+      setSelected(next.selected);
+      setTimeline(false);
+    }
+  };
+  const goRef = useRef(go);
+  goRef.current = go;
 
   const restart = (name = scenario) => {
     rendererRef.current?.reset();
@@ -274,7 +284,6 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   };
 
   const floors = world.s.hospital ? floorSummary(world.s.hospital, Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null]))) : [];
-  const shown = view === null || view === 4 ? null : floors.find((f) => f.floor === view);
 
   // The same steps as skipDay (sim.ts), in chunks so the page stays responsive. Hospital worlds only.
   const skipDayChunked = () => {
@@ -304,16 +313,11 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     skipTimer.current = setTimeout(run, 0);
   };
 
-  const domView = HOSPITAL && view !== 4;
   const canvasCentre = () => {
     const c = canvasRef.current!;
     return [c.clientWidth / 2, c.clientHeight / 2] as const;
   };
   const zoomBy = (action: "in" | "out" | "fit") => {
-    if (domView) {
-      if (action === "fit") holderRef.current?.scrollTo(0, 0);
-      return setDomZoom((z) => (action === "fit" ? 1 : stepZoom(z, action === "in" ? 1 : -1)));
-    }
     const r = rendererRef.current;
     if (!r) return;
     if (selectedRef.current !== null) select(null); // the user takes the camera back from the selection
@@ -324,12 +328,13 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
   const zoomByRef = useRef(zoomBy);
   zoomByRef.current = zoomBy;
 
-  // + - 0, unless the key belongs to a form control.
+  // + - 0, and Escape (hospital world: up one level), unless the key belongs to a form control.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest("input, select, textarea, [contenteditable]")) return;
+      if (e.key === "Escape" && HOSPITAL) return goRef.current("escape");
       const action = e.key === "+" || e.key === "=" ? "in" : e.key === "-" ? "out" : e.key === "0" ? "fit" : null;
       if (action) zoomByRef.current(action);
     };
@@ -369,31 +374,31 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         src={world.src}
         notice={viewNotice ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onReset={VIEW_API ? undefined : () => restart()}
-        zoom={{ pct: Math.round((domView ? domZoom : (rendererRef.current?.userZoom() ?? 1)) * 100), onZoom: zoomBy }}
         hospital={
           world.s.hospital
             ? {
-                skipping, onSkip: skipDayChunked,
-                view, onView: setView, floors, scenario, scenarios: Object.keys(SCENARIOS), panel,
+                skipping, onSkip: skipDayChunked, scenario, scenarios: Object.keys(SCENARIOS),
                 onScenario: (name) => { setScenario(name); setView(null); restart(name); },
-                onPanel: () => setPanel((p) => !p),
               }
             : undefined
         }
       />
-      <main className={`main${world.s.hospital && !panel ? " collapsed" : ""}`}>
-        {world.s.hospital && view === null && <BuildingView floors={floors} onPick={setView} onSelect={select} zoom={domZoom} onZoom={setDomZoom} holderRef={holderRef} />}
-        {shown && <UnitBoard f={shown} onBack={() => setView(null)} onSelect={select} zoom={domZoom} onZoom={setDomZoom} holderRef={holderRef} />}
-        <div className="floor" hidden={!onCanvas}>
-          {world.s.hospital && view === 4 && (
-            <button className="backbtn" onClick={() => setView(null)}>Building</button>
-          )}
+      <main className="main">
+        <div className="floor">
           <canvas
             ref={canvasRef}
-            aria-label="Isometric view of ward W4. Use the list after this view to select by keyboard."
+            aria-label={
+              HOSPITAL
+                ? "Isometric view of the hospital, one slab per floor. Use the floor buttons, and the list after this view for ward W4, to select by keyboard."
+                : "Isometric view of ward W4. Use the list after this view to select by keyboard."
+            }
             onClick={(e) => {
               if (justDragged.current) return void (justDragged.current = false);
-              select(targetAt(e));
+              const id = targetAt(e);
+              if (!HOSPITAL) return select(id);
+              if (id?.startsWith("floor:")) return go({ slab: Number(id.slice(6)) });
+              if (id && viewRef.current !== null) return go({ thing: id, floor: viewRef.current });
+              go(id === "" ? "empty" : "outside");
             }}
             onPointerDown={(e) => {
               if (!e.isPrimary) return;
@@ -429,12 +434,20 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
           />
+          {HOSPITAL && (
+            <div className="stagebar rail" role="group" aria-label="Floors">
+              {[{ floor: null, label: "All", name: "All floors" }, ...floors.map((f) => ({ floor: f.floor, label: f.label, name: `${f.name}: ${f.units.map((u) => u.name).join(" and ")}` }))].map((f) => (
+                <button key={f.label} className={view === f.floor ? "on" : ""} aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => go({ rail: f.floor })}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <ZoomBar pct={Math.round((rendererRef.current?.userZoom() ?? 1) * 100)} onZoom={zoomBy} disabled={HOSPITAL && view === null} />
           <SelectList s={world.s} onSelect={select} />
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        {(!world.s.hospital || panel) && (
-          <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} />
-        )}
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
