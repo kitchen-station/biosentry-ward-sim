@@ -58,6 +58,15 @@ describe("personPath", () => {
     expect(personPath(h, late).lines).toHaveLength(1);
     expect(personPath(h, res).note).toMatch(/when the run began/);
   });
+
+  it("shows a return and never the sim's foreknowledge of one", () => {
+    const h = fixed();
+    const p = person("MED3A", "bed", 0, { arrivedMin: 10 });
+    h.events = [ev(p.id, 10, "arrive"), ev(p.id, 200, "discharge"), ev(p.id, 200, "return_scheduled", "MED3A", "in 12 d"), ev(p.id, 900, "return", "ER", "visit 2"), ev(p.id, 950, "return_dropped", "MED3A", "visit 3")];
+    const path = personPath(h, p);
+    expect(path.lines.map((l) => l.kind)).toEqual(["arrive", "discharge", "return"]);
+    expect(path.lines[2].text).toBe("Came back to the emergency room (visit 2)");
+  });
 });
 
 describe("seeingOrder", () => {

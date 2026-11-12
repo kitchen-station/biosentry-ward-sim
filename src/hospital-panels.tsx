@@ -52,11 +52,15 @@ const EVENT_TEXT: Record<EventKind, (h: Hospital, unit: UnitId, d: string) => st
   deteriorate: () => "Began to deteriorate (not yet known to the staff)",
   noticed: (_h, _u, d) => `Deterioration noticed (${d.replace("delay ", "")} after onset)`,
   unnoticed: (_h, _u, d) => `Left with a deterioration nobody noticed (${d})`,
+  return: (_h, _u, d) => `Came back to the emergency room (${d})`,
+  return_scheduled: () => "", // the sim's own foreknowledge: never shown (FUTURE below)
+  return_dropped: () => "",
 };
+const FUTURE: EventKind[] = ["return_scheduled", "return_dropped"]; // what the sim knows ahead; nobody in the house does
 
 /** A person's events in time order, and why the list may be short. `note` is null only when the path starts at the arrival. */
 export function personPath(h: Hospital, p: Person): { lines: PathLine[]; note: string | null } {
-  const mine = h.events.filter((e) => e.person === p.id);
+  const mine = h.events.filter((e) => e.person === p.id && !FUTURE.includes(e.kind));
   const lines = mine.map((e) => ({ minute: e.minute, unit: e.unit, kind: e.kind, text: EVENT_TEXT[e.kind](h, e.unit, e.detail) }));
   lines.sort((a, b) => a.minute - b.minute); // stable: same-minute events keep their order
   if (p.arrivedMin <= 0) return { lines, note: "In the house when the run began; no earlier events exist." };
@@ -195,7 +199,7 @@ function PersonPanel({ h, p, onSelect }: { h: Hospital; p: Person; onSelect: (id
         <div>
           <h2>{p.name}</h2>
           <p className="mono">{p.age} {p.sex} · {p.id}</p>
-          <p className="mono">Synthetic person, hospital record</p>
+          <p className="mono">Synthetic person, hospital record{p.visit > 1 ? ` · visit ${p.visit}, a returning patient` : ""}</p>
         </div>
         <span className="pill">{status.pill}</span>
       </div>
