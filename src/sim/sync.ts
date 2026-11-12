@@ -135,6 +135,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
           if (s !== world) return; // start() began another run while this one registered: the next flush registers that one
           runId = id;
         } catch (error) {
+          if (s !== world) return; // as below: an answer for a world the sync has since left
           if (error instanceof HttpError && error.status === 409) return stop("other_live");
           if (error instanceof HttpError && (error.status === 403 || error.status === 503)) return stop("bad_key");
           throw error;
@@ -142,6 +143,8 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       }
       await drain();
     } catch (error) {
+      // Only for the world this flush sent: a refusal of the old world's rows says nothing about the new world or its run.
+      if (s !== world) return;
       if (error instanceof HttpError && error.status === 409) stop("superseded");
       // The database no longer has this run (it was reset): the next flush registers the ward as it is now.
       else if (error instanceof HttpError && error.status === 404 && runId !== null) register(s);

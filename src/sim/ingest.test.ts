@@ -405,6 +405,27 @@ describe("sync, with a fake fetch", () => {
     }
   });
 
+  it("ignores a refusal of a registration or a batch sent for a world the sync has since left", async () => {
+    for (const [route, refuse] of [["/runs", { register: 409 }], ["/runs", { register: 403 }], ["/batch", { batch: 409 }], ["/batch", { batch: 404 }]] as const) {
+      const { s, src } = start();
+      const { calls, net, sync } = fake();
+      let release!: () => void;
+      net.hold = { suffix: route, until: new Promise<void>((resolve) => (release = resolve)) };
+      const first = sync.start(s, src); // its registration or first batch is on its way
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      net.hold = null;
+      const fresh = createSim(src);
+      await sync.start(fresh, src); // the sync is busy: this flush is skipped
+      Object.assign(net, refuse);
+      release();
+      await first;
+      expect([route, sync.stopped, fresh.outbox !== undefined]).toEqual([route, null, true]); // the new world keeps its outbox
+      Object.assign(net, { register: 201, batch: 204 });
+      await sync.flush();
+      expect([route, sync.run.runId, calls.at(-1)!.path]).toEqual([route, 7, "/sim/runs/7/batch"]); // and registers and sends
+    }
+  });
+
   it("starts a second run for a new world: cursors back to 0, the old world's queue dropped", async () => {
     const { s, src } = start();
     const { calls, net, sync } = fake();
