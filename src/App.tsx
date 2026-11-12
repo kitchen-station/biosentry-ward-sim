@@ -533,7 +533,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
         <span>Staff loop: demo design, not a product feature.</span>
-        {world.s.hospital && <span>Hospital layer: synthetic. Staffing outside W4 is shown, not modelled.</span>}
+        {world.s.hospital && <span>Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled.</span>}
       </footer>
     </div>
   );

@@ -267,7 +267,7 @@ function UnitPanel({ h, id, floors }: { h: Hospital; id: UnitId; floors: FloorSu
       )}
       {rounds && <><p className="story">{rounds}</p><p className="tiny">{ROUNDS_CAPTION}</p></>}
       {sum.bodies > 0 && <p className="story">{sum.bodies} awaiting transfer to the morgue (hold a bed, not counted).</p>}
-      <p className="story">Hospital layer: synthetic.{display && " Staffing outside W4 is shown, not modelled."}</p>
+      <p className="story">Hospital layer: synthetic.{display && " Staffing outside W4 drives observation rounds only; care there is not modelled."}</p>
     </>
   );
 }
