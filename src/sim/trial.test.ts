@@ -114,7 +114,7 @@ describe("trial", () => {
   it("is byte-identical for the same seed and scenario, and differs for another seed", () => {
     expect(hashes(trial(1, 2))).toEqual(hashes(two));
     for (const name of ["cohort.csv", "episodes.csv"] as const) expect(sha(trial(2, 2)[name])).not.toBe(sha(two[name]));
-  });
+  }, 60_000); // two full trials: about 2 s alone, over the default 5 s on a busy machine
 
   it("writes the contract's headers, line ends and manifest", () => {
     const m = JSON.parse(two["manifest.json"]);

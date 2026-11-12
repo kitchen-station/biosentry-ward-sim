@@ -17,13 +17,15 @@ export function stepZoom(z: number, dir: 1 | -1): number {
 export const wheelZoom = (z: number, deltaY: number, deltaMode = 0) =>
   clampZoom(Math.round(z * Math.exp(-(deltaMode === 1 ? deltaY * 16 : deltaY) * 0.01) * 100) / 100); // deltaMode 1: a mouse wheel counts lines
 
-/** Keeps the view inside the w x h map. Zoomed out past 1 the whole map fits, so it stays centred. */
-export function clampCam(c: Cam, w: number, h: number): Cam {
-  const zoom = clampZoom(c.zoom);
-  if (zoom <= 1) return { zoom, x: w / 2, y: h / 2 };
-  const hw = w / 2 / zoom;
-  const hh = h / 2 / zoom;
-  return { zoom, x: Math.max(hw, Math.min(w - hw, c.x)), y: Math.max(hh, Math.min(h - hh, c.y)) };
+/** Keeps the view inside the w x h map; an axis the whole map fits on stays centred. The view is viewW x viewH logical px
+ * at zoom 1 (the map's own size unless the canvas is wider or taller); `min` lets a stack zoom out below ZOOM_MIN. */
+export function clampCam(c: Cam, w: number, h: number, viewW = w, viewH = h, min = ZOOM_MIN): Cam {
+  const zoom = Math.max(min, Math.min(ZOOM_MAX, c.zoom));
+  const axis = (p: number, size: number, view: number) => {
+    const half = view / 2 / zoom;
+    return half * 2 >= size ? size / 2 : Math.max(half, Math.min(size - half, p));
+  };
+  return { zoom, x: axis(c.x, w, viewW), y: axis(c.y, h, viewH) };
 }
 
 /** New zoom z2 with the logical point under the cursor unchanged. (px, py): the cursor's logical offset from the view centre. */
