@@ -704,3 +704,24 @@ describe("sync.acked", () => {
     expect(sync.acked.patients.size).toBe(12);
   });
 });
+
+describe("sync.generation", () => {
+  it("changes on every register and on resume, and not on a plain flush", async () => {
+    const { s, src } = start();
+    const { net, sync } = fake();
+    const g0 = sync.generation;
+    await sync.start(s, src);
+    const g1 = sync.generation;
+    expect(g1).toBeGreaterThan(g0);
+    run(s, src, 5);
+    net.batch = 404;
+    await sync.flush(); // 404: register() again
+    expect(sync.generation).toBeGreaterThan(g1);
+    const g2 = sync.generation;
+    net.batch = 204;
+    await sync.flush();
+    expect(sync.generation).toBe(g2);
+    await sync.resume(s, src, sync.run);
+    expect(sync.generation).toBeGreaterThan(g2);
+  });
+});

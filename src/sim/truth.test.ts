@@ -231,6 +231,21 @@ describe("the poster: each answer", () => {
 });
 
 describe("the poster: a row waits for its acknowledgement", () => {
+  it("logs an overflow once, not on every offer of the same lost row", () => {
+    const { poster, logs } = setup();
+    poster.offer(7, 0, Array.from({ length: 200 }, (_, i) => ep(`p${i}`, 100 + i)), acked(null)); // 200 rows wait
+    for (let i = 0; i < 5; i++) poster.offer(7, 0, [ep("old", 1)], acked(null)); // a present patient with an older start: over the bound
+    expect(logs).toEqual(["episodes run 7: dropped"]);
+  });
+
+  it("posts a row offered before any acknowledgement, after the patient left and the ack then came", async () => {
+    const { poster, calls } = setup();
+    poster.offer(7, 0, [ep("a", 50)], acked(null)); // offered: nothing acknowledged yet
+    poster.offer(7, 0, [], acked(60, "a")); // a has left; the admission batch is now acknowledged
+    await poster.tick();
+    expect(calls.map((c) => c.body.episodes)).toEqual([[ep("a", 50)]]);
+  });
+
   it("is posted after the patient left the ward, 61 s after a 404", async () => {
     const { poster, calls, clock, net } = setup(404);
     const a = acked(60, "a", "b");

@@ -93,12 +93,15 @@ export function createTruthPoster({ apiUrl, key, fetch: send, now, log }: TruthO
         continue;
       }
       seen.add(row.patient_id);
-      if (sent.get(row.patient_id) !== text) waiting.set(row.patient_id, row);
+      if (sent.get(row.patient_id) !== text && !dropped.has(`${text}|overflow`)) waiting.set(row.patient_id, row);
     }
     // At most 200 rows wait: the oldest start goes first.
     if (waiting.size > MAX_ROWS) {
       const oldest = [...waiting.values()].sort((a, b) => a.start_minute - b.start_minute);
-      for (const e of oldest.slice(0, waiting.size - MAX_ROWS)) waiting.delete(e.patient_id);
+      for (const e of oldest.slice(0, waiting.size - MAX_ROWS)) {
+        waiting.delete(e.patient_id);
+        dropped.add(`${JSON.stringify(e)}|overflow`); // never offered again in this run, so the line below is written once
+      }
       if (run !== null) line(run, "dropped"); // one line for the whole overflow
     }
   }

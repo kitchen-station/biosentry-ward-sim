@@ -24,7 +24,7 @@ Only `npm run ward` (`src/headless.ts`) creates the poster. The key goes in the 
 A row that would break the wire contract is refused here before sending, with one log line. A log line holds only the run id and the status. It never holds the key, a body or a header.
 
 ## Rows that wait, and new registrations
-- A row waits for its acknowledgement even after the patient has left the ward. The runner keeps it and posts it once the API knows the patient and the batch minute. At most 200 rows wait; past that the oldest start is dropped with one log line.
+- A row waits for its acknowledgement even after the patient has left the ward. The runner keeps it and posts it once the API knows the patient and the batch minute. At most 200 rows wait; past that the row with the oldest start is dropped for the rest of the run, with one log line for each overflow.
 - The poster tells runs apart by the pair (run id, registration number from `sync.generation`). If the API hands out the same run id again after its own reset, the poster still starts clean, and a 409 stop does not carry over.
 
 ## A limit this slice does not fix
