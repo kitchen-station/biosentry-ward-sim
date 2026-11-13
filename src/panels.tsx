@@ -49,7 +49,7 @@ export function clockText(src: VitalsSource, minute: number) {
 const dateText = (minute: number) =>
   new Date(Date.UTC(2026, 8, 3, 15, minute)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
-const stamp = (src: VitalsSource, minute: number) =>
+export const stamp = (src: VitalsSource, minute: number) =>
   src.synthetic ? `${dateText(minute)}, ${clockText(src, minute)}` : clockText(src, minute);
 
 /** Exported for the test: 5d 3h, 3h 5m or 12m. */
@@ -112,6 +112,7 @@ export function TopBar({
   onSpeed,
   hospital,
   readClock,
+  page,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -126,11 +127,19 @@ export function TopBar({
   onSpeed?: (speed: Speed) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: string[]; onScenario: (name: string) => void };
+  /** The page shown. Left out, there is no switch. The links change the URL hash and nothing else. */
+  page?: "simulation" | "analytics";
 }) {
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
+      {page && (
+        <nav aria-label="View">
+          <a href="#simulation" aria-current={page === "simulation" ? "page" : undefined}>Simulation</a>
+          <a href="#analytics" aria-current={page === "analytics" ? "page" : undefined}>Analytics</a>
+        </nav>
+      )}
       <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
       <span className="pill" title="Simulation speed">
         {s.speed === 0 ? "Paused" : `${s.speed}x`}

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { floorOf } from "./hospital-panels";
 import { fetchOpenWard, nextGate, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
-import { BedTimeline, Inspector, SelectList, selectTargets, TopBar, VIEW_API, ZoomBar } from "./panels";
+import { BedTimeline, Inspector, SelectList, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
@@ -16,6 +16,7 @@ import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
 import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
+import { createWardStats, feed, summary } from "./sim/ward-stats";
 import { createReader, ease, finishedStays, type LiveView, type StayRow } from "./sim/view";
 import { createViewClock, frameDt, frameTicks } from "./clock";
 import { createPerf, perfLine, whileVisible } from "./perf";
@@ -37,6 +38,9 @@ const SKIP_CHUNK_MS = 12; // the page paints between chunks of this long
 const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
 // Once per page load: a restart replaces its own run.
 let CLIENT_ID: string | null = null;
+// The Analytics page loads when it is first opened. ward-stats.ts stays in this chunk: its history starts with the run.
+const Insights = lazy(() => import("./insights/Insights"));
+const pageOf = () => (window.location.hash === "#analytics" ? ("analytics" as const) : ("simulation" as const));
 const PERF = new URLSearchParams(window.location.search).has("perf"); // the timing readout (perf.ts); off, none of it runs
 
 function newWorld(scenario = "typical"): { s: Sim; src: VitalsSource } {
@@ -139,6 +143,13 @@ type Watch = { first: OpenWard; onBody: (w: OpenWard) => void; onGone: () => voi
 
 function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut: () => void; watch?: Watch }) {
   const [world, setWorld] = useState(() => newWorld());
+  const statsRef = useRef(createWardStats()); // beside the world, not in it: replaced with the world, fed after every step. A viewer never feeds it.
+  const [page, setPage] = useState(pageOf);
+  useEffect(() => {
+    const onHash = () => setPage(pageOf());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const [viewClock] = useState(createViewClock);
   const [scenario, setScenario] = useState("typical");
   const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else the floor pulled out
@@ -307,7 +318,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
       const [ticks, left] = frameTicks(spare, dt);
       spare = left;
       for (let i = 0; i < ticks; i++) {
-        if (!VIEW_API && !skippingRef.current) step(s, src); // a viewer draws the runner's ward and never advances one
+        if (!VIEW_API && !skippingRef.current) {
+          step(s, src); // a viewer draws the runner's ward and never advances one
+          feed(statsRef.current, s, src);
+        }
       }
       if (perf) perf.step(performance.now() - t0, minuteOf(s) - m0);
       if (VIEW_API) {
@@ -419,6 +433,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   const restart = (name = scenario) => {
     rendererRef.current?.reset();
     select(null);
+    statsRef.current = createWardStats();
     setWorld(newWorld(name));
   };
 
@@ -441,7 +456,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
       s.speed = 60;
       const until = performance.now() + SKIP_CHUNK_MS;
       while (left > 0 && performance.now() < until) {
-        for (let i = 0; i < 200 && left > 0; i += 1, left -= 1) step(s, src);
+        for (let i = 0; i < 200 && left > 0; i += 1, left -= 1) {
+          step(s, src);
+          feed(statsRef.current, s, src);
+        }
       }
       s.moves.length = 0; // as skipDay: a day of trolleys at once would only be noise
       if (left > 0) return void (skipTimer.current = setTimeout(run, 0));
@@ -513,6 +531,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   return (
     <div className="app">
       <TopBar
+        page={page}
         s={world.s}
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
@@ -529,7 +548,23 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
             : undefined
         }
       />
-      <main className="main">
+      {page === "analytics" && (
+        <main className="main insightsmain">
+          {watch ? (
+            <p className="insights">Sign in to see ward analytics</p>
+          ) : (
+            <Suspense fallback={<p className="tag">loading</p>}>
+              <Insights
+                mode={VIEW_API ? "viewer" : HOSPITAL ? "hospital" : "ward"}
+                summary={VIEW_API ? null : summary(statsRef.current)}
+                patients={world.s.patients}
+                label={(m) => stamp(world.src, m)}
+              />
+            </Suspense>
+          )}
+        </main>
+      )}
+      <main className="main" hidden={page === "analytics"}>
         <div className="floor">
           <canvas
             ref={canvasRef}

@@ -308,7 +308,7 @@ function diastolicWithin(systolic: number, diastolic: number) {
 const wanderSd = (v: Vital) => Math.sqrt(Math.max(0, fit.vitals[v].sd ** 2 - fit.vitals[v].loading ** 2));
 
 const DAY_MIN = 1440;
-const START_CLOCK_MIN = 15 * 60; // the sim starts at 15:00
+export const START_CLOCK_MIN = 15 * 60; // the sim starts at 15:00
 
 // Philippine length of stay in days, lognormal from PhilHealth medians and spreads.
 // shortcut: the mix between conditions is a judgement, no published whole-ward case mix exists.

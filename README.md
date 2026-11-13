@@ -186,6 +186,10 @@ VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
 - Staff move in 2-second jumps.
 - The session token is kept in memory only, so a reload signs out.
 
+## Analytics page
+
+The top bar has two links, Simulation and Analytics. Analytics shows charts for the hospital, for ward W4 and for one person, from the run in the page. The data is synthetic and the page makes no outcome claim. In a viewer build the ward and hospital charts say "Not available from the runner yet". See [docs/ward-analytics.md](docs/ward-analytics.md).
+
 ## What you can do
 
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.
