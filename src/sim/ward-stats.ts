@@ -28,9 +28,10 @@ export interface WardSummary {
   levels: { m: number; low: number; low_medium: number; medium: number; high: number; not_ranked: number; beds: number }[];
   shifts: { start: number; alerts: number; patientMin: number; partial: boolean }[];
   stays: { inMin: number; outMin: number; outcome: "discharged" | "higher_care" }[];
-  // The simulator's own truth (owner decision sim-lab-4). Null with no source that can save. No patient id, no outcome.
+  // The simulator's own truth (owner decision sim-lab-4). Null with no source that can save. No patient id, no outcome, and no
+  // ramp or end of window: nothing here gives a time that is still ahead of the clock.
   episodes:
-    | { start: number; rampMin: number; fullIn: number; kind: string; alertMin: number | null; minutesBetween: number | null; windowOpen: boolean }[]
+    | { start: number; kind: string; alertMin: number | null; minutesBetween: number | null; windowOpen: boolean }[]
     | null;
   staff: { hour: number; rn: number; charge_rn: number; md: number }[] | null; // not computed in version 1
   hospital: {
@@ -53,10 +54,11 @@ export interface WardStats {
   alert: Record<string, [armed: boolean, quiet: number, last: number]>; // per patient in the ward: compare's re-arm rule
   hospital: WardSummary["hospital"];
   ep: { id: string; start: number; rampMin: number; kind: string; alertMin: number | null; done: boolean }[] | null; // null: no truth to read
+  epSeen: string[]; // ids of patients in the ward whose episode was recorded, kept when the list is capped, so an evicted one does not come back
 }
 
 export function createWardStats(): WardStats {
-  return { from: null, to: 0, next: BIN_MIN, at: 0, stage: null, levels: [], shifts: [], stays: [], lastOut: 0, alert: {}, hospital: null, ep: null };
+  return { from: null, to: 0, next: BIN_MIN, at: 0, stage: null, levels: [], shifts: [], stays: [], lastOut: 0, alert: {}, hospital: null, ep: null, epSeen: [] };
 }
 
 const shiftStartOf = (m: number) => m - ((START_CLOCK_MIN + m - SHIFT_START_CLOCK_MIN) % SHIFT_MIN);
@@ -100,7 +102,8 @@ function close(st: WardStats, s: Sim, m: number, src?: VitalsSource) {
     const saved = src.save(s.patients.map((p) => p.id));
     for (const p of s.patients) {
       const t = saved.streams[p.id] as { episode: { kind: string } | null; injectAt: number | null; rampMin: number } | undefined;
-      if (!t || t.episode === null || t.injectAt === null || t.injectAt > m || p.stay.inMin <= 0 || t.injectAt < p.stay.inMin || st.ep.some((e) => e.id === p.id)) continue;
+      if (!t || t.episode === null || t.injectAt === null || t.injectAt > m || p.stay.inMin <= 0 || t.injectAt < p.stay.inMin || st.epSeen.includes(p.id)) continue;
+      st.epSeen.push(p.id);
       st.ep.push({ id: p.id, start: t.injectAt, rampMin: t.rampMin, kind: t.episode.kind, alertMin: null, done: false });
     }
     if (st.ep.length > CAPS.episodes) st.ep.splice(0, st.ep.length - CAPS.episodes);
@@ -131,6 +134,7 @@ function close(st: WardStats, s: Sim, m: number, src?: VitalsSource) {
   }
   const here = new Set(s.patients.map((p) => p.id));
   for (const e of st.ep ?? []) if (!e.done && (e.alertMin !== null || m >= e.start + e.rampMin + WINDOW_AFTER_FULL_MIN || !here.has(e.id))) e.done = true;
+  st.epSeen = st.epSeen.filter((id) => here.has(id)); // a patient who left cannot come back: ids are per admission
   for (const id of Object.keys(st.alert)) if (!here.has(id)) delete st.alert[id];
   st.levels.push(row);
   if (st.levels.length > CAPS.levels) st.levels.shift();
@@ -156,7 +160,7 @@ function close(st: WardStats, s: Sim, m: number, src?: VitalsSource) {
 export function summary(st: WardStats): WardSummary {
   const copy = structuredClone({ levels: st.levels, shifts: st.shifts, stays: st.stays, hospital: st.hospital });
   // minutesBetween is whole minutes; compare keeps the fraction. A new alert is never before the start, so it is never negative.
-  const episodes = st.ep && st.ep.map((e) => ({ start: e.start, rampMin: e.rampMin, fullIn: e.start + e.rampMin, kind: e.kind, alertMin: e.alertMin, minutesBetween: e.alertMin === null ? null : Math.round(e.alertMin - e.start), windowOpen: !e.done }));
+  const episodes = st.ep && st.ep.map((e) => ({ start: e.start, kind: e.kind, alertMin: e.alertMin, minutesBetween: e.alertMin === null ? null : Math.round(e.alertMin - e.start), windowOpen: !e.done }));
   const from = st.from ?? 0;
   return {
     version: 1,

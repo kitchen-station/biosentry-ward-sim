@@ -14,9 +14,9 @@ const summary: WardSummary = {
   shifts: [{ start: -480, alerts: 41, patientMin: 5400, partial: true }, { start: 240, alerts: 47, patientMin: 8100, partial: false }],
   stays: [{ inMin: 10, outMin: 700, outcome: "discharged" }, { inMin: 20, outMin: 3000, outcome: "higher_care" }],
   episodes: [
-    { start: 300, rampMin: 60, fullIn: 360, kind: "sepsis_like", alertMin: 315, minutesBetween: 15, windowOpen: false },
-    { start: 120, rampMin: 30, fullIn: 150, kind: "sepsis_like", alertMin: null, minutesBetween: null, windowOpen: false },
-    { start: 590, rampMin: 60, fullIn: 650, kind: "sepsis_like", alertMin: null, minutesBetween: null, windowOpen: true },
+    { start: 300.4, kind: "sepsis_like", alertMin: 315, minutesBetween: 15, windowOpen: false },
+    { start: 120, kind: "sepsis_like", alertMin: null, minutesBetween: null, windowOpen: false },
+    { start: 590, kind: "sepsis_like", alertMin: null, minutesBetween: null, windowOpen: true },
   ],
   staff: null,
   hospital: {
@@ -90,6 +90,7 @@ describe("the Analytics page", () => {
     walk(person);
     for (const m of [30, 90]) given.add(String(m)); // through label()
     given.add(String(WINDOW_AFTER_FULL_MIN)); // the window rule line, read from the constant
+    for (const e of summary.episodes!) given.add(String(Math.floor(e.start))); // a start prints as a whole-minute clock time
     // A vital printed by the ward's own formatter (VITAL_CARD digits) from a datum.
     for (const [k, xs] of Object.entries(person.history)) for (const x of xs) if (x !== null) given.add(x.toFixed(VITAL_CARD[k as keyof typeof VITAL_CARD].digits));
     // Fixed words with digits: names of things, the 3 h window, the demo line, the dashed line at 5.
@@ -155,12 +156,12 @@ describe("the simulated episodes table", () => {
   const html = render("hospital", summary);
   it("renders a table with a caption, column headers and one row per episode, newest first", () => {
     expect(html).toContain("<caption>Simulated episodes</caption>");
-    expect(count(html, '<th scope="col">')).toBe(5);
-    const rows = [...html.matchAll(/<tr><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><\/tr>/g)].map((m) => m.slice(1));
+    expect(count(html, '<th scope="col">')).toBe(4);
+    const rows = [...html.matchAll(/<tr><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><\/tr>/g)].map((m) => m.slice(1));
     expect(rows).toEqual([
-      ["t590", "sepsis_like", "window still open", "", "t650"],
-      ["t300", "sepsis_like", "t315", "15", "t360"],
-      ["t120", "sepsis_like", "none in the window", "", "t150"],
+      ["t590", "sepsis_like", "window still open", ""],
+      ["t300", "sepsis_like", "t315", "15"],
+      ["t120", "sepsis_like", "none in the window", ""],
     ]);
   });
   it("has the exact label and rule lines, and the empty and missing messages", () => {
@@ -171,13 +172,23 @@ describe("the simulated episodes table", () => {
     expect(render("hospital", { ...summary, episodes: null })).not.toContain("<table");
   });
   it("caps the rows on screen at 50 and says so", () => {
-    const many = Array.from({ length: 60 }, (_, i) => ({ start: i, rampMin: 1, fullIn: i + 1, kind: "k", alertMin: null, minutesBetween: null, windowOpen: false }));
+    const many = Array.from({ length: 60 }, (_, i) => ({ start: i, kind: "k", alertMin: null, minutesBetween: null, windowOpen: false }));
     const out = render("hospital", { ...summary, episodes: many });
     expect(count(out, "<td>none in the window</td>")).toBe(50);
     expect(out).toContain("Showing the newest 50 of 60");
   });
   it("uses no outcome or judgement word in the Ward section", () => {
-    expect(ward(html)).not.toMatch(/\b(caught|missed|late|early|in time|benefit|saved|prevented)\b/i); // whole words: "Simulated" holds "late"
+    expect(ward(html)).not.toMatch(/\b(caught|missed|late|early|in time|benefit|saved|prevented|delayed|faster|better)\b/i); // whole words: "Simulated" holds "late"
+  });
+  it("prints the stored minutes between, not one worked out from a fractional start", () => {
+    expect(html).toContain("<td>15</td>"); // start 300.4, first alert 315: the page must not print 14.6
+    expect(text(html)).not.toContain("14.6");
+    expect(html).not.toMatch(/Fully in|fullIn/);
+  });
+  it("shows an empty cell, not the word undefined, when kind is missing", () => {
+    const out = render("hospital", { ...summary, episodes: [{ ...summary.episodes![0], kind: undefined as unknown as string }] });
+    expect(out).toContain("<td></td>");
+    expect(out).not.toContain("undefined");
   });
   it("escapes a hostile kind", () => {
     const bad = "<img src=x onerror=alert(1)>";

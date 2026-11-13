@@ -196,17 +196,15 @@ function Episodes({ mode, sum, label }: { mode: Mode; sum: WardSummary | null; l
                 <th scope="col">Kind</th>
                 <th scope="col">First alert</th>
                 <th scope="col">Minutes between</th>
-                <th scope="col">Fully in</th>
               </tr>
             </thead>
             <tbody>
               {rows.slice(0, EP_SHOWN).map((e, i) => (
                 <tr key={i}>
                   <td>{at(e.start)}</td>
-                  <td>{String(e.kind)}</td>
+                  <td>{typeof e.kind === "string" ? e.kind : ""}</td>
                   <td>{fin(e.alertMin) ? at(e.alertMin) : e.windowOpen ? "window still open" : "none in the window"}</td>
                   <td>{fin(e.minutesBetween) ? n(e.minutesBetween) : ""}</td>
-                  <td>{fin(e.fullIn) ? at(e.fullIn) : ""}</td>
                 </tr>
               ))}
             </tbody>
