@@ -7,11 +7,7 @@ import { BedTimeline, Inspector, SelectList, selectTargets, stamp, TopBar, VIEW_
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
-import { createHospitalSim } from "./sim/hospital/attach";
-import { parseScenario } from "./sim/hospital/scenario";
-import doh from "../scenarios/hospital/doh-standard.json?raw";
-import surge from "../scenarios/hospital/surge.json?raw";
-import typical from "../scenarios/hospital/typical.json?raw";
+import { buildQuery, buildWorld, drawSeed, NAMED, parseQuery, seedText } from "./scenarios";
 import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
 import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
@@ -31,8 +27,6 @@ type Point = { x: number; y: number };
 // Viewer mode's source: it reads nothing and has no inject, startAf or admit, so the panels offer none of them.
 const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
 
-const SCENARIOS: Record<string, string> = { typical, "doh-standard": doh, surge };
-const HOSPITAL_SEED = 101;
 const DAY_STEPS = 1440 * 60; // sim.ts skipDay: MINUTES_PER_DAY (1440, not exported) x 60 steps a minute at speed 60
 const SKIP_CHUNK_MS = 12; // the page paints between chunks of this long
 // A hospital world needs no API and is never a viewer. Nothing is saved by the page, so a reload starts fresh.
@@ -45,10 +39,13 @@ let Insights = lazy(loadInsights);
 const pageOf = () => (window.location.hash === "#analytics" ? ("analytics" as const) : ("simulation" as const));
 const PERF = new URLSearchParams(window.location.search).has("perf"); // the timing readout (perf.ts); off, none of it runs
 
-function newWorld(scenario = "typical"): { s: Sim; src: VitalsSource } {
+// What the standalone page runs: a named scenario, and a seed that replaces both fixed seeds (null: the scenario's own).
+type Pick = { id: string; seed: number | null };
+
+function newWorld(pick: Pick): { s: Sim; src: VitalsSource } {
   if (VIEW_API) return { s: createReader()({ shared: null, patients: [] }), src: VIEW_SOURCE }; // empty until the first answer
+  if (HOSPITAL) return buildWorld(pick.id, pick.seed);
   const src = createSyntheticSource(FIXTURE_SEED, true);
-  if (HOSPITAL) return { s: createHospitalSim(src, parseScenario(SCENARIOS[scenario]), HOSPITAL_SEED), src };
   return { s: createSim(src), src };
 }
 
@@ -144,7 +141,8 @@ export function App() {
 type Watch = { first: OpenWard; onBody: (w: OpenWard) => void; onGone: () => void; onLeave: () => void };
 
 function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut: () => void; watch?: Watch }) {
-  const [world, setWorld] = useState(() => newWorld());
+  const [pick, setPick] = useState<Pick>(() => parseQuery(window.location.search)); // only the standalone page reads it
+  const [world, setWorld] = useState(() => newWorld(pick));
   const statsRef = useRef(createWardStats()); // beside the world, not in it: replaced with the world, fed after every step. A viewer never feeds it.
   const [page, setPage] = useState(pageOf);
   useEffect(() => {
@@ -153,7 +151,6 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
   const [viewClock] = useState(createViewClock);
-  const [scenario, setScenario] = useState("typical");
   const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else the floor pulled out
   const [skipping, setSkipping] = useState(false);
   const skippingRef = useRef(false);
@@ -432,11 +429,15 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   const goRef = useRef(go);
   goRef.current = go;
 
-  const restart = (name = scenario) => {
+  const restart = (next = pick) => {
     rendererRef.current?.reset();
     select(null);
     statsRef.current = createWardStats();
-    setWorld(newWorld(name));
+    setWorld(newWorld(next));
+    if (HOSPITAL) {
+      setPick(next);
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${buildQuery(window.location.search, next.id, next.seed)}${window.location.hash}`);
+    }
   };
 
   const floors = world.s.hospital ? floorSummary(world.s.hospital, Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null]))) : [];
@@ -544,8 +545,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         hospital={
           world.s.hospital
             ? {
-                skipping, onSkip: skipDayChunked, scenario, scenarios: Object.keys(SCENARIOS),
-                onScenario: (name) => { setScenario(name); setView(null); restart(name); },
+                skipping, onSkip: skipDayChunked, scenario: pick.id, scenarios: NAMED,
+                seedText: seedText(pick.id, pick.seed),
+                onScenario: (id) => { setView(null); restart({ id, seed: pick.seed }); },
+                onShuffle: HOSPITAL ? () => { setView(null); restart({ id: pick.id, seed: drawSeed(() => crypto.getRandomValues(new Uint32Array(1))[0]) }); } : undefined,
               }
             : undefined
         }
