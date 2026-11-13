@@ -262,19 +262,21 @@ describe("outcome model", () => {
     expect(excessAt(2, 4)).toBeGreaterThan(excessAt(1, 4));
   });
 
-  // A stub trial: each seed has two episodes where the chart trigger fires 1 h before ge_5, and one patient who leaves first.
+  // A stub trial: each seed has two episodes where the chart trigger fires 1 h before ge_5, one patient who leaves first,
+  // and n-0004, whose breathing scores a single 3 from admission: the chart trigger alerted long before the window, so in the
+  // window it is true with no new alert, while ge_5 is never true and a round recognises the episode.
   const row = (id: string, minute: number, rr: number, hr: number) => {
     const r = scoreNews2({ respiratory_rate: rr, spo2: 97, spo2_scale: 1, supplemental_o2: false, systolic_bp: 120, heart_rate: hr, consciousness: "A", temperature: 37 });
     return `${id},${minute},${hr},${rr},97,37,120,80,10,A,0,1,100,1,${r.kind === "score" ? r.total : ""}`;
   };
   const stub = ((o: { seed: number }) => {
     const [c, e] = [[COHORT_HEADER], [EPISODES_HEADER]];
-    for (const [id, admit, start] of [["n-0001", 20, 300 + 15 * (o.seed % 4)], ["n-0002", 100, 600], ["n-0003", 90, 400]] as [string, number, number][]) {
+    for (const [id, admit, start] of [["n-0001", 20, 300 + 15 * (o.seed % 4)], ["n-0002", 100, 600], ["n-0003", 90, 400], ["n-0004", 100, 710]] as [string, number, number][]) {
       const leave = id === "n-0003" ? 430 : 1500; // n-0003 never deviates and leaves before its round
       e.push(`${id},${admit},${leave},,respiratory,${start},60,,,0`);
       for (let m = 105; m <= leave - 15; m += 15) {
-        const dev = id !== "n-0003" && m >= start + 30 && m < start + 180;
-        c.push(row(id, m, dev ? 25 : 16, dev && m >= start + 90 ? 130 : 80));
+        const dev = id !== "n-0003" && id !== "n-0004" && m >= start + 30 && m < start + 180;
+        c.push(row(id, m, dev || id === "n-0004" ? 25 : 16, dev && id !== "n-0004" && m >= start + 90 ? 130 : 80));
       }
     }
     return { "manifest.json": "", "cohort.csv": `${c.join("\n")}\n`, "episodes.csv": `${e.join("\n")}\n`, "summary.json": '{"patient_days":3}' };
@@ -290,9 +292,18 @@ describe("outcome model", () => {
     const o = j.outcome_model;
     expect(Object.keys(o)).toEqual(["label", "parameter", "assumption", "recognition_rule", "arms", "difference", "spread", "paired_episodes", "sensitivity", "notes"]);
     expect(o.label).toBe(LABEL);
-    expect(o.arms.baseline).toMatchObject({ episodes_evaluated: 60, recognised_by_rule: 40, recognised_by_round: 0, unrecognised_at_leave_or_run_end: 20 });
+    expect(o.arms.baseline).toMatchObject({ episodes_evaluated: 80, recognised_by_rule: 40, recognised_by_rule_without_new_alert: 0, recognised_by_round: 20, unrecognised_at_leave_or_run_end: 20 });
+    // n-0004 under the chart trigger: recognised by a true bin although re-arm gave it no new alert in the window.
+    expect(o.arms.change).toMatchObject({ episodes_evaluated: 80, recognised_by_rule: 60, recognised_by_rule_without_new_alert: 20, recognised_by_round: 0, unrecognised_at_leave_or_run_end: 20 });
+    // The price of the wider rule is in the same table and in a note.
+    expect([o.arms.baseline.alerts, o.arms.change.alerts]).toEqual([j.arms.baseline.pooled.alerts, j.arms.change.pooled.alerts]);
+    expect([o.arms.baseline.bins_alerting, o.arms.change.bins_alerting]).toEqual([j.arms.baseline.pooled.bins_alerting, j.arms.change.pooled.bins_alerting]);
+    expect(o.arms.change.bins_alerting).toBeGreaterThan(o.arms.baseline.bins_alerting);
+    expect(o.notes.join("\n")).toContain(`the price is its extra alerts (alerts and bins_alerting, change minus baseline: ${o.difference.alerts} and ${o.difference.bins_alerting}), which this block does not weigh`);
+    expect(o.notes.join("\n")).toContain("no patient changes: nobody dies on W4, no vital sign is altered and no recovery is drawn");
+    expect(o.parameter).toMatchObject({ value: 1.02, tag: "cited", applied_to_tag: "judgement", interval_95: [1, 1.04], baseline_risk: 0.274, baseline_risk_at_hours: 6.3, anchor_tag: "judgement" });
     expect(o.arms.baseline.recognition_delay_mean_hours).toBeGreaterThan(o.arms.change.recognition_delay_mean_hours);
-    expect(o.paired_episodes).toMatchObject({ episodes_paired: 60, change_earlier: 40, same_minute: 20, change_later: 0 });
+    expect(o.paired_episodes).toMatchObject({ episodes_paired: 80, change_earlier: 60, same_minute: 20, change_later: 0 });
     expect(o.arms.change.modelled_excess_bad_outcomes_per_100_episodes).toBeLessThan(o.arms.baseline.modelled_excess_bad_outcomes_per_100_episodes);
     expect(o.sensitivity.map((s: { assumption: string }) => s.assumption)).toEqual(["zero", "half", "central", "double"]);
     expect(o.sensitivity.map((s: { odds_ratio_per_hour: number }) => s.odds_ratio_per_hour)).toEqual([1, 1.01, 1.02, 1.0404]);
@@ -303,7 +314,8 @@ describe("outcome model", () => {
     expect(central.difference).toBe(o.difference.modelled_excess_bad_outcomes_per_100_episodes);
     const txt = files["compare.txt"];
     expect(txt.split(LABEL).length - 1).toBeGreaterThanOrEqual(2);
-    expect(txt).toContain(`\n${LABEL}\nparameter: odds of a bad outcome multiplied by 1.02 for each hour of recognition delay [cited: Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first NEWS of 7 or more to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h]\n`);
+    expect(txt).toContain(`\n${LABEL}\nparameter: 1.02, the odds ratio the cited paper gives for score-to-door time measured in hours, applied here to each hour of recognition delay (that transfer is judgement) [cited: Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h]\nunder the assumption that `);
+    expect(txt).toContain("\noutcome model: spread of the per-seed difference (change minus baseline)\n");
     expect(txt).toContain(`\n${LABEL}: sensitivity to the odds ratio per hour`);
     expect(txt).toMatch(/^zero +1 +0 +0 +0$/m);
     // after the paired block, before the notes; the old "no outcome is given" note is replaced by the block's own
@@ -322,6 +334,13 @@ describe("outcome model", () => {
     expect(plain["compare.json"]).not.toContain("outcome_model");
     expect(plain["compare.txt"]).not.toContain("MODEL ASSUMPTION");
     expect(JSON.parse(plain["compare.json"]).notes.at(-1)).toMatch(/^no outcome is given: /);
+  });
+
+  it("the exported function also refuses fewer than 20 seeds, and a run with no evaluated episode", () => {
+    expect(() => compareW4Seeds(4, 19, 7, "news2_total_ge_5", "news2_chart_trigger", stub, true)).toThrow(/^--outcome-model needs --seeds 20 or more \(one seed, or a few, is noise\)$/);
+    const empty = (() => ({ "manifest.json": "", "cohort.csv": `${COHORT_HEADER}\n`, "episodes.csv": `${EPISODES_HEADER}\n`, "summary.json": '{"patient_days":1}' })) as never;
+    expect(() => compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", empty, true)).toThrow(/^--outcome-model: no episode was evaluated in these seeds, so there is nothing to model$/);
+    expect(compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", empty)["compare.json"]).not.toContain("outcome_model"); // the plain report still works
   });
 
   it("each refusal gives its line, writes nothing and returns at once", () => {

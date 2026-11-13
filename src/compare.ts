@@ -81,9 +81,9 @@ function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles
     L.push("", o.label, PARAMETER_LINE, ASSUMPTION, RECOGNITION_RULE, `${"metric".padEnd(ow)}${"baseline".padStart(14)}${"change".padStart(14)}${"difference".padStart(14)}`);
     for (const p of Object.keys(ob)) L.push(`${p.padEnd(ow)}  ${cell(ob[p])}  ${cell(oc[p])}  ${cell(od[p])}`);
     const cols = ["seeds_with_value", "min", "median", "max", "mean", "sd"];
-    L.push("", "spread of the per-seed difference (change minus baseline)", `${"metric".padEnd(ow)}${cols.map((k) => k.padStart(18)).join("")}`);
+    L.push("", "outcome model: spread of the per-seed difference (change minus baseline)", `${"metric".padEnd(ow)}${cols.map((k) => k.padStart(18)).join("")}`);
     for (const [k, v] of Object.entries(o.spread)) L.push(`${k.padEnd(ow)}${cols.map((c) => cell((v as Json)[c]).padStart(18)).join("")}`);
-    L.push("", "same episode under both rules: delay and modelled excess of the change rule minus the baseline rule's (negative: the change rule recognised earlier)");
+    L.push("", "outcome model: same episode under both rules, delay and modelled excess of the change rule minus the baseline rule's (negative: the change rule recognised earlier)");
     for (const [k, v] of Object.entries(op)) L.push(`${k.padEnd(ow)}  ${cell(v)}`);
     L.push("", `${o.label}: sensitivity to the odds ratio per hour (modelled excess per 100 episodes)`, `${"assumption".padEnd(12)}${["odds_ratio_per_hour", "baseline", "change", "difference"].map((k) => k.padStart(20)).join("")}`);
     for (const s of o.sensitivity) L.push(`${s.assumption.padEnd(12)}${[s.odds_ratio_per_hour, s.baseline, s.change, s.difference].map((v) => cell(v).padStart(20)).join("")}`);
@@ -190,8 +190,8 @@ const ROUND_WATCH_MIN = PARAMS.obs.intervalMin.watch.value; // cited: NEWS2 Char
 const ROUND_CONTINUOUS_MIN = 15; // judgement: "continuous" at 7 or more read as the next 15-minute bin, the data's resolution
 const ROUND_UNRANKED_MIN = ROUND_LOW_MIN; // judgement: NOT RANKED or before the first row, the shorter choice, so it lowers delays
 const SENSITIVITY: [string, number][] = [["zero", 0], ["half", 0.5], ["central", 1], ["double", 2]]; // judgement: multiples of the log odds ratio
-const REFERENCE = `Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first NEWS of 7 or more to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h`;
-const PARAMETER_LINE = `parameter: odds of a bad outcome multiplied by 1.02 for each hour of recognition delay [cited: ${REFERENCE}]`;
+const REFERENCE = `Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h`;
+const PARAMETER_LINE = `parameter: 1.02, the odds ratio the cited paper gives for score-to-door time measured in hours, applied here to each hour of recognition delay (that transfer is judgement) [cited: ${REFERENCE}]`;
 const ASSUMPTION = "under the assumption that each hour from the true start of an episode to its recognition multiplies the odds of a bad outcome by 1.02, as the time from a high NEWS to critical care was associated with hospital mortality in one London cohort; this is an association in other patients, not a measured effect of earlier recognition";
 const RECOGNITION_RULE = "recognition = the first 15-minute bin in the episode window where the rule is true, or the next scheduled NEWS2 round, whichever comes first (or the patient leaving, or the run ending)";
 
@@ -230,7 +230,7 @@ const recsOf = (byPatient: Map<string, Row[]>, hit: Hit, episodes: string[][], d
 
 const per100 = (recs: Rec[], s: number) => (recs.length === 0 ? null : r4((100 * sum(recs.map((x) => excessAt(s, x.delayMin / 60)))) / recs.length));
 const meanHours = (recs: Rec[]) => (recs.length === 0 ? null : r4(sum(recs.map((x) => x.delayMin)) / 60 / recs.length));
-const outcomeArm = (recs: Rec[]) => ({
+const outcomeArm = (recs: Rec[], cost: Cost) => ({
   episodes_evaluated: recs.length,
   recognised_by_rule: recs.filter((x) => x.how === "rule").length,
   recognised_by_rule_without_new_alert: recs.filter((x) => x.how === "rule" && x.noNew).length,
@@ -239,14 +239,21 @@ const outcomeArm = (recs: Rec[]) => ({
   recognition_delay_mean_hours: meanHours(recs),
   recognition_delay_median_hours: median(recs.map((x) => x.delayMin / 60).sort((p, q) => p - q)),
   modelled_excess_bad_outcomes_per_100_episodes: per100(recs, 1),
+  // The price of recognising earlier: the same two counts as the main table, so the trade is in one place.
+  alerts: cost.alerts,
+  bins_alerting: cost.bins_alerting,
 });
+interface Cost { alerts: number; bins_alerting: number }
+const OUTCOME_SEEDS_LINE = `--outcome-model needs --seeds ${OUTCOME_MIN_SEEDS} or more (one seed, or a few, is noise)`;
 
 interface Outcome { label: string; arms: { baseline: Json; change: Json }; difference: unknown; spread: Json; paired_episodes: Json; sensitivity: { assumption: string; odds_ratio_per_hour: number; baseline: number | null; change: number | null; difference: number | null }[]; notes: string[]; [k: string]: unknown }
 
 /** The outcome block from every seed's records for both arms (same episodes, same order). */
-function outcomeModel(runs: { ra: Rec[]; rb: Rec[] }[]): Outcome {
+function outcomeModel(runs: { ra: Rec[]; rb: Rec[] }[], costA: Cost, costB: Cost): Outcome {
   const [A, B] = [runs.flatMap((r) => r.ra), runs.flatMap((r) => r.rb)];
-  const [a, b] = [outcomeArm(A), outcomeArm(B)];
+  // With no episode every figure would be blank, and a blank zero row beside "exactly zero" would mislead.
+  if (A.length === 0) refuse("--outcome-model: no episode was evaluated in these seeds, so there is nothing to model");
+  const [a, b] = [outcomeArm(A, costA), outcomeArm(B, costB)];
   const spread = { modelled_excess_bad_outcomes_per_100_episodes: spreadOf(runs.map((r) => [per100(r.ra, 1), per100(r.rb, 1)])), recognition_delay_mean_hours: spreadOf(runs.map((r) => [meanHours(r.ra), meanHours(r.rb)])) };
   const pairs = A.map((x, i) => [x, B[i]] as const);
   const dh = pairs.map(([x, y]) => (y.delayMin - x.delayMin) / 60);
@@ -265,7 +272,7 @@ function outcomeModel(runs: { ra: Rec[]; rb: Rec[] }[]): Outcome {
   });
   return {
     label: OUTCOME_LABEL,
-    parameter: { name: "odds_ratio_per_hour_of_recognition_delay", value: ODDS_RATIO, tag: "cited", reference: REFERENCE, interval_95: [1.0, 1.04], baseline_risk: 0.274, baseline_risk_at_hours: BASE_HOURS, anchor_tag: "judgement" },
+    parameter: { name: "odds_ratio_per_hour_of_recognition_delay", value: ODDS_RATIO, tag: "cited", applied_to_tag: "judgement", reference: REFERENCE, interval_95: [1.0, 1.04], baseline_risk: 0.274, baseline_risk_at_hours: BASE_HOURS, anchor_tag: "judgement" },
     assumption: ASSUMPTION,
     recognition_rule: RECOGNITION_RULE,
     arms: { baseline: a, change: b },
@@ -275,13 +282,17 @@ function outcomeModel(runs: { ra: Rec[]; rb: Rec[] }[]): Outcome {
     sensitivity,
     notes: [
       "W4 is a monitored ward in the hospital model, which notices a deterioration there at once; this model instead assumes recognition at the next NEWS2 round when no rule bin comes first",
-      "no patient changes: no vital sign is altered and no recovery or outcome is drawn on W4; each figure is a computed expectation per episode, in this report only",
+      "no patient changes: nobody dies on W4, no vital sign is altered and no recovery is drawn; each figure is a computed expectation per episode, in this report only",
+      `recognition here needs only a bin where the rule is true, not a new alert, and costs nothing: a rule that is true in every bin another rule is true in can never be recognised later, so its difference is zero or negative by construction; the price is its extra alerts (alerts and bins_alerting, change minus baseline: ${b.alerts - a.alerts} and ${b.bins_alerting - a.bins_alerting}), which this block does not weigh`,
+      "only modelled_excess_bad_outcomes_per_100_episodes is the modelled outcome; the recognition delays and the counts by rule, by round and at leaving are timing figures and do not depend on the odds ratio",
+      "an episode the patient left, or the run ended, before recognition is scored at that shorter delay, which understates it",
       "W4 episodes are vital-sign offsets fitted from ICU records (eICU), not illnesses with a known risk of a bad outcome",
       "the odds ratio is an observational association in another population (sustained NEWS 7 or more, admitted to critical care, London 2017-2021), timed from a high score to critical care arrival, not from a true onset to recognition",
       `recognised by a round: ${a.recognised_by_round} of ${a.episodes_evaluated} episodes (baseline) and ${b.recognised_by_round} of ${b.episodes_evaluated} (change); left or run ended first: ${a.unrecognised_at_leave_or_run_end} and ${b.unrecognised_at_leave_or_run_end}`,
       `round frequency from NEWS2 Chart 4 (RCP 2017): 12 h at 0, 4 h at 1-4 (band start), 1 h at 5 or more or a 3 in one parameter; "continuous" at 7 or more is taken as the next ${ROUND_CONTINUOUS_MIN}-minute bin and NOT RANKED as ${ROUND_UNRANKED_MIN / 60} h (both judgement)`,
       "the baseline 27.4% at 6.3 h is the cited cohort's own; anchoring it at that median is a modelling step (judgement)",
       "the cited 95% CI 1.0-1.04 runs from the zero row to the double row of the sensitivity table; a difference whose spread crosses zero is not a finding, and at an odds ratio of 1 the difference is exactly zero",
+      `the minimum of ${OUTCOME_MIN_SEEDS} seeds is a judgement; a seed with no evaluated episode has no value in the spread (see seeds_with_value)`,
     ],
   };
 }
@@ -363,6 +374,7 @@ export const pooledMedian = (lists: number[][]) => median(lists.flat().sort((p, 
 export function compareW4Seeds(seed: number, count: number, days: number, baseline: string, change: string, trial = runTrial, outcome = false): CompareFiles {
   const [hitA, hitB] = [parseRule(baseline), parseRule(change)];
   if (baseline === change) refuse("change: same rule as the baseline");
+  if (outcome && count < OUTCOME_MIN_SEEDS) refuse(OUTCOME_SEEDS_LINE); // here too, so no caller gets an outcome figure from a few seeds
   const seeds = Array.from({ length: count }, (_, i) => seed + i);
   const runs = seeds.map((s) => w4Seed(s, days, hitA, hitB, trial, outcome));
   const pooled = (arm: "a" | "b") => {
@@ -404,7 +416,7 @@ export function compareW4Seeds(seed: number, count: number, days: number, baseli
     arms: { baseline: a, change: b },
     spread: Object.fromEntries(metrics.map((m) => [m, spreadOf(runs.map((r) => [r.a[m], r.b[m]]))])),
     paired: pairedOf(runs.flatMap((r) => r.paired)),
-    outcome: outcome ? outcomeModel(runs) : undefined,
+    outcome: outcome ? outcomeModel(runs, a.pooled, b.pooled) : undefined,
     notes: [
       // With the flag, the first note must not say that no outcome is modelled: the block above is one, as arithmetic on the report.
       ...(outcome ? ["nothing in the run responds to a warning: a staff review does not change vitals and the rule is never fed back into the run; the outcome block above is a labelled model assumption computed from the timing, not something that happens to a patient", ...W4_NOTES.slice(1)] : W4_NOTES),
@@ -590,7 +602,7 @@ export function compare(argv: string[]): { out: string; files: CompareFiles } {
   if (rules[0] !== rules[1] || (!rules[1] && eq < 1)) refuse("--baseline and --change must both be rules or a scenario and a group");
   const outcome = "--outcome-model" in a;
   if (outcome && !rules[0]) refuse("--outcome-model is for rule arms only");
-  if (outcome && (seeds === null || seeds < OUTCOME_MIN_SEEDS)) refuse(`--outcome-model needs --seeds ${OUTCOME_MIN_SEEDS} or more (one seed, or a few, is noise)`);
+  if (outcome && (seeds === null || seeds < OUTCOME_MIN_SEEDS)) refuse(OUTCOME_SEEDS_LINE);
   if (seeds !== null && !rules[0]) refuse("--seeds is for rule arms only");
   const group = change.slice(0, eq);
   const inGroup = rules[0] ? null : groupTest(group);
