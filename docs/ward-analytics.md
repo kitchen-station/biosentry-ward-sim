@@ -13,10 +13,10 @@ Hospital (standalone hospital world only)
 - In and out: per unit, per day, admitted, discharged, transferred in, transferred out. The ER also shows arrivals. The page draws these counts and prints no sums.
 
 Ward W4 (NEWS2 exists on W4 only)
-- NEWS2 levels: patients at each level per hour, with "not ranked" kept apart. The levels are the ones in `src/sim/news2.ts`.
+- NEWS2 levels: patients at each level in the bin read at each whole hour, with "not ranked" kept apart. The levels are the ones in `src/sim/news2.ts`.
 - Alerts per patient per shift: one bar per 12 h shift, shifts start at 07:00 and 19:00. A part shift is faded.
-- Beds in use: occupied beds per hour.
-- Length of stay: one dot per finished stay, coloured by outcome. A stay that began before the run (`inMin` 0) is left out. With none yet it says "No finished stay yet (stays that began before the run are not counted)".
+- Beds in use: patients read in the bin at each whole hour.
+- Length of stay: one dot per finished stay, coloured by how the stay ended. A stay that began before the run (`inMin` 0) is left out. With none yet it says "No finished stay yet (stays that began before the run are not counted)".
 
 Person (pick one)
 - NEWS2 by hour: the stay's hourly scores.
