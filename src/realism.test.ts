@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
+import fitted from "./sim/fitted.json";
 import { EXPECTED, fastRows, formatRealism, judge, realismBlock, tableRows, wardRows, type Row, type WardStats } from "./realism";
 
 // Checks A, B, C and F run in full. D and E take about 190 seconds, so they are pinned by text instead of run:
@@ -179,15 +180,17 @@ const HAND: Row[] = [
   { check: "C5", signal: "breathing", statistic: "change sd, lag 5 min", sim: "0.50", real: "0.60-0.90", tolerance: "inside p25-p75", inside: false, data: "eICU calibration hold-out" },
   { check: "C6", signal: "breathing", statistic: "change sd, lag 30 min", sim: "0.80", real: "0.70-1.10", tolerance: "inside p25-p75", inside: true, data: "eICU calibration hold-out" },
   { check: "F1", signal: "heart rate", statistic: "24-h swing", sim: "6.12", real: "6.90", tolerance: "abs diff <= 1.5", inside: true, data: "van Goor 2022 (set from)" },
-  { check: "H1", signal: "temperature", statistic: "fitted from eICU; not tested", sim: "-", real: "-", tolerance: "-", inside: null, data: "none" },
+  { check: "B3", signal: "blood pressure (diastolic)", statistic: "fitted from eICU; not tested", sim: "-", real: "-", tolerance: "-", inside: null, data: "none" },
   { check: "Z9", signal: "heart rhythm", statistic: "not listed", sim: "1", real: "1", tolerance: "-", inside: true, data: "x" },
 ];
 
 describe("the printed table is pinned", () => {
   it("formatRealism keeps its bytes", () => {
     const { text } = formatRealism([...HAND, ...wardRows(INSIDE)]);
-    // Taken at 7137e8d, before tableRows was split out of formatRealism.
-    expect(createHash("sha256").update(text).digest("hex")).toBe("ec5ab81c58e9a26d5df99c6eeec83e5b72d73ec84f4f7c6c8cedfdb9c282a6bd");
+    // First taken at 7137e8d, before tableRows was split out of formatRealism (ec5ab81c..., with an H1 row in HAND).
+    // H1 left the report when temperature got check A4, so the hand-made row became B3. This value was read with that
+    // row under the formatter of 247fd48, before A4, and again after: the same bytes both times.
+    expect(createHash("sha256").update(text).digest("hex")).toBe("1085587c156c52e10c2914541767e149e9a753258aed38c84fc50a771a55cd44");
   });
 
   it("realismBlock holds the cells tableRows prints, and the footer", () => {
@@ -257,14 +260,28 @@ describe("the report", () => {
     expect(verdictsOf("F2")).toEqual(["fitted target"]);
   }, 60_000);
 
+  it("temperature is compared with held-out hospitals (A4): sd inside, lag-1 a known miss", () => {
+    const f = (x: number, d: number) => x.toFixed(d);
+    const rows = fast.filter((r) => r.check === "A4");
+    expect(rows.map((r) => [r.signal, r.statistic, r.tolerance, r.data])).toEqual([
+      ["temperature", "sd, 5-min reads", "ratio 0.75-1.25", "eICU held-out hospitals"],
+      ["temperature", "lag-1 (5 min) autocorrelation", "abs diff < 0.2", "eICU held-out hospitals"],
+    ]);
+    expect(rows.map((r) => r.real)).toEqual([f(fitted.holdout.temperature.sd, 2), f(fitted.holdout.temperature.lag5Corr, 3)]);
+    expect(EXPECTED.A4).toBe("known miss");
+    const { verdicts } = judge(fast);
+    expect(fast.map((r, i) => [r.check, verdicts[i]]).filter(([c]) => c === "A4").map(([, v]) => v)).toEqual(["pass", "known miss"]);
+  });
+
   const statistics: Record<string, string> = {
-    H1: "fitted from eICU; not tested",
     B3: "fitted from eICU; not tested",
-    R1: "fitted from MIT-BIH, AFDB, LTAFDB; not tested",
+    R1: "fitted from MIT-BIH, AFDB, LTAFDB; no honest real check",
   };
 
-  it("temperature, diastolic and heart rhythm have no real comparison", () => {
-    for (const check of ["H1", "B3", "R1"]) {
+  it("diastolic and heart rhythm have no real comparison, and H1 is gone", () => {
+    expect(fast.some((r) => r.check === "H1")).toBe(false);
+    expect("H1" in EXPECTED).toBe(false);
+    for (const check of ["B3", "R1"]) {
       const [row] = fast.filter((r) => r.check === check);
       const { verdicts } = judge([row]);
       expect([row.sim, row.real, row.tolerance, row.data, verdicts[0]]).toEqual(["-", "-", "-", "none", "no real comparison"]);
