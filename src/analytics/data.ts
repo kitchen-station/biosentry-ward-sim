@@ -55,8 +55,8 @@ const str = (v: unknown, max = MAX_STR): string => (typeof v === "string" && v.l
 const oneOf = <T extends string>(v: unknown, words: readonly T[]): T => (words.includes(v as T) ? (v as T) : bad("not an allowed word"));
 
 /**
- * The text of a number: its token as the file writes it (1e-05, 4.0 in a direct file). An exported file must hold its
- * printed numbers in plain form: String(value) equals the token, no exponent, no unsafe integer.
+ * The text of a number: its token as the file writes it (1e-05, 4.0 in a direct file; 1.0 or 0.4700 from a Python exporter).
+ * An exported file must hold its printed numbers in plain form: no exponent, no integer too large to be exact.
  * An engine whose JSON.parse gives no source text (context.source) has no token, so it prints String(value): "4" for 4.0.
  */
 function show(c: Ctx, h: object, k: string): string {
@@ -65,7 +65,7 @@ function show(c: Ctx, h: object, k: string): string {
   const token = c.tokens.get(h)?.get(k);
   const text = token ?? String(v);
   if (!c.direct) {
-    if (/e/i.test(text) || String(v) !== text) bad(`${k} would not print as the file writes it`);
+    if (/e/i.test(text)) bad(`${k} is in exponent form`);
     if (token !== undefined && !token.includes(".") && !Number.isSafeInteger(v)) bad(`${k} is not a safe integer`);
   }
   return text;

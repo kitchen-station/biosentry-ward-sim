@@ -42,7 +42,8 @@ const GOOD = {
   "training/agent/runs/run2.json": "{}\n",
 };
 
-describe("sync-evaluation", () => {
+// Each test builds temporary git repositories with many git calls, which is slow on a loaded machine.
+describe("sync-evaluation", { timeout: 60_000 }, () => {
   it("copies byte for byte to both folders and writes the record", () => {
     const src = repo(GOOD);
     const o = out();

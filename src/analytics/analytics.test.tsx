@@ -493,8 +493,8 @@ describe("hostile files", () => {
   add("a newline in a realism check", "simulator", sim((b) => (b.realism.rows[0].check = "a\nb")));
   add("a lone surrogate in compare.change", "simulator", sim((b) => (b.compare.change = "a\ud800b")));
   add("U+2028 in a realism signal", "simulator", sim((b) => (b.realism.rows[0].signal = "a\u2028b")));
-  // finding 5: an exported printed number must print as the file writes it
-  for (const token of ["1.5e3", "12345678901234567890", "9007199254740992", "1.50", "-0"])
+  // finding 5: an exported printed number may not be in exponent form or too large to be exact
+  for (const token of ["1.5e3", "12345678901234567890", "9007199254740992"])
     add(`exported printed number ${token}`, "simulator", JSON.stringify(sim((b) => (b.compare.pooled[0].baseline = "@@"))).replace('"@@"', token));
   // finding 12
   add("sensitivity with 3 rows", "simulator", sim((b) => b.outcome.sensitivity.pop()));
@@ -591,6 +591,12 @@ describe("round 2", () => {
   it("exported numbers print as the file writes them: 0.47, 0, -45", () => {
     const r = load("simulator", simOf((b) => (b.compare.pooled[0] = { metric: "alerts", baseline: 0.47, change: 0, difference: -45, kind: "d4" })));
     expect(r.state === "ok" && r.view.compare!.tables[0].rows[0]).toEqual(["alerts", "0.47", "0", "-45"]);
+  });
+  it("an exported number written as 1.0, 0.4700 or -0 loads and prints as written (a Python exporter writes 1.0)", () => {
+    const raw = simOf((b) => (b.compare.pooled[0] = { metric: "alerts", baseline: "@a", change: "@b", difference: "@c", kind: "d4" }))
+      .replace('"@a"', "1.0").replace('"@b"', "0.4700").replace('"@c"', "-0");
+    const r = load("simulator", raw);
+    expect(r.state === "ok" && r.view.compare!.tables[0].rows[0]).toEqual(["alerts", "1.0", "0.4700", "-0"]);
   });
   it("thins a curve to at most 200 points and keeps the last", () => {
     for (const n of [200, 201, 400, 401, 1000]) {
