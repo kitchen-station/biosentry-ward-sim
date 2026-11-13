@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { compare, compareHospital, compareW4, pairEvents, parseRule, Refusal, rescore, w4Arm } from "./compare";
 import { parseScenario } from "./sim/hospital/scenario";
+import { LIMITS } from "./sim/hospital/trial";
 import { COHORT_HEADER, EPISODES_HEADER, runTrial, SCENARIO_V1 } from "./sim/trial";
 
 const SCEN = "scenarios/hospital/typical.json";
@@ -36,6 +37,7 @@ describe("W4 compare", () => {
     expect(j.arms.change).toMatchObject({ alerts: 32, alerts_outside_episode_windows: 31, bins: 3498, bins_alerting: 979 });
     expect(j.difference).toMatchObject({ alerts: 2, bins_alerting: 139, lead_minutes: null });
     expect(first["compare.txt"]).toContain("\nlead_minutes baseline: -16.3637\nlead_minutes change: -16.3637\n");
+    expect(first["compare.txt"]).not.toMatch(/^lead_minutes {2,}/m); // a list is not a table row
     expect(j.pairing.status).toBe("one cohort for both arms");
     expect(j.notes[0]).toMatch(/^the outcome of a warning is not modelled on W4: /);
     expect(first["compare.txt"].trimEnd().endsWith("synthetic, not validated")).toBe(true);
@@ -99,6 +101,8 @@ describe("hospital compare", () => {
     // The difference is change minus baseline: MED3A has 2 nurses in typical and 3 in doh-standard.
     expect([j.arms.baseline.hourly_means.MED3A.nurses, j.arms.change.hourly_means.MED3A.nurses, j.difference.hourly_means.MED3A.nurses]).toEqual([2, 3, 1]);
     expect(j.notes.join("\n")).toContain("not evidence about a real hospital");
+    expect(j.notes.join("\n")).toContain(LIMITS);
+    expect(files["compare.txt"]).toContain("\nsummary.all_days.recognition.excess_deaths_label baseline: model output under a judgement relation, not evidence\n");
     expect(Object.keys(j.arms.baseline.summary)).toEqual(["all_days", "after_warm_up"]);
     for (const f of Object.values(files)) expect(f).not.toContain("scenarios/");
   });

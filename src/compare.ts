@@ -52,12 +52,13 @@ function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles
   const [b, c, d] = [leaves(r.arms.baseline), leaves(r.arms.change), leaves(difference)];
   const all = Object.keys({ ...b, ...c });
   const kind = (p: string) => (Array.isArray(b[p] ?? c[p]) ? "list" : typeof (b[p] ?? c[p]) === "string" ? "text" : "cell");
-  const paths = all.filter((p) => kind(p) === "cell");
+  const paths = all.filter((p) => kind(p) === "cell"); // the table holds numbers only
   const w = Math.max(...paths.map((p) => p.length), 6);
   const cell = (v: unknown) => (v === null || v === undefined ? "-" : String(v)).padStart(12);
   L.push(`${"metric".padEnd(w)}${"baseline".padStart(14)}${"change".padStart(14)}${"difference".padStart(14)}`);
   for (const p of paths) L.push(`${p.padEnd(w)}  ${cell(b[p])}  ${cell(c[p])}  ${cell(d[p])}`);
-  for (const p of all.filter((x) => kind(x) === "list")) for (const [arm, v] of [["baseline", b[p]], ["change", c[p]]] as const) L.push(`${p} ${arm}: ${(v as unknown[]).join(" ") || "-"}`);
+  // Lists and fixed wording (a caveat label next to a figure) go under the table, one line per arm.
+  for (const p of all.filter((x) => kind(x) !== "cell")) for (const [arm, v] of [["baseline", b[p]], ["change", c[p]]] as const) L.push(`${p} ${arm}: ${(Array.isArray(v) ? v.join(" ") : v) || "-"}`);
   L.push("", ...r.notes.map((n) => `note: ${n}`), "synthetic, not validated");
   return { "compare.json": `${JSON.stringify(json, null, 2)}\n`, "compare.txt": `${L.map((l) => l.trimEnd()).join("\n")}\n` };
 }

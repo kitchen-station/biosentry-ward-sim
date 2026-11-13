@@ -17,7 +17,7 @@ npm run compare -- --seed 101 --days 7 --baseline scenarios/hospital/typical.jso
 - `--seed`: a whole number from 0 to 2147483647. `--days`: 1 to 60.
 - `--out`: a folder that does not exist yet. Its parent must exist. `trials/` is ignored by git.
 - Each flag is given once. `--change` given twice is refused: one run changes one thing.
-- The folder gets two files: `compare.json` (every number) and `compare.txt` (the same numbers as a table).
+- The folder gets two files: `compare.json` (every number) and `compare.txt` (the same numbers as a table, with lists and fixed wording under it).
 - The files hold no clock, no path and no file name. The same command on the same Node major version writes the same bytes.
 - Exit 0 on success. Exit 2 with one line on stderr for a refusal; nothing is written then.
 
@@ -32,7 +32,7 @@ There are two modes. The baseline picks the mode.
 
 Rules:
 
-- `news2_total_ge_K`: the NEWS2 total is K or more. K is 1 to 20. `news2_total_ge_5` is the line at which this ward's nurse calls the physician (see the README).
+- `news2_total_ge_K`: the NEWS2 total is K or more. K is 1 to 20. `news2_total_ge_5` is the line at which this ward's nurse calls the physician (demo design: see the README, "What is demo design, not product").
 - `news2_chart_trigger`: the NEWS2 total is 5 or more, or any single parameter scores 3. This is the chart's own trigger.
 
 The NEWS2 bands are the simulator's own (`src/sim/news2.ts`). Compare does not change them.
@@ -129,7 +129,7 @@ Each person's draws come from a random stream named after that person, so a staf
 1. The arrival minutes must be the same in both arms. If not, the command refuses.
 2. The people in the hospital at minute 0 must be the same. If not, it refuses.
 3. The person at each arrival is compared. A returning patient takes the place of a new arrival, and whether a return happens depends on the scenario. If a person differs, the report says from which minute and how many, and `same_person_at_each_arrival` is false. It does not claim the same people.
-4. A deterioration course starts a fixed time after the admit decision, drawn from the person's own stream. For every course seen in both arms that time must be equal. If not, it refuses.
+4. A deterioration course starts a fixed time after the admit decision, drawn from the person's own stream. For every course seen in both arms whose admit decision is in the run, that time must be equal. If not, or if the admit decision is in one arm only, it refuses.
 5. The report prints the minute of the first event that differs. Before that minute the two event logs are identical. After it, outcomes differ by design, and the cohorts are not identical.
 
 Ward W4 inside the hospital uses its own fixed seed and is not paired once placements differ. The report says so.
@@ -138,7 +138,7 @@ Ward W4 inside the hospital uses its own fixed seed and is not paired once place
 
 Each arm shows the trial's own figures. Their definitions and limits are in `docs/hospital-trial-format.md`.
 
-- `summary.all_days...` and `summary.after_warm_up...`: every figure of the trial's `summary.json`, leaf by leaf. `after_warm_up` leaves out the first 3 days. A run of 3 days or fewer has no figures there.
+- `summary.all_days...` and `summary.after_warm_up...`: every figure of the trial's `summary.json`, leaf by leaf. `after_warm_up` leaves out the first 3 days. A run of 3 days or fewer shows null or 0 there.
 - `hourly_means.UNIT.COLUMN`: the mean over all hours of one column of the trial's `hourly.csv`, for one unit. Blank cells are left out.
 - `difference`: the change arm minus the baseline arm. `-` when either side has no value.
 
@@ -176,7 +176,7 @@ hourly_means.MED3A.patients_per_nurse                                           
 
 How to read it:
 
-- The same 394 people arrived at the same minutes in both arms. That part is a controlled experiment.
+- The same person arrived at each of the 394 arrival minutes in both arms. That part is controlled. What happens after minute 38 is not paired.
 - With one more nurse, ward MED3A went from about 17 patients per nurse to about 11, and the share of observation rounds done late fell from 0.94 to 0.
 - `obs_late_share` is a threshold count. It jumps when demand passes a set multiple of the nurse time available, and that nurse time rests on one judgement value. Read it as "the model crossed its line", not as a measured effect.
 - Deaths were 6 in both arms over these 4 counted days. That is far too few to say anything about deaths.
@@ -187,11 +187,11 @@ How to read it:
 - **Synthetic.** The patients, the vitals, the staff and the hospital are generated. No number here was checked against a real ward.
 - **W4 has no treatment effect.** An earlier alert does not make a simulated patient better. Compare measures warnings, not outcomes.
 - **"Outside an episode window" is not "false alarm".** A simulated patient can score high for a reason that is not a generator episode: a sick baseline, atrial fibrillation, or the scripted worsening of starting patient `p-001`. Those alerts are counted as outside. The 12 starting patients count toward the alert load, and their episodes are not evaluated.
-- **15-minute bins.** An alert minute and a lead time are known to the nearest 15 minutes.
+- **15-minute bins.** An alert minute is a bin minute, so a lead time is accurate only to within 15 minutes.
 - **Blood pressure is a cuff reading.** It can be hours old, so a low-pressure episode shows only when a cuff is taken.
 - **Few episodes.** About 6 in 100 admissions have an episode. A short run can have none; the shares are then empty, not zero.
 - **One seed is one night.** Use several seeds before drawing any conclusion.
-- **Hospital arms are partly paired.** People and arrival minutes are the same; everything after the first differing event is not. A difference between arms is the model's response to the change, under the judgement values listed in the report's last note.
+- **Hospital arms are partly paired.** The minute-0 residents and the arrival minutes are the same. The person at each arrival is checked and reported. Everything after the first differing event is not paired. A difference between arms is the model's response to the change, under the judgement values listed in the report's last note.
 - **Hospital effects are assumptions.** How staffing drives late rounds, late notice and deaths comes from judgement values in `src/sim/hospital/params.ts`.
 - **Same Node major version.** Byte-identical files are promised for the same Node major only. The report records it as `node_major`.
 
