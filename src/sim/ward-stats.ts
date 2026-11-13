@@ -72,6 +72,7 @@ export function feed(st: WardStats, s: Sim, src?: VitalsSource): void {
   const minute = minuteOf(s);
   st.from ??= minute;
   st.to = minute;
+  if (st.ep === null && typeof src?.save === "function") st.ep = []; // known from the first feed, so the page does not say "not available" for the first 15 minutes
   const c = s.clockS;
   const bin = Math.floor(c / (BIN_MIN * 60)) * BIN_MIN;
   const into = c - bin * 60;
