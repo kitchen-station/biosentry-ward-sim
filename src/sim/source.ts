@@ -125,7 +125,7 @@ export const CLAMPS: Record<Vital, [number, number]> = {
   spo2: [78, 100],
   temperature: [34.5, 40.5],
 };
-// shortcut: judgement, SD 0.1 C (thermometer resolution); no open minute-level source (temperature-sources.md).
+// shortcut: judgement, SD 0.1 C (thermometer resolution); no open minute-level source (see docs/realism.md).
 const TEMPERATURE_NOISE = 0.1;
 const noiseOf = (v: Vital) => fit.vitals[v].noise ?? TEMPERATURE_NOISE;
 // HR and RR: van Goor 2022, COVID ward patches, recovered group. No ward source for the rest.

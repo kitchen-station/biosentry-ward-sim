@@ -1,7 +1,8 @@
 /// <reference types="node" />
 // `npm run realism`: the simulator's statistic beside the real-data number the existing tests already use.
 // Every computation copies a test, with the same seeds, lengths and functions; src/realism.test.ts pins each copied literal
-// against that test file. No new fitting, tolerance or clinical number. It must not import src/trial.ts, src/compare.ts,
+// against that test file. The one exception is A4 (temperature): no test computes it; it runs check A's code on the
+// held-out temperature figure. No new fitting, tolerance or clinical number. It must not import src/trial.ts, src/compare.ts,
 // src/hospital-trial.ts or src/headless.ts: their command line would run inside the bundle.
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -25,16 +26,16 @@ export interface Row {
 export type Expected = "pass" | "known miss" | "fitted target" | "no real comparison";
 
 const SIGNALS = ["heart rate", "breathing", "SpO2", "temperature", "blood pressure (systolic)", "blood pressure (diastolic)", "heart rhythm"];
-const NAMES = { heart_rate: SIGNALS[0], respiratory_rate: SIGNALS[1], spo2: SIGNALS[2] };
+const NAMES = { heart_rate: SIGNALS[0], respiratory_rate: SIGNALS[1], spo2: SIGNALS[2], temperature: SIGNALS[3] };
 const MAIN3 = ["heart_rate", "respiratory_rate", "spo2"] as const;
 const f2 = (x: number) => x.toFixed(2);
 const f3 = (x: number) => x.toFixed(3);
 
-// What each check is today: C lag 5 for breathing and SpO2, D SpO2 and both E rows are known misses; F is a fitted target.
+// What each check is today: A4 lag-1 (its sd row is inside), C lag 5 for breathing and SpO2, D SpO2 and both E rows are known misses; F is a fitted target.
 export const EXPECTED: Record<string, Expected> = {
   A1: "pass", A2: "pass", A3: "pass", B1: "pass", B2: "pass",
   D1: "pass", D2: "pass", D3: "known miss", D4: "pass", E1: "known miss", E2: "known miss",
-  F1: "fitted target", F2: "fitted target", H1: "no real comparison", B3: "no real comparison", R1: "no real comparison",
+  F1: "fitted target", F2: "fitted target", A4: "known miss", B3: "no real comparison", R1: "no real comparison",
 };
 MAIN3.forEach((v, vi) => calibration.changeSd[v].forEach(({ lag }, k) => {
   EXPECTED[`C${vi * 4 + k + 1}`] = lag === 5 && v !== "heart_rate" ? "known miss" : "pass"; // mirrors calibration.test.ts:66
@@ -47,7 +48,7 @@ function rowsA(): Row[] {
     return Array.from({ length: 360 }, (_, m) => src.read("p-002", m + 1)).filter((_, m) => m % 5 === 0);
   });
   const rows: Row[] = [];
-  MAIN3.forEach((v, vi) => {
+  const one = (v: (typeof MAIN3)[number] | "temperature", vi: number) => {
     let sum = 0;
     let lag = 0;
     let n = 0;
@@ -68,7 +69,11 @@ function rowsA(): Row[] {
     const base = { check: `A${vi + 1}`, signal: NAMES[v], data };
     rows.push({ ...base, statistic: "sd, 5-min reads", sim: f2(sd), real: f2(real.sd), tolerance: "ratio 0.75-1.25", inside: sd / real.sd > 0.75 && sd / real.sd < 1.25 });
     rows.push({ ...base, statistic: "lag-1 (5 min) autocorrelation", sim: f3(lag / sum), real: f3(real.lag5Corr), tolerance: "abs diff < 0.2", inside: Math.abs(lag / sum - real.lag5Corr) < 0.2 });
+  };
+  MAIN3.forEach((v, vi) => {
+    one(v, vi);
   });
+  one("temperature", 3); // A4: check A's code and tolerance, unchanged, on the held-out temperature figure
   return rows;
 }
 
@@ -180,8 +185,8 @@ const none = (check: string, signal: string, statistic: string): Row => ({ check
 /** Checks A, B, C, F and the rows that have no real comparison. Takes seconds. */
 export const fastRows = (): Row[] => [
   ...rowsA(), ...rowsB(), ...rowsC(), ...rowsF(),
-  none("H1", SIGNALS[3], "fitted from eICU; not tested"), none("B3", SIGNALS[5], "fitted from eICU; not tested"),
-  none("R1", SIGNALS[6], "fitted from MIT-BIH, AFDB, LTAFDB; not tested"),
+  none("B3", SIGNALS[5], "fitted from eICU; not tested"),
+  none("R1", SIGNALS[6], "fitted from MIT-BIH, AFDB, LTAFDB; open data exists, no honest check (docs/realism.md)"),
 ];
 
 // ---- D and E, mirror published.test.ts beforeAll
