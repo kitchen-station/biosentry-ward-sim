@@ -3,8 +3,10 @@
 // Every computation copies a test, with the same seeds, lengths and functions; src/realism.test.ts pins each copied literal
 // against that test file. No new fitting, tolerance or clinical number. It must not import src/trial.ts, src/compare.ts,
 // src/hospital-trial.ts or src/headless.ts: their command line would run inside the bundle.
-import { realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildSimulator, checkArgs, compareBlocks, decode, Refusal, writeJson } from "./export-evaluation";
 import calibration from "./sim/calibration.json";
 import fitted from "./sim/fitted.json";
 import { createSim, setSpeed, step } from "./sim/sim";
@@ -296,13 +298,30 @@ const FOOTER = [
   "only ward W4 has vitals; summary statistics only; fitted and calibration data ODbL v1.0, see NOTICE.md",
 ];
 
-/** The fixed-width table and footer; the caller prints it. */
-export function formatRealism(rows: Row[]): { text: string; ok: boolean } {
+/** The printed cells of every row, in printed order, without the header. */
+export function tableRows(rows: Row[]): { cells: string[][]; ok: boolean } {
   const { verdicts, ok } = judge(rows);
   const rank = (r: Row) => (r.check[0] === "E" ? 7 : r.check[0] === "F" ? 8 : SIGNALS.indexOf(r.signal));
-  const body = rows.map((r, i) => ({ r, v: verdicts[i], i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i)
+  const cells = rows.map((r, i) => ({ r, v: verdicts[i], i })).sort((a, b) => rank(a.r) - rank(b.r) || a.i - b.i)
     .map(({ r, v }) => [r.check, r.signal, r.statistic, r.sim, r.real, r.tolerance, v, r.data]);
-  const table = [["check", "signal", "statistic", "sim", "real", "tolerance", "verdict", "real data"], ...body];
+  return { cells, ok };
+}
+
+/** The same rows and footer as formatRealism, as data: every cell as printed, unpadded. */
+export interface RealismBlock {
+  rows: { check: string; signal: string; statistic: string; sim: string; real: string; tolerance: string; verdict: string; real_data: string }[];
+  notes: string[];
+  ok: boolean;
+}
+export function realismBlock(rows: Row[]): RealismBlock {
+  const { cells, ok } = tableRows(rows);
+  return { rows: cells.map(([check, signal, statistic, sim, real, tolerance, verdict, real_data]) => ({ check, signal, statistic, sim, real, tolerance, verdict, real_data })), notes: FOOTER, ok };
+}
+
+/** The fixed-width table and footer; the caller prints it. */
+export function formatRealism(rows: Row[]): { text: string; ok: boolean } {
+  const { cells, ok } = tableRows(rows);
+  const table = [["check", "signal", "statistic", "sim", "real", "tolerance", "verdict", "real data"], ...cells];
   const widths = table[0].map((_, c) => Math.max(...table.map((row) => row[c].length)));
   const lines = table.map((row) => row.map((cell, c) => cell.padEnd(widths[c])).join(" | ").trimEnd());
   return { text: [...lines, "", ...FOOTER].join("\n"), ok };
@@ -318,13 +337,77 @@ function isMain(argv1: string | undefined, moduleUrl: string) {
   }
 }
 
+const REALISM_USAGE = "realism: usage: realism [--json FILE] | realism export --compare FILE --date YYYY-MM-DD --commit HEX40 --source \"LINE\" --out FILE";
+const allRows = () => [...fastRows(), ...wardRows(wardStats())];
+
+/** Why a new file cannot be written at path, as a refusal; nothing is created. */
+export function checkOut(flag: string, path: string) {
+  if (existsSync(path)) throw new Refusal(`${flag} exists`);
+  if (!existsSync(dirname(path))) throw new Refusal(`${flag}: parent folder does not exist`);
+  if (!statSync(dirname(path)).isDirectory()) throw new Refusal(`${flag}: parent is not a folder`);
+}
+
+/** The compare file as text, with the checks that need the file system. The cap is a parameter only so a test needs no big file. */
+export function readCompare(path: string, cap = 1024 * 1024): string {
+  const shown = [...path].slice(0, 40).join("").replace(/[\p{Cc}\p{Cf}]/gu, "?");
+  let bytes: Buffer;
+  try {
+    const st = statSync(path);
+    if (!st.isFile()) throw new Refusal("--compare: not a regular file");
+    if (st.size > cap) throw new Refusal("--compare: over 1024 KB");
+    bytes = readFileSync(path);
+  } catch (e) {
+    throw e instanceof Refusal ? e : new Refusal(`--compare: cannot read "${shown}"`);
+  }
+  return decode(bytes);
+}
+
+/** Runs one of the two file-writing modes. Returns the exit code; a refusal is exit 2 and a crash is exit 1. */
+function runMode(name: string, go: () => number): number {
+  try {
+    return go();
+  } catch (e) {
+    console.error(e instanceof Refusal ? `${name}: ${e.message}` : `${name}: failed: ${e instanceof Error ? e.message : String(e)}`);
+    return e instanceof Refusal ? 2 : 1;
+  }
+}
+
+function runJson(path: string): number {
+  checkOut("--json", path);
+  const rows = allRows();
+  const { text, ok } = formatRealism(rows);
+  console.log(text);
+  const { rows: cells, notes } = realismBlock(rows);
+  writeFileSync(path, writeJson({ notes, rows: cells }), { flag: "wx" });
+  return ok ? 0 : 1;
+}
+
+function runExport(argv: string[]): number {
+  const a = checkArgs(argv);
+  checkOut("--out", a.out);
+  const compare = readCompare(a.compare);
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  compareBlocks(compare, a.source, nodeMajor); // every compare-side refusal comes before the 3-minute run
+  const realism = realismBlock(allRows());
+  writeFileSync(a.out, buildSimulator({ realism, compare, date: a.date, commit: a.commit, source: a.source, nodeMajor }), { flag: "wx" });
+  const unexpected = realism.rows.filter((r) => r.verdict === "UNEXPECTED").length;
+  if (unexpected === 0) console.log(`export: wrote ${a.out}`);
+  else console.error(`export: wrote ${a.out}; ${unexpected} realism rows are UNEXPECTED (the file holds them)`);
+  return unexpected === 0 ? 0 : 1;
+}
+
 if (isMain(process.argv[1], import.meta.url)) {
-  if (process.argv.length > 2) {
-    console.error("realism: takes no arguments");
-    process.exitCode = 2;
-  } else {
-    const { text, ok } = formatRealism([...fastRows(), ...wardRows(wardStats())]);
+  const [mode, ...rest] = process.argv.slice(2);
+  if (mode === undefined) {
+    const { text, ok } = formatRealism(allRows());
     console.log(text);
     process.exitCode = ok ? 0 : 1;
+  } else if (mode === "export") {
+    process.exitCode = runMode("export", () => runExport(rest));
+  } else if (mode === "--json" && rest.length === 1) {
+    process.exitCode = runMode("realism", () => runJson(rest[0]));
+  } else {
+    console.error(REALISM_USAGE);
+    process.exitCode = 2;
   }
 }

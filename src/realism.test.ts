@@ -1,7 +1,8 @@
 /// <reference types="node" />
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { EXPECTED, fastRows, formatRealism, judge, wardRows, type Row, type WardStats } from "./realism";
+import { EXPECTED, fastRows, formatRealism, judge, realismBlock, tableRows, wardRows, type Row, type WardStats } from "./realism";
 
 // Checks A, B, C and F run in full. D and E take about 190 seconds, so they are pinned by text instead of run:
 // every literal copied from a test file must still be there, and the expected status must equal its it / it.fails marker.
@@ -170,6 +171,33 @@ const INSIDE: WardStats = {
 };
 const withShares = (setsAt5: number, setsAt7: number): WardStats => ({ ...INSIDE, setsAt5, setsAt7 });
 const insideOf = (rows: Row[], check: string) => rows.filter((r) => r.check === check).map((r) => r.inside);
+
+// Hand-made rows with every verdict path, then the D and E rows: a fixed input for the pinned text below.
+const HAND: Row[] = [
+  { check: "A1", signal: "heart rate", statistic: "sd, 5-min reads", sim: "12.34", real: "12.00", tolerance: "ratio 0.75-1.25", inside: true, data: "eICU held-out hospitals" },
+  { check: "C5", signal: "breathing", statistic: "change sd, lag 5 min", sim: "0.50", real: "0.60-0.90", tolerance: "inside p25-p75", inside: false, data: "eICU calibration hold-out" },
+  { check: "C6", signal: "breathing", statistic: "change sd, lag 30 min", sim: "0.80", real: "0.70-1.10", tolerance: "inside p25-p75", inside: true, data: "eICU calibration hold-out" },
+  { check: "F1", signal: "heart rate", statistic: "24-h swing", sim: "6.12", real: "6.90", tolerance: "abs diff <= 1.5", inside: true, data: "van Goor 2022 (set from)" },
+  { check: "H1", signal: "temperature", statistic: "fitted from eICU; not tested", sim: "-", real: "-", tolerance: "-", inside: null, data: "none" },
+  { check: "Z9", signal: "heart rhythm", statistic: "not listed", sim: "1", real: "1", tolerance: "-", inside: true, data: "x" },
+];
+
+describe("the printed table is pinned", () => {
+  it("formatRealism keeps its bytes", () => {
+    const { text } = formatRealism([...HAND, ...wardRows(INSIDE)]);
+    // Taken at 7137e8d, before tableRows was split out of formatRealism.
+    expect(createHash("sha256").update(text).digest("hex")).toBe("ec5ab81c58e9a26d5df99c6eeec83e5b72d73ec84f4f7c6c8cedfdb9c282a6bd");
+  });
+
+  it("realismBlock holds the cells tableRows prints, and the footer", () => {
+    const rows = [...HAND, ...wardRows(INSIDE)];
+    const { cells, ok } = tableRows(rows);
+    const block = realismBlock(rows);
+    expect(block.rows.map((r) => [r.check, r.signal, r.statistic, r.sim, r.real, r.tolerance, r.verdict, r.real_data])).toEqual(cells);
+    expect(block.ok).toBe(ok);
+    expect(block.notes).toEqual(formatRealism(rows).text.split("\n").slice(-7));
+  });
+});
 
 describe("D and E rows from statistics", () => {
   it("every percentile inside tolerance: all rows inside, and the known-miss checks are reported as UNEXPECTED", () => {

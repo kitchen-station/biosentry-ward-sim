@@ -1,0 +1,293 @@
+{
+ "compare_format": 1,
+ "synthetic": true,
+ "mode": "w4_seeds",
+ "seed": 1,
+ "seeds": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16,
+  17,
+  18,
+  19,
+  20
+ ],
+ "days": 30,
+ "node_major": 25,
+ "baseline": "news2_total_ge_5",
+ "change": {
+  "kind": "rule",
+  "name": "news2_chart_trigger",
+  "fields": [
+   {
+    "path": "rule",
+    "baseline": "news2_total_ge_5",
+    "change": "news2_chart_trigger"
+   }
+  ]
+ },
+ "pairing": {
+  "status": "one cohort for both arms, for each of 20 seeds",
+  "same_person_at_each_arrival": true,
+  "lines": [
+   "one run per seed serves both arms (the rule is applied after it), so the people, arrivals and true episodes are the same in both arms of a seed; a second run of each seed gave the same cohort.csv and episodes.csv"
+  ]
+ },
+ "arms": {
+  "baseline": {
+   "pooled": {
+    "alerts": 5334,
+    "alerts_per_patient_per_12h_shift": 0.3483,
+    "episodes_evaluated": 100,
+    "episodes_with_new_alert": 47,
+    "episodes_with_new_alert_share": 0.47,
+    "episodes_no_new_alert": 53,
+    "episodes_alerting_any_bin": 65,
+    "alerts_outside_episode_windows": 5281,
+    "lead_median_minutes": 56.5176,
+    "delay_median_minutes": 186.0759,
+    "bins": 734772,
+    "bins_alerting": 86955
+   }
+  },
+  "change": {
+   "pooled": {
+    "alerts": 6307,
+    "alerts_per_patient_per_12h_shift": 0.4119,
+    "episodes_evaluated": 100,
+    "episodes_with_new_alert": 47,
+    "episodes_with_new_alert_share": 0.47,
+    "episodes_no_new_alert": 53,
+    "episodes_alerting_any_bin": 72,
+    "alerts_outside_episode_windows": 6253,
+    "lead_median_minutes": 56.5176,
+    "delay_median_minutes": 141.0759,
+    "bins": 734772,
+    "bins_alerting": 115012
+   }
+  }
+ },
+ "difference": {
+  "pooled": {
+   "alerts": 973,
+   "alerts_per_patient_per_12h_shift": 0.0636,
+   "episodes_evaluated": 0,
+   "episodes_with_new_alert": 0,
+   "episodes_with_new_alert_share": 0,
+   "episodes_no_new_alert": 0,
+   "episodes_alerting_any_bin": 7,
+   "alerts_outside_episode_windows": 972,
+   "lead_median_minutes": 0,
+   "delay_median_minutes": -45,
+   "bins": 0,
+   "bins_alerting": 28057
+  }
+ },
+ "spread": {
+  "lead_median_minutes": {
+   "seeds_with_value": 17,
+   "min": -229.4489,
+   "median": 0,
+   "max": 200.9882,
+   "mean": 13.3762,
+   "sd": 84.6536
+  },
+  "delay_median_minutes": {
+   "seeds_with_value": 17,
+   "min": -354.3618,
+   "median": 0,
+   "max": 197.8962,
+   "mean": -13.4808,
+   "sd": 118.7815
+  },
+  "alerts_per_patient_per_12h_shift": {
+   "seeds_with_value": 20,
+   "min": 0.01,
+   "median": 0.0646,
+   "max": 0.1075,
+   "mean": 0.0629,
+   "sd": 0.0277
+  },
+  "episodes_with_new_alert_share": {
+   "seeds_with_value": 20,
+   "min": -0.5,
+   "median": 0,
+   "max": 0.4,
+   "mean": -0.0094,
+   "sd": 0.2172
+  }
+ },
+ "paired_episodes": {
+  "episodes_with_new_alert_under_both": 40,
+  "change_earlier": 9,
+  "same_bin": 31,
+  "change_later": 0,
+  "min": -225,
+  "median": 0,
+  "max": 0,
+  "mean": -16.125,
+  "sd": 42.4791
+ },
+ "outcome_model": {
+  "label": "MODEL ASSUMPTION, not evidence about patients",
+  "parameter": {
+   "name": "odds_ratio_per_hour_of_recognition_delay",
+   "value": 1.02,
+   "tag": "cited",
+   "applied_to_tag": "judgement",
+   "reference": "Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words \"per hour\"); secondary outcome hospital mortality (adjusted OR 1.02, 95% CI 1.0-1.04, p = 0.026; the primary outcome, critical care mortality, gave the same OR), 27.4% of 632 patients, median time 6.3 h",
+   "interval_95": [
+    1,
+    1.04
+   ],
+   "baseline_risk": 0.274,
+   "baseline_risk_at_hours": 6.3,
+   "anchor_tag": "judgement"
+  },
+  "assumption": "under the assumption that each hour from the true start of an episode to its recognition multiplies the odds of a bad outcome by 1.02, and that an episode recognised after 6.3 h carries the cited cohort's 27.4% hospital mortality (that anchoring is judgement), which sets the size of every per-100 figure; the 1.02 is the association between the time from a high NEWS to critical care and hospital mortality in one London cohort, an association in other patients, not a measured effect of earlier recognition",
+  "recognition_rule": "recognition = the first 15-minute bin in the episode window where the rule is true, or the next scheduled NEWS2 round, whichever comes first (or the patient leaving, or the run ending); a round is taken to recognise the episode whatever the score at that round shows (a perfect round, judgement), which shortens delays in both arms; modelled excess = the modelled risk at the recognition delay minus the modelled risk at zero delay, per 100 episodes",
+  "arms": {
+   "baseline": {
+    "episodes_evaluated": 100,
+    "recognised_by_rule": 42,
+    "recognised_by_rule_without_new_alert": 15,
+    "recognised_by_round": 51,
+    "unrecognised_at_leave_or_run_end": 7,
+    "recognition_delay_mean_hours": 2.1979,
+    "recognition_delay_median_hours": 1.3112,
+    "modelled_excess_bad_outcomes_per_100_episodes": 0.8352,
+    "alerts": 5334,
+    "bins_alerting": 86955
+   },
+   "change": {
+    "episodes_evaluated": 100,
+    "recognised_by_rule": 51,
+    "recognised_by_rule_without_new_alert": 23,
+    "recognised_by_round": 44,
+    "unrecognised_at_leave_or_run_end": 5,
+    "recognition_delay_mean_hours": 1.9438,
+    "recognition_delay_median_hours": 1.0727,
+    "modelled_excess_bad_outcomes_per_100_episodes": 0.7382,
+    "alerts": 6307,
+    "bins_alerting": 115012
+   }
+  },
+  "difference": {
+   "episodes_evaluated": 0,
+   "recognised_by_rule": 9,
+   "recognised_by_rule_without_new_alert": 8,
+   "recognised_by_round": -7,
+   "unrecognised_at_leave_or_run_end": -2,
+   "recognition_delay_mean_hours": -0.2541,
+   "recognition_delay_median_hours": -0.2385,
+   "modelled_excess_bad_outcomes_per_100_episodes": -0.097,
+   "alerts": 973,
+   "bins_alerting": 28057
+  },
+  "spread": {
+   "modelled_excess_bad_outcomes_per_100_episodes": {
+    "seeds_with_value": 20,
+    "min": -0.4054,
+    "median": -0.0146,
+    "max": 0,
+    "mean": -0.0742,
+    "sd": 0.1163
+   },
+   "recognition_delay_mean_hours": {
+    "seeds_with_value": 20,
+    "min": -1.0566,
+    "median": -0.0387,
+    "max": 0,
+    "mean": -0.1947,
+    "sd": 0.3037
+   }
+  },
+  "paired_episodes": {
+   "episodes_paired": 100,
+   "change_earlier": 20,
+   "same_minute": 80,
+   "change_later": 0,
+   "delay_difference_hours": {
+    "min": -5.85,
+    "median": 0,
+    "max": 0,
+    "mean": -0.2542,
+    "sd": 0.8963
+   },
+   "excess_difference_per_100": {
+    "min": -2.2572,
+    "median": 0,
+    "max": 0,
+    "mean": -0.097,
+    "sd": 0.3436
+   }
+  },
+  "sensitivity": [
+   {
+    "assumption": "zero",
+    "odds_ratio_per_hour": 1,
+    "baseline": 0,
+    "change": 0,
+    "difference": 0
+   },
+   {
+    "assumption": "half",
+    "odds_ratio_per_hour": 1.01,
+    "baseline": 0.4253,
+    "change": 0.376,
+    "difference": -0.0493
+   },
+   {
+    "assumption": "central",
+    "odds_ratio_per_hour": 1.02,
+    "baseline": 0.8352,
+    "change": 0.7382,
+    "difference": -0.097
+   },
+   {
+    "assumption": "double",
+    "odds_ratio_per_hour": 1.0404,
+    "baseline": 1.6071,
+    "change": 1.4196,
+    "difference": -0.1875
+   }
+  ],
+  "notes": [
+   "in the hospital model W4 counts as monitored and is outside its late-recognition rule (a deterioration on W4 is one of W4's own episodes, with no notice event); this model instead assumes recognition at the next NEWS2 round when no rule bin comes first",
+   "no patient changes: nobody dies on W4, no vital sign is altered and no recovery is drawn; each figure is a computed expectation per episode, in this report only",
+   "recognition here needs only a bin where the rule is true, not a new alert, and costs nothing. These two rules are nested: the change rule is true in every bin the other is. So the change rule is never recognised later, its modelled excess is never higher, and the spread of the difference cannot cross zero: that is the construction, not a finding. The alerts and bins_alerting, change minus baseline, are 973 and 28057 (the change rule alerts more); this block does not weigh them",
+   "only modelled_excess_bad_outcomes_per_100_episodes is the modelled outcome; the recognition delays and the counts by rule, by round and at leaving are timing figures and do not depend on the odds ratio, and alerts and bins_alerting are the same counts as the main table",
+   "an episode the patient left, or the run ended, before recognition is scored at that shorter delay, which understates it",
+   "W4 episodes are vital-sign offsets fitted from ICU records (eICU), not illnesses with a known risk of a bad outcome",
+   "the odds ratio is an observational association in another population (sustained NEWS 7 or more, admitted to critical care, London 2017-2021), timed from a high score to critical care arrival, not from a true onset to recognition",
+   "recognised by a round: 51 of 100 episodes (baseline) and 44 of 100 (change); left or run ended first: 7 and 5",
+   "round frequency from NEWS2 Chart 4 (RCP 2017): 12 h at 0, 4 h at 1-4 (band start), 1 h at 5 or more or a 3 in one parameter; \"continuous\" at 7 or more is taken as the next 15-minute bin and NOT RANKED as 4 h (both judgement)",
+   "the 27.4% at 6.3 h is the cited cohort's own hospital mortality, in patients admitted to critical care; anchoring it at that median and applying it to every W4 episode are judgement, and every per-100 figure scales with it (about p(1 - p)), so a lower-risk ward would give smaller figures; the sensitivity table varies only the odds ratio",
+   "the cited 95% CI 1.0-1.04 runs from the zero row (1) to just under the double row (1.0404) of the sensitivity table; a difference whose spread crosses zero is not a finding, and at an odds ratio of 1 the difference is exactly zero",
+   "the minimums of 20 seeds (derived from the lead difference in 30-day runs) and 30 evaluated episodes are judgement; a seed with no evaluated episode has no value in the spread (see seeds_with_value)"
+  ]
+ },
+ "notes": [
+  "nothing in the run responds to a warning: a staff review does not change vitals and the rule is never fed back into the run; the outcome block above is a labelled model assumption computed from the timing, not something that happens to a patient",
+  "starting patients (admit minute 0) are in the alert burden; their episodes are not evaluated; p-001 has a scripted worsening that is not an episode",
+  "lead = fully-in minute minus the first new alert in the window; positive means the alert came before the episode was fully in",
+  "alerts re-arm after 16 bins (4 h) not alerting; window = episode_start to fully in + 120 min (both are judgement values taken from BioSentry-Intelligence research/)",
+  "alert delay = first new alert in the window minus episode start (when the rule first flags, not when anyone acts); an episode with no new alert has no delay and is counted, not filled in",
+  "the paired figure is the same episode under both rules, pooled over the seeds of this report (each episode counted once; its sd treats episodes as independent); episodes with a new alert under one rule only are left out (see episodes_with_new_alert); the lead and delay medians of an arm, and their difference column, are over that arm's own alerted episodes, which can differ between arms; alert minutes are 15-minute bins, so each paired difference is a multiple of 15 min",
+  "a rule that alerts more can show fewer new alerts in a window: an alert before the window keeps the patient un-armed until 16 quiet bins pass",
+  "spread is across seeds: each seed is one simulated run of one ward; it says nothing when seeds_with_value is below 2; a difference whose min and max have opposite signs is not a finding, and one whose signs agree is only what this model does"
+ ]
+}
