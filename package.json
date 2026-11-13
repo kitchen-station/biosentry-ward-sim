@@ -12,7 +12,8 @@
     "fit:calibration": "node scripts/fit-eicu.mjs",
     "preview": "vite preview",
     "ward": "vite build --ssr src/headless.ts --outDir dist/ward --logLevel warn && node dist/ward/headless.js",
-    "hospital-trial": "vite build --ssr src/hospital-trial.ts --outDir dist/hospital-trial --logLevel warn && node dist/hospital-trial/hospital-trial.js"
+    "hospital-trial": "vite build --ssr src/hospital-trial.ts --outDir dist/hospital-trial --logLevel warn && node dist/hospital-trial/hospital-trial.js",
+    "compare": "vite build --ssr src/compare.ts --outDir dist/compare --logLevel warn && node dist/compare/compare.js"
   },
   "dependencies": {
     "react": "19.2.8",
