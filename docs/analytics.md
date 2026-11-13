@@ -1,8 +1,18 @@
-# The Analytics page
+# The developer page
 
-The app has two pages. **Simulation** is the ward and the hospital. **Analytics** shows what the project has built and measured: the pipeline, the models, the evaluations, the simulator's own checks, the registry and the research agent's record. One switch at the top moves between them.
+The developer page shows what the project has built and measured: the pipeline, the models, the evaluations, the simulator's own checks, the registry and the research agent's record. It is for the people who build the project. The customer app has no developer page: no route, no link, no code, no styles and no data. Doctors and nurses cannot reach it.
 
-Open it at `#analytics`. It needs no sign-in.
+It is a separate build with its own entry (`dev-site/index.html`, `src/dev-main.tsx`, `vite.dev.config.ts`). It has no ward, no sign-in and no API call.
+
+- Open it locally with one command: `npm run dev:view`.
+- Build it with `npm run build:dev`. It writes a self-contained static site to `dist-dev`.
+- `npm run build` makes the customer app only. It fails if any module of the developer page or the evaluation data enters it, by any import form or path letter case. It also fails if a customer source file names a path into those folders. The guard is a build plugin (`build-guard.ts`, used only by `vite.config.ts`). It checks resolved paths, and the source text for the folder names.
+- Three tests check this. `src/build-guard.test.ts` runs the plugin on crafted inputs. `src/bundles.test.ts` runs real builds that must fail. It also builds both bundles and checks the page's text, its styles and one marker from every data file. The developer bundle is checked for the files the page loads. `src/analytics/analytics.test.tsx` scans the source as an early warning.
+- Known limit: a path assembled at run time from pieces that never spell the folder name is not seen by the text check. Someone would have to write that on purpose, and review must catch it. A copy of an evaluation file placed elsewhere under `src/` is not seen by the plugin either; the marker test catches a copy imported whole, but not one cut down to a small field.
+- `dist-dev/index.html` loads its assets by absolute path. Serve it from a site root. Do not open it as a file.
+- `npm run dev` on a developer's machine can also serve `/dev-site/index.html`, because it serves the project folder. A customer build cannot.
+- Hosting `dist-dev` as a separate site is the owner's decision. It is not set up.
+- The dashboard's Pipeline and Research pages will move here later.
 
 Everything on it is synthetic and not validated. Every section says so.
 
@@ -33,7 +43,7 @@ Each section prints where its files came from: the repository, the commit and th
 - **The outcome model keeps its label.** Its figures appear only under the line `MODEL ASSUMPTION, not evidence about patients`, on every table, with the alert cost beside them.
 - **An `UNEXPECTED` realism row is shown,** never dropped. No table is cut short.
 - **The confidence check shows its verdict word as written** (`MET` or `NOT MET`), with its cost in the same block. It is never worded as a guarantee.
-- **One bad file cannot break the page,** and nothing here can break the Simulation page: the Analytics code is loaded only when the page is opened.
+- **One bad file cannot break the page,** and nothing here can break the Simulation page: the customer app does not contain this code.
 
 ## Bring the copies up to date
 

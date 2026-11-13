@@ -10,7 +10,7 @@ Everything the simulator produces is synthetic. No patient's values are in this 
 npm run realism
 ```
 
-It takes about three minutes or more. Most of that is running the ward for 30 simulated days, six times. It prints one table and exits 0 when every check has the status the test suite expects. `npm run realism -- --json <file>` also writes the rows and footer as JSON, and `npm run export:evaluation` packs them with a compare result for the Analytics page ([export-evaluation.md](export-evaluation.md)). Two runs on the same machine printed the same bytes.
+It takes about three minutes or more. Most of that is running the ward for 30 simulated days, six times. It prints one table and exits 0 when every check has the status the test suite expects. `npm run realism -- --json <file>` also writes the rows and footer as JSON, and `npm run export:evaluation` packs them with a compare result for the developer page ([export-evaluation.md](export-evaluation.md)). Two runs on the same machine printed the same bytes.
 
 The command adds no new check. It recomputes the vital-sign and NEWS checks those tests make (`src/sim/sim.test.ts`, `src/sim/calibration.test.ts`, `src/sim/published.test.ts`), with the same seeds, lengths and tolerances, and prints both sides. Oxygen use, patch data loss and occupancy are not in it. `src/realism.test.ts` fails if a copied line or a pass/known-miss marker changes in those tests.
 

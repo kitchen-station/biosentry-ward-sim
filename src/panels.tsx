@@ -7,7 +7,6 @@ import { HospitalPanel, isHospitalId, W4HospitalSections } from "./hospital-pane
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
 import type { CommandBody } from "./sim/commands";
-import { PageNav } from "./nav";
 import { BEDS } from "./sim/map";
 import {
   applyPatch,
@@ -97,7 +96,6 @@ export function TopBar({
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
-      <PageNav page="simulation" />
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
       <span className="clock">
         {src.synthetic

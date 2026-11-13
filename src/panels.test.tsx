@@ -16,6 +16,10 @@ const noop = () => {};
 describe("the top bar", () => {
   it("has no speed or reset buttons in viewer mode until the clinician may control the ward", () => {
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />)).not.toContain("Pause");
+    const bar = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />);
+    expect(bar).not.toContain("<nav");
+    expect(bar).not.toContain("href=");
+    expect(bar).not.toMatch(/Analytics|Developer/);
   });
 
   it("shows the runner's speed, and offers pause, 1x, 10x, 60x and Reset, once control is on", () => {

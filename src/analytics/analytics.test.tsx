@@ -1,7 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { onHashChange, pageFromHash } from "../nav";
 import { AnalyticsPage } from "./Analytics";
 import { BANNED, FILES, LABEL, load, rd, read, type Kind } from "./data";
 import { SectionBoundary } from "./sections";
@@ -212,17 +211,19 @@ const all = () => allFiles();
 const exp = () => exportedFixtures();
 const dir = () => directFixtures();
 
-// ---- navigation ----
+// ---- the developer page stands alone ----
 
-describe("pageFromHash", () => {
-  it("opens Analytics only for exactly #analytics", () => {
-    expect(pageFromHash("#analytics")).toBe("analytics");
-    for (const h of ["", "#", "#simulation", "#Analytics", "#analytics/x"]) expect(pageFromHash(h)).toBe("simulation");
+describe("the developer page's heading", () => {
+  it("has the heading and the line, and no link", () => {
+    const h = html(TODAY);
+    expect(/<h1>([^<]*)</.exec(h)![1]).toBe("Developer page");
+    expect(h).toContain("Build records of the project. Synthetic, not validated.");
+    expect(h).not.toContain("<a ");
+    expect(h).not.toContain("<nav");
   });
 });
 
-describe("the Simulation page stays light", () => {
-  const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+describe("the customer app stays free of the developer page", () => {
   // any static import or export-from of a path under ./analytics or ../analytics: import x from, import {x} from, import "..", export .. from
   const STATIC = /\b(?:import|export)\b[^;"']*?["']\.{1,2}\/analytics(?:\/[^"']*)?["']/;
   it("the scanner sees every static form", () => {
@@ -232,22 +233,11 @@ describe("the Simulation page stays light", () => {
   });
   it("does not import analytics statically", () => {
     // every source file outside src/analytics, tests aside
-    const outside = readdirSync(new URL("../", import.meta.url), { recursive: true, encoding: "utf8" }).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.startsWith("analytics"));
-    expect(outside).toEqual(expect.arrayContaining(["App.tsx", "main.tsx", "panels.tsx", "nav.tsx"]));
-    for (const f of outside) expect(readFileSync(new URL(`../${f}`, import.meta.url), "utf8").replace(/import\("\.\/analytics\/Analytics"\)/g, ""), f).not.toMatch(STATIC);
-    expect(src("App.tsx").match(/import\("\.\/analytics\/Analytics"\)/g)).toHaveLength(1);
-  });
-  it("App's effect uses onHashChange and returns its remover", () => {
-    expect(src("App.tsx")).toMatch(/useEffect\(\(\) => onHashChange\(window, /);
-  });
-  it("onHashChange adds the listener and the remover removes the same handler", () => {
-    const calls: [string, string, unknown][] = [];
-    const target = { addEventListener: (t: string, h: unknown) => calls.push(["add", t, h]), removeEventListener: (t: string, h: unknown) => calls.push(["remove", t, h]) };
-    const handler = () => {};
-    const off = onHashChange(target as never, handler);
-    expect(calls).toEqual([["add", "hashchange", handler]]);
-    off();
-    expect(calls).toEqual([["add", "hashchange", handler], ["remove", "hashchange", handler]]);
+    const outside = readdirSync(new URL("../", import.meta.url), { recursive: true, encoding: "utf8" }).filter((f) => /\.(?:tsx?|[cm]?js|css)$/.test(f) && !/\.test\.[cm]?[tj]sx?$/.test(f) && !f.startsWith("analytics"));
+    expect(outside).toEqual(expect.arrayContaining(["App.tsx", "main.tsx", "panels.tsx", "dev-main.tsx"]));
+    // An early warning only. The build plugin (build-guard.ts) is the real guard.
+    // only the developer entry may reach it, and no file may import it lazily
+    for (const f of outside.filter((f) => f !== "dev-main.tsx")) expect(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"), f).not.toMatch(/["'`](?:\.{1,2}\/)+(?:analytics|data\/evaluation)/);
   });
 });
 
@@ -576,12 +566,12 @@ describe("SectionBoundary", () => {
 describe("the page's source", () => {
   const files = (d: URL): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(new URL(`${e.name}/`, d)) : [new URL(e.name, d).pathname]));
   it("has no markup injection, link, fetch, eval or rounding", () => {
-    const own = [...files(new URL("./", import.meta.url)), new URL("../nav.tsx", import.meta.url).pathname].filter((f) => !/\.test\./.test(f));
-    expect(own.length).toBeGreaterThan(3);
+    const own = [...files(new URL("./", import.meta.url))].filter((f) => !/\.test\./.test(f));
+    expect(own.length).toBeGreaterThan(2);
     for (const f of own) {
       const src = readFileSync(f, "utf8");
       for (const w of ["dangerouslySetInnerHTML", "innerHTML", "style=", "src=", "fetch(", "eval(", "toFixed", "localStorage"]) expect(src, `${f}: ${w}`).not.toContain(w);
-      expect(src.replace(/href="#(simulation|analytics)"/g, "")).not.toContain("href=");
+      expect(src).not.toContain("href=");
     }
   });
 });

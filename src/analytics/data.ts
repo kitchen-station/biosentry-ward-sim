@@ -1,4 +1,4 @@
-// The Analytics page reads only the committed copies in src/data/evaluation, as text.
+// The developer page reads only the committed copies in src/data/evaluation, as text.
 // Every file is checked here. A file that fails is "invalid" and the page shows it as missing.
 // The page prints numbers as the file writes them. It never rounds or adds.
 
