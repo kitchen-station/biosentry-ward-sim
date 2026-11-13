@@ -65,7 +65,7 @@ function rowsA(): Row[] {
     const data = "eICU held-out hospitals";
     const base = { check: `A${vi + 1}`, signal: NAMES[v], data };
     rows.push({ ...base, statistic: "sd, 5-min reads", sim: f2(sd), real: f2(real.sd), tolerance: "ratio 0.75-1.25", inside: sd / real.sd > 0.75 && sd / real.sd < 1.25 });
-    rows.push({ ...base, statistic: "lag-1 autocorrelation", sim: f3(lag / sum), real: f3(real.lag5Corr), tolerance: "abs diff < 0.2", inside: Math.abs(lag / sum - real.lag5Corr) < 0.2 });
+    rows.push({ ...base, statistic: "lag-1 (5 min) autocorrelation", sim: f3(lag / sum), real: f3(real.lag5Corr), tolerance: "abs diff < 0.2", inside: Math.abs(lag / sum - real.lag5Corr) < 0.2 });
   });
   return rows;
 }
@@ -143,9 +143,15 @@ function rowsC(): Row[] {
   }
   return MAIN3.flatMap((v, vi) => calibration.changeSd[v].map((band, k) => {
     const m = median(Object.values(pooled).map((byVital) => sd(byVital[v][k])));
-    return { check: `C${vi * 4 + k + 1}`, signal: NAMES[v], statistic: `change sd, lag ${band.lag} min`, sim: f2(m), real: `${f2(band.p25)}-${f2(band.p75)}`, tolerance: "inside p25-p75", inside: m >= band.p25 && m <= band.p75, data: "eICU held-out stays" };
+    return { check: `C${vi * 4 + k + 1}`, signal: NAMES[v], statistic: `change sd, lag ${band.lag} min`, sim: f2(m), real: `${f2(band.p25)}-${f2(band.p75)}`, tolerance: "inside p25-p75", inside: m >= band.p25 && m <= band.p75, data: "eICU calibration hold-out" };
   }));
 }
+
+// The real figures the F and E rows are compared with, printed from the same constants.
+const SWING_HR = 6.9;
+const SWING_RR = 1;
+const NEWS5 = 20;
+const NEWS7 = 10;
 
 // ---- F, mirrors published.test.ts "24-hour rhythm matches van Goor 2022"
 function rowsF(): Row[] {
@@ -160,10 +166,10 @@ function rowsF(): Row[] {
   };
   const hr = amplitude("heart_rate");
   const rr = amplitude("respiratory_rate");
-  const data = "van Goor 2022";
+  const data = "van Goor 2022 (set from)";
   return [
-    { check: "F1", signal: SIGNALS[0], statistic: "24-h swing", sim: f2(hr), real: "6.90", tolerance: "abs diff <= 1.5", inside: Math.abs(hr - 6.9) <= 1.5, data },
-    { check: "F2", signal: SIGNALS[1], statistic: "24-h swing", sim: f2(rr), real: "1.00", tolerance: "abs diff <= 0.5", inside: Math.abs(rr - 1) <= 0.5, data },
+    { check: "F1", signal: SIGNALS[0], statistic: "24-h swing", sim: f2(hr), real: f2(SWING_HR), tolerance: "abs diff <= 1.5", inside: Math.abs(hr - SWING_HR) <= 1.5, data },
+    { check: "F2", signal: SIGNALS[1], statistic: "24-h swing", sim: f2(rr), real: f2(SWING_RR), tolerance: "abs diff <= 0.5", inside: Math.abs(rr - SWING_RR) <= 0.5, data },
   ];
 }
 
@@ -172,7 +178,8 @@ const none = (check: string, signal: string, statistic: string): Row => ({ check
 /** Checks A, B, C, F and the rows that have no real comparison. Takes seconds. */
 export const fastRows = (): Row[] => [
   ...rowsA(), ...rowsB(), ...rowsC(), ...rowsF(),
-  none("H1", SIGNALS[3], "change in an episode"), none("B3", SIGNALS[5], "cuff step sd"), none("R1", SIGNALS[6], "rhythm"),
+  none("H1", SIGNALS[3], "fitted from eICU; not tested"), none("B3", SIGNALS[5], "fitted from eICU; not tested"),
+  none("R1", SIGNALS[6], "fitted from MIT-BIH, AFDB, LTAFDB; not tested"),
 ];
 
 // ---- D and E, mirror published.test.ts beforeAll
@@ -256,8 +263,8 @@ export function wardRows(stats: WardStats): Row[] {
   const at5 = pct(stats.setsAt5, stats.sets);
   const at7 = pct(stats.setsAt7, stats.sets);
   rows.push(
-    { check: "E1", signal: "NEWS2", statistic: "% of sets at 5+", sim: f2(at5), real: "20", tolerance: "abs diff <= 7", inside: Math.abs(at5 - 20) <= 7, data },
-    { check: "E2", signal: "NEWS2", statistic: "% of sets at 7+", sim: f2(at7), real: "10", tolerance: "abs diff <= 5", inside: Math.abs(at7 - 10) <= 5, data },
+    { check: "E1", signal: "NEWS2", statistic: "% of sets at 5+", sim: f2(at5), real: String(NEWS5), tolerance: "abs diff <= 7", inside: Math.abs(at5 - NEWS5) <= 7, data },
+    { check: "E2", signal: "NEWS2", statistic: "% of sets at 7+", sim: f2(at7), real: String(NEWS7), tolerance: "abs diff <= 5", inside: Math.abs(at7 - NEWS7) <= 5, data },
   );
   return rows;
 }
@@ -266,10 +273,11 @@ export function wardRows(stats: WardStats): Row[] {
 export function judge(rows: Row[]): { verdicts: string[]; ok: boolean } {
   let ok = true;
   const verdicts = rows.map((r) => {
-    const want = EXPECTED[r.check];
+    const want = EXPECTED[r.check] as Expected | undefined;
     const group = rows.filter((g) => g.check === r.check);
     let v: string;
-    if (want === "no real comparison") v = want;
+    if (want === undefined) v = "UNEXPECTED"; // a check nobody listed must not pass
+    else if (want === "no real comparison") v = want;
     else if (want === "known miss") v = group.some((g) => g.inside === false) ? (r.inside ? "pass" : "known miss") : "UNEXPECTED";
     else v = r.inside ? (want === "fitted target" ? want : "pass") : "UNEXPECTED";
     if (v === "UNEXPECTED") ok = false;
@@ -281,7 +289,7 @@ export function judge(rows: Row[]): { verdicts: string[]; ok: boolean } {
 const FOOTER = [
   "synthetic, not validated",
   "held out: eICU-CRD Demo 2.0.1 hospitals not used to fit src/sim/fitted.json (46 of 186)",
-  "calibration rows: stays held out from src/sim/calibration.json only; the generator's own split differs",
+  "calibration rows: stays held out from src/sim/calibration.json only, not from the fit in src/sim/fitted.json (another hospital split)",
   "published: Welch 2015 (US monitored wards) and RCP 2012, never used for fitting",
   "fitted target: the simulator was set from this number, so agreement is by construction",
   "fitted from: adult ICU (eICU-CRD Demo, BIDMC) and Holter and AF (MIT-BIH, AFDB, LTAFDB) recordings; not a general ward, not the Philippines",

@@ -34,14 +34,14 @@ const PINS: [string, string, string?][] = [
   [published, "if (total >= 7) setsAt7 += 1;"],
   [published, "nextSet.set(p.id, minute + (total >= 7 ? 30 : total >= 5 ? 60 : total >= 1 ? 300 : 720));"],
   [published, "PERCENTILES.forEach((p, i) => expect(Math.abs(percentile(seen[series], p) - values[i])).toBeLessThanOrEqual(tolerance));", "Math.abs(stats.percentiles[series][i] - values[i]) <= tolerance"],
-  [published, "expect(Math.abs(pct(setsAt5, sets) - 20)).toBeLessThanOrEqual(7);", "Math.abs(at5 - 20) <= 7"],
-  [published, "expect(Math.abs(pct(setsAt7, sets) - 10)).toBeLessThanOrEqual(5);", "Math.abs(at7 - 10) <= 5"],
+  [published, "expect(Math.abs(pct(setsAt5, sets) - 20)).toBeLessThanOrEqual(7);", "Math.abs(at5 - NEWS5) <= 7"],
+  [published, "expect(Math.abs(pct(setsAt7, sets) - 10)).toBeLessThanOrEqual(5);", "Math.abs(at7 - NEWS7) <= 5"],
   [published, "const runs = 1500;"],
   [published, "const src = createSyntheticSource(i + 1);"],
   [published, "swing += (src.read(\"p-002\", 360)?.[v] ?? 0) - (src.read(\"p-002\", 1080)?.[v] ?? 0);"],
   [published, "return swing / runs / 2;"],
-  [published, "expect(Math.abs(amplitude(\"heart_rate\") - 6.9)).toBeLessThanOrEqual(1.5);", "Math.abs(hr - 6.9) <= 1.5"],
-  [published, "expect(Math.abs(amplitude(\"respiratory_rate\") - 1)).toBeLessThanOrEqual(0.5);", "Math.abs(rr - 1) <= 0.5"],
+  [published, "expect(Math.abs(amplitude(\"heart_rate\") - 6.9)).toBeLessThanOrEqual(1.5);", "Math.abs(hr - SWING_HR) <= 1.5"],
+  [published, "expect(Math.abs(amplitude(\"respiratory_rate\") - 1)).toBeLessThanOrEqual(0.5);", "Math.abs(rr - SWING_RR) <= 0.5"],
   [simTest, "const series = Array.from({ length: 200 }, (_, i) => {"],
   [simTest, "return Array.from({ length: 360 }, (_, m) => src.read(\"p-002\", m + 1)).filter((_, m) => m % 5 === 0);"],
   [simTest, "expect(sd / real.sd).toBeGreaterThan(0.75);", "sd / real.sd > 0.75 && sd / real.sd < 1.25"],
@@ -62,6 +62,70 @@ const PINS: [string, string, string?][] = [
   [calibrationTest, "const check = band.lag === 5 && v !== \"heart_rate\" ? it.fails : it;", "lag === 5 && v !== \"heart_rate\" ? \"known miss\" : \"pass\""],
   [calibrationTest, "expect(m).toBeGreaterThanOrEqual(band.p25);", "m >= band.p25 && m <= band.p75"],
   [calibrationTest, "expect(m).toBeLessThanOrEqual(band.p75);", ""],
+  // the real figures are one constant each, used in the comparison and printed in the real column
+  [mine, "const SWING_HR = 6.9;"],
+  [mine, "const SWING_RR = 1;"],
+  [mine, "const NEWS5 = 20;"],
+  [mine, "const NEWS7 = 10;"],
+  [mine, "real: f2(SWING_HR)"],
+  [mine, "real: f2(SWING_RR)"],
+  [mine, "real: String(NEWS5)"],
+  [mine, "real: String(NEWS7)"],
+  [mine, "process.exitCode = ok ? 0 : 1;"],
+  [mine, "if (isMain(process.argv[1], import.meta.url)) {"],
+  [published, "while (s.clockS < start + (BURN_IN_DAYS + MEASURED_DAYS) * 86400) {"],
+  [published, "if (slot === lastSlot) continue;"],
+  [published, "if (value !== null) seen[v].push(value);"],
+  [published, "if (p.decision.kind !== \"ranked\") continue;"],
+  [published, "const total = p.decision.news2.total;"],
+  [published, "const pct = (count: number, of: number) => (100 * count) / of;"],
+  [simTest, "for (const v of [\"heart_rate\", \"respiratory_rate\", \"spo2\"] as const) {", "MAIN3.forEach((v, vi) => {"],
+  [simTest, "let sum = 0;"],
+  [simTest, "let lag = 0;"],
+  [simTest, "let n = 0;"],
+  [simTest, "for (const run of series) {"],
+  [simTest, "const xs = run.map((r) => r?.[v] ?? NaN);"],
+  [simTest, "const ok = xs.filter((x) => !Number.isNaN(x));"],
+  [simTest, "const m = ok.reduce((a, b) => a + b) / ok.length;"],
+  [simTest, "xs.forEach((x, i) => {"],
+  [simTest, "if (Number.isNaN(x)) return;"],
+  [simTest, "sum += (x - m) ** 2;"],
+  [simTest, "n += 1;"],
+  [simTest, "if (i + 1 < xs.length && !Number.isNaN(xs[i + 1])) lag += (x - m) * (xs[i + 1] - m);"],
+  [simTest, "const real = fitted.holdout[v];"],
+  [simTest, "const sd = Math.sqrt(sum / n);"],
+  [calibrationTest, "const median = (a: number[]) => {"],
+  [calibrationTest, "const s = [...a].sort((x, y) => x - y);"],
+  [calibrationTest, "const mid = (s.length - 1) / 2;"],
+  [calibrationTest, "return (s[Math.floor(mid)] + s[Math.ceil(mid)]) / 2;"],
+  [calibrationTest, "function detrend(x: number[]) {"],
+  [calibrationTest, "return x.map((value, i) => {"],
+  [calibrationTest, "if (Number.isNaN(value)) return NaN;"],
+  [calibrationTest, "const window = x.slice(Math.max(0, i - HALF_WINDOW), i + HALF_WINDOW + 1).filter((w) => !Number.isNaN(w));"],
+  [calibrationTest, "return window.length >= 12 ? value - median(window) : NaN;"],
+  [calibrationTest, "function changes(x: number[], lagSlots: number) {"],
+  [calibrationTest, "const out: number[] = [];"],
+  [calibrationTest, "for (let i = 0; i + lagSlots < x.length; i += 1) {"],
+  [calibrationTest, "if (!Number.isNaN(x[i]) && !Number.isNaN(x[i + lagSlots])) out.push(x[i + lagSlots] - x[i]);"],
+  [calibrationTest, "return out;"],
+  [calibrationTest, "const sd = (d: number[]) => {"],
+  [calibrationTest, "const mean = d.reduce((a, b) => a + b) / d.length;"],
+  [calibrationTest, "return Math.sqrt(d.reduce((a, b) => a + (b - mean) ** 2, 0) / d.length);"],
+  [calibrationTest, "const pooled: Record<string, Record<string, number[][]>> = {};"],
+  [calibrationTest, "for (const seed of SEEDS) {"],
+  [calibrationTest, "const src = createSyntheticSource(seed);"],
+  [calibrationTest, "for (const { id } of src.seeds()) {"],
+  [calibrationTest, "if (SKIP.has(id)) continue;"],
+  [calibrationTest, "const slots = (DAYS * 1440) / 5;"],
+  [calibrationTest, "for (let minute = 1; minute <= DAYS * 1440; minute += 1) {"],
+  [calibrationTest, "const reading = src.read(id, minute);"],
+  [calibrationTest, "if (!reading) continue;"],
+  [calibrationTest, "const x = detrend(bins[v].map((b) => (b.length ? median(b) : NaN)));"],
+  [calibrationTest, "const per = ((pooled[id] ??= {})[v] ??= calibration.changeSd[v].map(() => [] as number[]));"],
+  [calibrationTest, "calibration.changeSd[v].forEach(({ lag }, k) => per[k].push(...changes(x, lag / 5)));"],
+  [calibrationTest, "const m = median(Object.values(pooled).map((byVital) => sd(byVital[v][k])));"],
+  [calibrationTest, "const bins = Object.fromEntries(VITALS.map((v) => [v, Array.from({ length: slots }, () => [] as number[])]));", "const bins = Object.fromEntries(MAIN3.map((v) => [v, Array.from({ length: slots }, () => [] as number[])]));"],
+  [calibrationTest, "for (const v of VITALS) bins[v][Math.floor((minute - 1) / 5)].push(reading[v]!);", "for (const v of MAIN3) bins[v][Math.floor((minute - 1) / 5)].push(reading[v]!);"],
 ];
 
 // The marker of the test whose title starts with `title`.
@@ -138,6 +202,13 @@ describe("D and E rows from statistics", () => {
   });
 });
 
+describe("judge", () => {
+  it("a check id missing from EXPECTED is UNEXPECTED, not a pass", () => {
+    const row: Row = { check: "Z9", signal: "x", statistic: "x", sim: "1", real: "1", tolerance: "-", inside: true, data: "x" };
+    expect(judge([row])).toEqual({ verdicts: ["UNEXPECTED"], ok: false });
+  });
+});
+
 describe("the report", () => {
   let fast: Row[];
   beforeAll(() => {
@@ -157,11 +228,18 @@ describe("the report", () => {
     expect(verdictsOf("F2")).toEqual(["fitted target"]);
   }, 60_000);
 
+  const statistics: Record<string, string> = {
+    H1: "fitted from eICU; not tested",
+    B3: "fitted from eICU; not tested",
+    R1: "fitted from MIT-BIH, AFDB, LTAFDB; not tested",
+  };
+
   it("temperature, diastolic and heart rhythm have no real comparison", () => {
     for (const check of ["H1", "B3", "R1"]) {
       const [row] = fast.filter((r) => r.check === check);
       const { verdicts } = judge([row]);
-      expect([row.sim, row.real, row.tolerance, verdicts[0]]).toEqual(["-", "-", "-", "no real comparison"]);
+      expect([row.sim, row.real, row.tolerance, row.data, verdicts[0]]).toEqual(["-", "-", "-", "none", "no real comparison"]);
+      expect(row.statistic).toBe(statistics[check]);
     }
   });
 
@@ -174,6 +252,11 @@ describe("the report", () => {
     expect(a.split("\n")[0]).toMatch(/^check +\| signal +\| statistic +\| sim +\| real +\| tolerance +\| verdict +\| real data$/);
     expect(a.split("\n").slice(-7)[0]).toBe("synthetic, not validated");
     expect(a.endsWith("see NOTICE.md")).toBe(true);
+    expect(a).toContain("fitted target: the simulator was set from this number, so agreement is by construction");
+    expect(a).toContain("calibration rows: stays held out from src/sim/calibration.json only, not from the fit in src/sim/fitted.json (another hospital split)");
+    expect(a).toContain("lag-1 (5 min) autocorrelation");
+    expect(a).toContain("eICU calibration hold-out");
+    expect(a).toContain("van Goor 2022 (set from)");
     const order = a.split("\n").slice(1).map((l) => l.split(" | ")[1]?.trim());
     expect(order.indexOf("heart rate")).toBeLessThan(order.indexOf("breathing"));
     expect(order.indexOf("heart rhythm")).toBeLessThan(order.indexOf("NEWS2"));
