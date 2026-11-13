@@ -55,10 +55,13 @@ const wellFormed = (e: Episode) =>
   e.full_minute >= e.start_minute;
 
 export function createTruthPoster({ apiUrl, key, fetch: send, now, log }: TruthOptions) {
+  let runKey = ""; // run id and registration number: another pair is another run
   let runId: number | null = null;
   let sent = new Map<string, string>(); // patient id -> the row as posted
   let dropped = new Set<string>(); // rows refused here, so each gets one log line
-  let eligible: Episode[] = [];
+  // Rows offered and not yet sent. Kept after the patient leaves the ward: a started episode never changes.
+  let waiting = new Map<string, Episode>();
+  let latest: Acked = { minute: null, patients: new Set() };
   let stoppedRun = false;
   let lastPostAt = -Infinity;
   let retryAt = 0;
@@ -67,19 +70,20 @@ export function createTruthPoster({ apiUrl, key, fetch: send, now, log }: TruthO
   const line = (run: number, status: string | number) => log(`episodes run ${run}: ${status}`);
 
   /** Takes the episodes now started and the sync's acknowledgements. Rows the API cannot know yet wait. */
-  function offer(run: number | null, episodes: Episode[], acked: Acked) {
-    if (run !== runId) {
+  function offer(run: number | null, generation: number, episodes: Episode[], acked: Acked) {
+    if (`${run}:${generation}` !== runKey) {
+      runKey = `${run}:${generation}`;
       runId = run;
       sent = new Map();
       dropped = new Set();
+      waiting = new Map();
       stoppedRun = false;
       lastPostAt = -Infinity;
       retryAt = 0;
     }
+    latest = acked;
     const seen = new Set<string>();
-    eligible = [];
     for (const e of episodes) {
-      if (acked.minute === null || acked.minute < e.start_minute || !acked.patients.has(e.patient_id)) continue;
       const row = { patient_id: e.patient_id, kind: e.kind, start_minute: e.start_minute, full_minute: e.full_minute }; // the four fields only
       const text = JSON.stringify(row);
       const refused = !wellFormed(row) ? text : seen.has(row.patient_id) ? `${text}|duplicate` : null;
@@ -88,20 +92,30 @@ export function createTruthPoster({ apiUrl, key, fetch: send, now, log }: TruthO
         dropped.add(refused);
         continue;
       }
-      if (sent.get(row.patient_id) === text) continue;
       seen.add(row.patient_id);
-      eligible.push(row);
+      if (sent.get(row.patient_id) !== text) waiting.set(row.patient_id, row);
     }
-    eligible.sort((a, b) => a.start_minute - b.start_minute);
+    // At most 200 rows wait: the oldest start goes first.
+    if (waiting.size > MAX_ROWS) {
+      const oldest = [...waiting.values()].sort((a, b) => a.start_minute - b.start_minute);
+      for (const e of oldest.slice(0, waiting.size - MAX_ROWS)) waiting.delete(e.patient_id);
+      if (run !== null) line(run, "dropped"); // one line for the whole overflow
+    }
   }
 
   /** Posts at most one body. Never throws, never blocks the caller that does not await it. */
   async function tick() {
     const run = runId;
-    if (run === null || stoppedRun || inflight || eligible.length === 0) return;
+    const here = runKey;
+    if (run === null || stoppedRun || inflight || waiting.size === 0) return;
     const t = now();
     if (t - lastPostAt < EVERY_MS || t < retryAt) return;
-    const rows = eligible.slice(0, MAX_ROWS);
+    // The acknowledged minute and patient are checked now, whether or not the patient is still on the ward.
+    const rows = [...waiting.values()]
+      .filter((e) => latest.minute !== null && latest.minute >= e.start_minute && latest.patients.has(e.patient_id))
+      .sort((a, b) => a.start_minute - b.start_minute)
+      .slice(0, MAX_ROWS);
+    if (rows.length === 0) return;
     lastPostAt = t;
     inflight = true;
     let status = 0; // 0: no answer
@@ -118,17 +132,19 @@ export function createTruthPoster({ apiUrl, key, fetch: send, now, log }: TruthO
       // a network error or a timeout: kept, retried
     }
     inflight = false;
-    if (run !== runId) return; // the run changed while the post was out
-    const done = new Set(rows.map((r) => r.patient_id));
-    if (status >= 200 && status < 300) {
-      for (const r of rows) sent.set(r.patient_id, JSON.stringify(r));
-      eligible = eligible.filter((e) => !done.has(e.patient_id));
-    } else if (status === 409) {
+    if (here !== runKey) return; // the run changed while the post was out
+    const done = () => {
+      for (const r of rows) {
+        sent.set(r.patient_id, JSON.stringify(r));
+        if (waiting.get(r.patient_id)?.start_minute === r.start_minute) waiting.delete(r.patient_id);
+      }
+    };
+    if (status >= 200 && status < 300) done();
+    else if (status === 409) {
       stoppedRun = true;
       line(run, status);
     } else if (status === 422) {
-      for (const r of rows) sent.set(r.patient_id, JSON.stringify(r)); // dropped, no retry
-      eligible = eligible.filter((e) => !done.has(e.patient_id));
+      done(); // dropped, no retry
       line(run, status);
     } else retryAt = now() + RETRY_MS; // 403, 404, 503, network error, timeout, anything else
   }

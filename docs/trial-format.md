@@ -60,7 +60,7 @@ Known edges, all intended:
 
 ## Security and privacy rules of the format
 - No patient names, no clinician names, no free text. Only ids, numbers and the fixed words above.
-- Ground truth (`episodes.csv`) is written only here. One exception, owner decision `dashboard-7`: for a live run marked synthetic, the headless ward runner (`npm run ward`) posts each started deterioration episode to the API with the ingest key (patient id, kind, start minute, fully-in minute), only after it has started and after the batch that covers it is acknowledged. The API shows it only in a patient's history to a clinician who may see that patient, never in a rank, a score, a model input or the open ward view. The browser and the trial runners never send it.
+- Ground truth (`episodes.csv`) is written only here. One exception, owner decision `dashboard-7`: for a live run marked synthetic, the headless ward runner (`npm run ward`) posts each started deterioration episode to the API with the ingest key (patient id, kind, start minute, fully-in minute), only after it has started and after the batch that covers it is acknowledged. The wire contract says the API shows it only in a patient's history to a clinician who may see that patient, never in a rank, a score, a model input or the open ward view; that is the API's promise, not enforced here, and the API side may not exist yet (see `docs/episode-truth.md`). The browser and the trial runners never send it.
 - The runner reads only its arguments and the scenario file, writes only inside `--out`, and makes no network call.
 
 ## Tests each side must have

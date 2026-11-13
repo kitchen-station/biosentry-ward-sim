@@ -680,9 +680,14 @@ describe("sync.acked", () => {
     run(s, src, 10);
     const { net, sync } = fake();
     net.batch = 503;
+    s.outbox!.admissions.push({ id: "n-0002", minute: 10 } as never); // admitted, its batch not yet acknowledged
     await sync.resume(s, src, first.sync.run);
     expect(sync.acked.minute).toBeNull();
     expect([...sync.acked.patients].sort()).toEqual(ids(s));
+    expect(sync.acked.patients.has("n-0002")).toBe(false);
+    net.batch = 204;
+    await sync.flush();
+    expect(sync.acked.patients.has("n-0002")).toBe(true);
   });
 
   it("is cleared when the run is registered again", async () => {

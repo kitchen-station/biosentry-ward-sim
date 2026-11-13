@@ -68,7 +68,7 @@ Each page load picks one random `client_id` (32 hex characters from `crypto.getR
 - **Bins:** the 15-minute medians behind the trend charts.
 - **Events:** the sim's log lines.
 - **Patients:** trend, signal quality and the minute of the last sample.
-- **Episodes:** Owner decision `dashboard-7`: for a live run marked synthetic, the headless ward runner (`npm run ward`) posts, to `POST /sim/runs/{run_id}/episodes`, each started deterioration episode to the API with the ingest key (patient id, kind, start minute, fully-in minute), only after it has started and after the batch that covers it is acknowledged. The API shows it only in a patient's history to a clinician who may see that patient, never in a rank, a score, a model input or the open ward view. The browser and the trial runners never send it. See `docs/episode-truth.md`.
+- **Episodes:** Owner decision `dashboard-7`: for a live run marked synthetic, the headless ward runner (`npm run ward`) posts, to `POST /sim/runs/{run_id}/episodes`, each started deterioration episode to the API with the ingest key (patient id, kind, start minute, fully-in minute), only after it has started and after the batch that covers it is acknowledged. The wire contract says the API shows it only in a patient's history to a clinician who may see that patient, never in a rank, a score, a model input or the open ward view; that is the API's promise, not enforced here, and the API side may not exist yet (see `docs/episode-truth.md`). The browser and the trial runners never send it. See `docs/episode-truth.md`.
 
 There is one shared ward. While a sim holds it, a sim on another page cannot save. The top bar says so, and the sim keeps running locally:
 

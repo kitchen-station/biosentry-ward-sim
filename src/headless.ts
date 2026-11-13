@@ -54,7 +54,7 @@ function offerTruth() {
   if (run === null || !src.save) return;
   try {
     const ids = s.patients.map((p) => p.id);
-    poster.offer(run, startedEpisodes(src.save(ids), ids, minuteOf(s)), sync.acked);
+    poster.offer(run, sync.generation, startedEpisodes(src.save(ids), ids, minuteOf(s)), sync.acked);
     void poster.tick();
   } catch {
     console.error(`episodes run ${run}: not read`); // the ward goes on

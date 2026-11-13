@@ -274,6 +274,10 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     get acked(): { minute: number | null; patients: ReadonlySet<string> } {
       return { minute: ackedMinute, patients: ackedPatients };
     },
+    /** Counts registrations and resumes: the same run id with another number is another registration. Read-only. */
+    get generation() {
+      return generation;
+    },
     get stopped() {
       return stopped;
     },
