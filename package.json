@@ -14,7 +14,8 @@
     "ward": "vite build --ssr src/headless.ts --outDir dist/ward --logLevel warn && node dist/ward/headless.js",
     "hospital-trial": "vite build --ssr src/hospital-trial.ts --outDir dist/hospital-trial --logLevel warn && node dist/hospital-trial/hospital-trial.js",
     "compare": "vite build --ssr src/compare.ts --outDir dist/compare --logLevel warn && node dist/compare/compare.js",
-    "realism": "vite build --ssr src/realism.ts --outDir dist/realism --logLevel warn && node dist/realism/realism.js"
+    "realism": "vite build --ssr src/realism.ts --outDir dist/realism --logLevel warn && node dist/realism/realism.js",
+    "lab-worker": "vite build --ssr src/compare.ts --outDir dist/compare --logLevel warn && vite build --ssr src/lab-worker.ts --outDir dist/lab --logLevel warn && node dist/lab/lab-worker.js"
   },
   "dependencies": {
     "react": "19.2.8",
