@@ -76,6 +76,7 @@ export function TopBar({
   s,
   src,
   notice,
+  onSignIn,
   onReset,
   onSpeed,
   hospital,
@@ -83,6 +84,8 @@ export function TopBar({
   s: Sim;
   src: VitalsSource;
   notice: string | null;
+  /** Watching with no token: a pill and a button that opens the sign-in form. */
+  onSignIn?: () => void;
   /** Left out in viewer mode unless the clinician may control the runner's ward, which has no clock of its own here. */
   onReset?: () => void;
   /** Viewer mode: the speed is asked of the runner, not set here. */
@@ -107,6 +110,12 @@ export function TopBar({
         </span>
       )}
       {s.ended && <span className="pill solid">Run ended</span>}
+      {onSignIn && (
+        <>
+          <span className="pill">Watching, read-only</span>
+          <button onClick={onSignIn}>Sign in to control</button>
+        </>
+      )}
       {hospital && (
         <>
           <select aria-label="Scenario" value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
@@ -793,6 +802,7 @@ export function Inspector({
   floors,
   building = false,
   send,
+  watching = false,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -802,11 +812,17 @@ export function Inspector({
   floors?: FloorSummary[];
   building?: boolean; // the hospital seen from outside: no floor is out yet
   send?: (body: CommandBody) => void; // viewer mode with control: a patient's buttons ask the runner
+  watching?: boolean; // no token: the legend only
 }) {
   if (selected === null) {
     return (
       <aside className="panel command">
-        {building ? (
+        {watching ? (
+          <>
+            <h2 className="ptitle">Watching W4</h2>
+            <p className="story">Read-only. Sign in to control.</p>
+          </>
+        ) : building ? (
           <>
             <h2 className="ptitle">Pick a floor of the hospital</h2>
             <p className="story">Click a storey of the building, its sign or a floor button. The building opens up so you can see inside.</p>

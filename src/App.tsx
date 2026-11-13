@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } 
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { floorOf } from "./hospital-panels";
+import { fetchOpenWard, nextGate, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { PageBoundary, PageNav, onHashChange, pageFromHash } from "./nav";
 import { BedTimeline, Inspector, SelectList, selectTargets, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
@@ -116,6 +117,19 @@ export function App() {
   const [token, setToken] = useState<string | null>(null);
   const [page, setPage] = useState(() => pageFromHash(window.location.hash));
   useEffect(() => onHashChange(window, () => setPage(pageFromHash(window.location.hash))), []);
+  // No token in a viewer build: ask the open route once. Held here so a visit to Analytics keeps the answer.
+  const [gate, setGate] = useState<Gate>("trying");
+  const [first, setFirst] = useState<OpenWard | null>(null);
+  useEffect(() => {
+    if (!VIEW_API || token !== null || gate !== "trying") return;
+    let off = false;
+    void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API }).then((r) => {
+      if (off) return;
+      if (r.ok) setFirst(r.body);
+      setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));
+    });
+    return () => void (off = true);
+  }, [token, gate]);
   // Before the sign-in gate: Analytics shows only committed synthetic files. The ward unmounts and its effects clean up.
   if (page === "analytics")
     return (
@@ -125,11 +139,20 @@ export function App() {
         </Suspense>
       </PageBoundary>
     );
-  if (VIEW_API && token === null) return <SignIn onToken={setToken} />;
-  return <Ward token={token} onSignedOut={() => setToken(null)} />;
+  const shown = screen(VIEW_API, token, gate);
+  if (shown === "loading") return <p className="tag">loading</p>;
+  if (shown === "signin") return <SignIn onToken={setToken} />;
+  const onSignedOut = () => {
+    setToken(null);
+    setGate((g) => nextGate(g, "signed_out"));
+  };
+  const watch = shown === "watch" && first ? { first, onGone: () => setGate((g) => nextGate(g, "poll_gone")), onLeave: () => setGate((g) => nextGate(g, "leave")) } : undefined;
+  return <Ward token={token} onSignedOut={onSignedOut} watch={watch} />;
 }
 
-function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () => void }) {
+type Watch = { first: OpenWard; onGone: () => void; onLeave: () => void };
+
+function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut: () => void; watch?: Watch }) {
   const [world, setWorld] = useState(() => newWorld());
   const [scenario, setScenario] = useState("typical");
   const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else the floor pulled out
@@ -181,9 +204,30 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
     };
   }, [world]);
 
+  // Watching with no token: the open answer replaces the drawn ward. No other request is made.
+  useEffect(() => {
+    if (!watch) return;
+    const read = createReader();
+    const apply = (w: OpenWard) => {
+      const sim = read(toLive(w));
+      const glide = glideRef.current;
+      glideRef.current = { ...glide, at: performance.now(), from: new Map(glide.drawn), to: new Map(sim.staff.map((m) => [m.id, { x: m.x, y: m.y }])) };
+      setWorld({ s: sim, src: VIEW_SOURCE });
+      setViewNotice(w.sim ? null : "No live ward yet");
+    };
+    apply(watch.first);
+    return startOpenPoll({
+      fetch: window.fetch.bind(window),
+      base: VIEW_API!,
+      onBody: apply,
+      onDown: () => setViewNotice("Not updating"), // the last ward stays drawn
+      onGone: watch.onGone,
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Viewer mode: each answer replaces the drawn ward.
   useEffect(() => {
-    if (!VIEW_API) return;
+    if (!VIEW_API || watch) return;
     const read = createReader();
     let off = false;
     let finished: Stay[] = [];
@@ -469,6 +513,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
         s={world.s}
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
+        onSignIn={watch?.onLeave}
         onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
         onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
         hospital={
@@ -485,12 +530,15 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
           <canvas
             ref={canvasRef}
             aria-label={
-              HOSPITAL
+              watch
+                ? "Isometric view of ward W4, read-only."
+                : HOSPITAL
                 ? "Isometric view of the hospital building. Choosing a floor slides it out of the building. Use the floor buttons, and the list after this view for ward W4, to select by keyboard."
                 : "Isometric view of ward W4. Use the list after this view to select by keyboard."
             }
             onClick={(e) => {
               if (justDragged.current) return void (justDragged.current = false);
+              if (watch) return; // nothing to select without a token
               const id = targetAt(e);
               if (!HOSPITAL) return select(id);
               if (id?.startsWith("floor:")) return go({ slab: Number(id.slice(6)) });
@@ -527,6 +575,7 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
             }}
             onPointerCancel={() => (dragRef.current = null)}
             onMouseMove={(e) => {
+              if (watch) return; // no hover, so no name tag
               hoveredRef.current = targetAt(e);
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
@@ -541,10 +590,10 @@ function Ward({ token, onSignedOut }: { token: string | null; onSignedOut: () =>
             </div>
           )}
           <ZoomBar pct={Math.round((rendererRef.current?.userZoom() ?? 1) * 100)} onZoom={zoomBy} disabled={HOSPITAL && view === null} />
-          {selectList}
+          {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} />
+        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
