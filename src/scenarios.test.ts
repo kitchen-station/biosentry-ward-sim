@@ -171,6 +171,8 @@ describe("critical group", () => {
 
   it("repeats for a seed, differs for another, and never picks someone due by minute 360", () => {
     expect(picked(777)).toEqual(picked(777));
+    // Pinned: a pick from another stream, or the first four, gives other people or minutes.
+    expect([...picked(777)].sort()).toEqual([["c-005", 349], ["c-007", 207], ["c-009", 305], ["c-011", 172]]);
     expect(picked(777)).not.toEqual(picked(778));
     for (const seed of [null, 777, 778]) {
       const w = buildWorld("critical", seed);
@@ -186,6 +188,10 @@ describe("critical group", () => {
       expect(spy.mock.calls.some((c) => c[1] === "critical")).toBe(false);
       spy.mockRestore();
     }
+    const spy = vi.spyOn(rngModule, "stream");
+    buildWorld("critical", 777);
+    expect(spy.mock.calls.some((c) => c[0] === 777 && c[1] === "critical")).toBe(true);
+    spy.mockRestore();
     const a = oldWorld();
     const b = buildWorld("pitch", null);
     expect(fingerprint(b.s)).toBe(fingerprint(a.s));
