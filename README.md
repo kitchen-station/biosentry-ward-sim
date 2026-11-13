@@ -238,13 +238,13 @@ npm run fit -- ~/Documents/datasets
 
 Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
 
-`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss, occupancy and the 24-hour heart rate and respiratory rate swings pass. Three checks are marked as known misses:
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss and occupancy pass. The 24-hour heart rate and respiratory rate swings also pass, but the simulator was set from those figures, so that agreement is by construction. Three checks are marked as known misses:
 
 | Known miss | Sim | Published |
 |---|---|---|
 | Observation sets at NEWS 5+ | about 35% | about 20% (RCP 2012, medical wards) |
-| Observation sets at NEWS 7+ | about 18% | about 10% |
-| SpO2, low end | 1st to 10th percentiles 90 to 93 | 86 to 91 (Welch 2015) |
+| Observation sets at NEWS 7+ | about 16% | about 10% |
+| SpO2, low end | 1st to 10th percentiles 90 to 94 | 86 to 91 (Welch 2015) |
 
 Patients spend about 14% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
 
@@ -259,6 +259,8 @@ Limits:
 - **AF episodes are short:** the median is a few minutes, as recorded in patients referred for AF, so a Start AF episode can end quickly.
 
 MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
+
+`npm run realism` prints every one of these checks: the simulator's number beside the real one, the verdict and the dataset. Temperature, diastolic pressure and heart rhythm are fitted from real recordings but are not compared with real data. [docs/realism.md](docs/realism.md) says what "fitted to real data" means here, signal by signal.
 
 ### Patient flow
 
