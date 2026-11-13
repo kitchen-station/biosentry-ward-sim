@@ -91,7 +91,7 @@ export function stderrReason(stderr: string): string | null {
   return line === undefined ? null : [...line.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu, "")].slice(0, 300).join("");
 }
 
-/** True when the key can go in a header value as it is. Never prints the key. */
+/** The line to refuse to start with when the key cannot go in a header as it is, or null. Never prints the key. */
 export const keyRefusal = (key: string): string | null => (/[^\x21-\x7e]/.test(key) ? "lab: BIOSENTRY_INGEST_KEY holds a character that cannot go in a header" : null);
 
 export type Outcome = "idle" | "denied" | "error";

@@ -322,7 +322,7 @@ describe("the loop, on fakes", () => {
     expect(r.reports[0].body).toEqual({ state: "failed", reason: "compare did not start" });
     expect(r.removed).toEqual(["/tmp/lab-1"]);
   });
-  it("keeps the first 1000 characters of a long stderr, so compare's line is still found", async () => {
+  it("finds compare's line in the first chunk of a long stderr", async () => {
     const exit = (c: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       c.stderr.emit("data", `compare: x\n${"a".repeat(989)}`);
       for (let i = 0; i < 199; i++) c.stderr.emit("data", "b".repeat(1000));
