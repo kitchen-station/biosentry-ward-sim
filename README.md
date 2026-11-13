@@ -160,6 +160,8 @@ The numbers, the limits and a worked example with real output are in [docs/compa
 
 A build with `VITE_VIEW_API_URL` set is a viewer. It never makes a ward: a clinician signs in, and the page draws what the headless runner publishes, read from `GET /wards/W4/live` every 2 seconds.
 
+With no token, the viewer first asks `GET /wards/W4/open-view`; while the answer stays valid it asks again 2 s after each answer. If the API answers a valid body, the page shows the ward read-only ("watching") with no controls and no names. Anything else shows the sign-in form. See [docs/open-view.md](docs/open-view.md).
+
 ```bash
 VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
 ```

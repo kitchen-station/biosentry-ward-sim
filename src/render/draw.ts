@@ -22,6 +22,9 @@ import {
   sprite,
 } from "./sprites";
 
+import { isOpenBed } from "../open-view";
+
+const ROLE_SPRITE = { rn: "rn-delacruz", charge_rn: "rn-manalo", md: "md-santos" } as const;
 const HALF_W = 12;
 const HALF_H = 6;
 const MARGIN = 4;
@@ -731,7 +734,7 @@ export function createW4() {
     ctx.fillRect(sx - 3, sy - 2, 6, 4);
     const walking = m.path.length > 0;
     const phase = Math.floor(m.moved * 4) % 4;
-    const set = people[id];
+    const set = people[id] ?? people[ROLE_SPRITE[m.role]]; // an open-view figure has no bundled id: colour by role only
     const key = !walking || phase % 2 === 1 ? m.facing : `${m.facing}Step${phase === 0 ? "L" : "R"}`;
     ctx.drawImage(set[key], sx - 6, sy - 20);
   }
@@ -811,6 +814,7 @@ export function createW4() {
       ctx.stroke();
     }
     for (const p of s.patients) {
+      if (p.rank === null && isOpenBed(p)) continue; // an open-view bed with no rank has no tag
       const [x, y] = bedAnchor(p);
       tag(ctx, p.rank ? `#${p.rank}` : "NR", x, y - 8, undefined, p.rank === 1);
     }
