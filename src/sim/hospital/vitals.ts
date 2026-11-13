@@ -15,6 +15,9 @@
 // The generator has no recovery. At an ICU to ward step-down the episode is cleared the same way, and the span is marked
 // `recovery: "not_modelled"`. One switch, CLEAR_EPISODE_AT_ICU_STEP_DOWN, turns this off.
 //
+// Notes: the first sync happens at hospital minute -1, so a few people get their minute-0 reading one second late (harmless:
+// a read at minute 0 or before returns the anchor). Create the engine anew for every new world: an old engine fed a new world
+// would silently reuse streams with a matching id and visit.
 // Ward W4 is untouched: while a person is on W4 the engine reads nothing and keeps a span with their W4 patient id.
 import { rankWard } from "../arbiter";
 import { BEDS } from "../map";
@@ -247,7 +250,7 @@ export function summary(v: HospitalVitals): VitalsSummary {
     if (pv.unit === "W4") continue; // paused: its last score is old, and W4's own record holds the person
     const row = (byUnit[pv.unit] ??= { people: 0, ranked: 0, notRanked: 0 });
     row.people += 1;
-    if (pv.p.decision.kind === "ranked") row.ranked += 1;
+    if (pv.unit !== "ICU" && pv.p.decision.kind === "ranked") row.ranked += 1; // NEWS2 is a ward score: ICU is never ranked
     else row.notRanked += 1;
   }
   return {

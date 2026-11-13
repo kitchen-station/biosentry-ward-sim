@@ -117,6 +117,8 @@ describe("read-only", () => {
     const sum = summary(v);
     expect([...v.live.values(), ...v.finished].some((pv) => pv.bins.some((b) => b.unit === "W4"))).toBe(false);
     expect(Object.keys(sum.byUnit).length).toBeGreaterThanOrEqual(3);
+    expect(sum.byUnit.ICU.people).toBeGreaterThan(0);
+    expect(sum.byUnit.ICU.ranked).toBe(0); // NEWS2 is a ward score
     expect(sum.episodes).toBe([...v.live.values(), ...v.finished].filter((pv) => pv.episode).length);
     for (const pv of v.live.values()) {
       const q = fed.s.hospital!.people.find((x) => x.id === pv.id)!;
@@ -289,6 +291,31 @@ describe("episodes", () => {
     expect((off.src!.save!([off.id]).streams[off.id] as { injectAt: number | null }).injectAt).toBe(300);
     expect(same(off.bins.filter((x) => x.m <= 600), on.bins.filter((x) => x.m <= 600))).toBe(true);
     expect(same(off.bins.filter((x) => x.m > 1500), on.bins.filter((x) => x.m > 1500))).toBe(false);
+  });
+});
+
+describe("no clear on other moves, no shift by unit", () => {
+  it("does not clear an episode on a move into the ICU: only a move out of it", () => {
+    const h = world(), v = createVitals(), q = person(5, "MED3A");
+    h.people.push(q);
+    advance(v, h, 900, (m) => { if (m === 300) q.course = course(300); if (m >= 601) q.unit = "ICU"; });
+    const pv = v.live.get(q.id)!;
+    expect(pv.cleared).toBe(false);
+    expect(v.stepDownsCleared).toBe(0);
+    expect(pv.spans.map((s) => [s.unit, s.recovery ?? null])).toEqual([["MED3A", null], ["ICU", null]]);
+    expect((pv.src!.save!([pv.id]).streams[pv.id] as { injectAt: number | null }).injectAt).toBe(300);
+  });
+
+  it("gives the same person the same readings in every unit: no baseline shift", () => {
+    const binsIn = (unit: UnitId) => {
+      const h = world(), v = createVitals(), q = person(5, unit);
+      h.people.push(q);
+      advance(v, h, 240);
+      return v.live.get(q.id)!.bins.map(({ unit: _u, ...rest }) => rest);
+    };
+    const base = binsIn("MED3A");
+    expect(base.length).toBeGreaterThan(10);
+    for (const u of ["ER", "ICU", "SURG5A", "MED3B"] as UnitId[]) expect(binsIn(u)).toEqual(base);
   });
 });
 
