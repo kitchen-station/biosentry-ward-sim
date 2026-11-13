@@ -11,6 +11,7 @@ import { refuseHospitalState } from "./sim/hospital/attach";
 import { loadWard, saveWard } from "./sim/persist";
 import { minuteOf, say, step, type Speed } from "./sim/sim";
 import { createSync, STOP_TEXT } from "./sim/sync";
+import { createTruthPoster, startedEpisodes } from "./sim/truth";
 import { createPublisher } from "./sim/view";
 
 const TICK = 1 / 60;
@@ -37,6 +38,8 @@ let { s, src } = saved ?? freshWard(speed);
 // A fixed client id: a runner that begins a new ward replaces its own run at once instead of waiting out the old one.
 const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch });
 const view = createPublisher();
+// Owner decision dashboard-7: started episodes go to the API, only from here. See docs/episode-truth.md.
+const poster = createTruthPoster({ apiUrl, key, fetch, now: Date.now, log: console.error });
 
 let savedAt = 0;
 function save() {
@@ -45,9 +48,23 @@ function save() {
   savedAt = Date.now();
 }
 
+// Never awaited: a slow or failing episodes post cannot hold the sync or the tick loop.
+function offerTruth() {
+  const run = sync.run.runId;
+  if (run === null || !src.save) return;
+  try {
+    const ids = s.patients.map((p) => p.id);
+    poster.offer(run, startedEpisodes(src.save(ids), ids, minuteOf(s)), sync.acked);
+    void poster.tick();
+  } catch {
+    console.error(`episodes run ${run}: not read`); // the ward goes on
+  }
+}
+
 async function flush() {
   await sync.flush();
   if (!sync.stopped) {
+    offerTruth();
     // After a flush, so the file never holds less than the database was sent.
     if (Date.now() - savedAt >= SAVE_EVERY_MS) save();
     return;
