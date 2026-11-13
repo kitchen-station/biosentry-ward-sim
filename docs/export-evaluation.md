@@ -71,6 +71,6 @@ This prints the table as usual and also writes its rows and footer lines as JSON
 
 ## Hand-over
 
-This repository does not write to the BioSentry-Intelligence repository. The file is handed to the dashboard team with the command line as run, the simulator commit and the file's sha256. They commit it unchanged. Once the Analytics page is on `main`, its sync script brings the file back here with the other files.
+This repository does not write to the BioSentry-Intelligence repository. The file is handed to the dashboard team with the command line as run, the simulator commit and the file's sha256. They commit it unchanged. The sync script (`npm run sync:evaluation`, see `docs/analytics.md`) then brings it back here with the other files.
 
 Make the hand-over file at a commit that is on `main`, so the commit in the file can be found.
