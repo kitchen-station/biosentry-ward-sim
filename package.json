@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "sync:evaluation": "node scripts/sync-evaluation.mjs",
     "fit": "node scripts/fit-generator.mjs",
     "fit:calibration": "node scripts/fit-eicu.mjs",
     "preview": "vite preview",

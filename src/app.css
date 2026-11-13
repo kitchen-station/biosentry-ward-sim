@@ -674,3 +674,78 @@ summary {
 .floor canvas {
   touch-action: none; /* a touch drag pans the ward instead of scrolling the page */
 }
+
+/* Analytics page: plain text and tables. */
+.tag {
+  font-size: 16px;
+  text-transform: uppercase;
+  color: var(--ink-700);
+}
+
+nav {
+  display: flex;
+  gap: 8px;
+}
+
+nav a {
+  color: var(--ink-900);
+  border: 2px solid var(--ink-900);
+  padding: 0 6px;
+  text-decoration: none;
+}
+
+nav a[aria-current="page"] {
+  background: var(--ink-900);
+  color: var(--cream-100);
+}
+
+.analytics {
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.analytics .panel {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+  align-content: start;
+}
+
+.analytics h2,
+.analytics h3 {
+  font: 600 20px var(--title);
+}
+
+.analytics ul {
+  display: grid;
+  gap: 2px;
+}
+
+.analytics .scroll {
+  overflow-x: auto;
+}
+
+.analytics table {
+  border-collapse: collapse;
+}
+
+.analytics th,
+.analytics td {
+  border: 2px solid var(--ink-900);
+  padding: 2px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.analytics caption {
+  text-align: left;
+  font: 600 18px var(--title);
+}
+
+.analytics code {
+  word-break: break-all;
+}

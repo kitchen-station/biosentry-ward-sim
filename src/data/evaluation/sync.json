@@ -1,0 +1,62 @@
+{
+ "commit": "d5dde654f24ed84cc904f31e5e666591303ee324",
+ "commit_date": "2026-11-13",
+ "files": [
+  {
+   "bytes": 5966,
+   "path": "frontend/src/data/evaluation/research-agent.json",
+   "sha256": "d9a10c9fc35e9a4eeac1e0049ab28960db31abc0158f167a38a6189e652baa24"
+  },
+  {
+   "bytes": 6706,
+   "path": "models/manifest.json",
+   "sha256": "20b3b81aeb9d327f49bb6f5edfbc1749757ecd01524f4aca5d26ee1aec1dfe76"
+  },
+  {
+   "bytes": 16761,
+   "path": "models/tier_b/baseline/params.json",
+   "sha256": "d1d895e6781542155fa74f5243f0e6c9a0af11e88ce82bb2cc596297aa9d8a16"
+  },
+  {
+   "bytes": 4916,
+   "path": "models/tier_b/reward_policy/no_temperature/policy.json",
+   "sha256": "522195aa8104271d3bfec0e87ab1f37e07b074dccbd5a347d05191905a12a3b3"
+  },
+  {
+   "bytes": 5064,
+   "path": "models/tier_b/reward_policy/policy.json",
+   "sha256": "21cf038e4ab699906eeab87d56ddbd39965915a8ec085e75f56ca99501114775"
+  },
+  {
+   "bytes": 660,
+   "path": "models/tier_c/confidence_check/calibration.json",
+   "sha256": "7815bd3885c794fafa38e8384d6837300c163738dbb6a0a7a126c4dca2484f11"
+  },
+  {
+   "bytes": 664,
+   "path": "models/tier_c/confidence_check/calibration_no_temp.json",
+   "sha256": "4a3de9544cce7e6cc838837bb2c1646261d85d1f41bef35f84135509fa0729bb"
+  },
+  {
+   "bytes": 28290,
+   "path": "models/tier_c/student_vitals/metadata.json",
+   "sha256": "4ef6898ca6e9e2ca81b90377586642a3556ff7343bdd1c8f66dbad324ad25094"
+  },
+  {
+   "bytes": 13129,
+   "path": "training/runs/confidence_check/m3-20261113-fbd39f2.json",
+   "sha256": "7cebd2524686441b9ab80898b43795d48de7fe234b6ef316bb9d1cdafc7199b6"
+  },
+  {
+   "bytes": 20426,
+   "path": "training/runs/reward_policy/m2-20261113.json",
+   "sha256": "48524c60d304541ea9717a72934c219f17e3f29a4159c707dd8f4f15272622b5"
+  },
+  {
+   "bytes": 27607,
+   "path": "training/runs/student_vitals/m1-20261113-3d634f3.json",
+   "sha256": "c8dcb2c446388a5b5b22200869385a6153ee7357036337c2dc4bc3ed05960328"
+  }
+ ],
+ "repo": "kitchen-station/BioSentry-Intelligence"
+}
