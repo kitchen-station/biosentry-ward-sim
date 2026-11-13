@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { compare, compareHospital, compareW4, compareW4Seeds, excessAt, pairedDiffs, pairedOf, pairEvents, pooledMedian, parseRule, recognition, Refusal, rescore, riskAt, spreadOf, w4Arm } from "./compare";
+import { compare, compareHospital, compareW4, compareW4Seeds, excessAt, pairedDiffs, pairedOf, pairEvents, pooledMedian, parseRule, recognition, Refusal, rescore, riskAt, spreadOf, w4Arm, widerOf } from "./compare";
 import { PARAMS } from "./sim/hospital/params";
 import { parseScenario } from "./sim/hospital/scenario";
 import { scoreNews2 } from "./sim/news2";
@@ -227,6 +227,18 @@ describe("outcome model", () => {
     expect([PARAMS.obs.intervalMin.routine.value, PARAMS.obs.intervalMin.watch.value]).toEqual([240, 60]);
   });
 
+  it("knows which rule is the wider one, for every pair of rules", () => {
+    const chartRule = parseRule("news2_chart_trigger");
+    for (let k = 1; k <= 20; k += 1) {
+      const ge = parseRule(`news2_total_ge_${k}`);
+      // A single 3 makes the total at least 3, so up to K = 3 the total rule is the wider; from K = 5 the chart trigger is; K = 4 is neither.
+      const want = k <= 3 ? "baseline" : k === 4 ? null : "change";
+      expect(widerOf(ge, chartRule), `ge_${k} against the chart trigger`).toBe(want);
+      expect(widerOf(chartRule, ge)).toBe(want === null ? null : want === "baseline" ? "change" : "baseline");
+      if (k > 1) expect(widerOf(ge, parseRule(`news2_total_ge_${k - 1}`))).toBe("change");
+    }
+  });
+
   it("recognition: the earliest of a rule bin, the next round, leaving and the run end", () => {
     const r2 = rowsAt(every(100, 500), 2);
     expect(recognition([...rowsAt(every(100, 400), 0).map((r) => (r.minute === 235 ? { ...r, total: 5 } : r))], ge5, ep(100, 200, 60), 3)).toEqual({ minute: 235, how: "rule" }); // bin before the round (820)
@@ -269,9 +281,10 @@ describe("outcome model", () => {
     const r = scoreNews2({ respiratory_rate: rr, spo2: 97, spo2_scale: 1, supplemental_o2: false, systolic_bp: 120, heart_rate: hr, consciousness: "A", temperature: 37 });
     return `${id},${minute},${hr},${rr},97,37,120,80,10,A,0,1,100,1,${r.kind === "score" ? r.total : ""}`;
   };
-  const stub = ((o: { seed: number }) => {
+  type Trial = (o: { seed: number }) => Record<string, string>;
+  const stubWith = (patients: number): Trial => (o) => {
     const [c, e] = [[COHORT_HEADER], [EPISODES_HEADER]];
-    for (const [id, admit, start] of [["n-0001", 20, 300 + 15 * (o.seed - 4)], ["n-0002", 100, 600], ["n-0003", 90, 400], ["n-0004", 100, 710]] as [string, number, number][]) {
+    for (const [id, admit, start] of ([["n-0001", 20, 300 + 15 * (o.seed - 4)], ["n-0002", 100, 600], ["n-0003", 90, 400], ["n-0004", 100, 710]] as [string, number, number][]).slice(0, patients)) {
       const leave = id === "n-0003" ? 430 : 1500; // n-0003 never deviates and leaves before its round
       e.push(`${id},${admit},${leave},,respiratory,${start},60,,,0`);
       for (let m = 105; m <= leave - 15; m += 15) {
@@ -280,7 +293,10 @@ describe("outcome model", () => {
       }
     }
     return { "manifest.json": "", "cohort.csv": `${c.join("\n")}\n`, "episodes.csv": `${e.join("\n")}\n`, "summary.json": '{"patient_days":3}' };
-  }) as never;
+  };
+  const stub = stubWith(4) as never;
+  // A seed with a cohort of its own and no episode at all.
+  const noEpisode: Trial = (o) => ({ "manifest.json": "", "cohort.csv": `${COHORT_HEADER}\n${row("n-0100", 105 + 15 * o.seed, 16, 80)}\n`, "episodes.csv": `${EPISODES_HEADER}\nn-0100,50,,,,,,,,0\n`, "summary.json": '{"patient_days":1}' });
   const run = () => compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", stub, true);
   const LABEL = "MODEL ASSUMPTION, not evidence about patients";
 
@@ -300,6 +316,7 @@ describe("outcome model", () => {
     expect([o.arms.baseline.bins_alerting, o.arms.change.bins_alerting]).toEqual([j.arms.baseline.pooled.bins_alerting, j.arms.change.pooled.bins_alerting]);
     expect(o.arms.change.bins_alerting).toBeGreaterThan(o.arms.baseline.bins_alerting);
     expect(o.notes.join("\n")).toContain(`that is the construction, not a finding. alerts and bins_alerting, change minus baseline, are ${o.difference.alerts} and ${o.difference.bins_alerting} (negative: the change rule alerts less); this block does not weigh them`);
+    expect(o.notes.join("\n")).toContain("These two rules are nested: the change rule is true in every bin the other is. So the change rule is never recognised later");
     expect(o.recognition_rule).toMatch(/a perfect round, judgement/);
     expect(o.notes.join("\n")).toContain("applying it to every W4 episode are judgement, and every per-100 figure scales with it");
     expect(o.notes.join("\n")).toContain("in the hospital model W4 counts as monitored and is outside its late-recognition rule");
@@ -309,6 +326,11 @@ describe("outcome model", () => {
     expect(back.difference.modelled_excess_bad_outcomes_per_100_episodes).toBeGreaterThan(0);
     expect(back.difference.alerts).toBeLessThan(0);
     expect(back.notes.join("\n")).not.toMatch(/extra alerts|zero or negative/);
+    expect(back.notes.join("\n")).toContain("These two rules are nested: the baseline rule is true in every bin the other is. So the baseline rule is never recognised later");
+    // news2_total_ge_4 against the chart trigger is the one pair that is not nested: a total of 4 with no single 3, and a single 3 with a total of 3.
+    const mixed = JSON.parse(compareW4Seeds(4, 20, 7, "news2_total_ge_4", "news2_chart_trigger", stub, true)["compare.json"]).outcome_model;
+    expect(mixed.notes.join("\n")).toContain("These two rules are not nested: each can be true in a bin where the other is not, so the difference can have either sign.");
+    expect(mixed.notes.join("\n")).not.toContain("that is the construction");
     expect(back.notes.join("\n")).toContain(`are ${back.difference.alerts} and ${back.difference.bins_alerting} (negative: the change rule alerts less)`);
     expect(o.notes.join("\n")).toContain("no patient changes: nobody dies on W4, no vital sign is altered and no recovery is drawn");
     expect(o.parameter).toMatchObject({ value: 1.02, tag: "cited", applied_to_tag: "judgement", interval_95: [1, 1.04], baseline_risk: 0.274, baseline_risk_at_hours: 6.3, anchor_tag: "judgement" });
@@ -325,13 +347,15 @@ describe("outcome model", () => {
     const txt = files["compare.txt"];
     expect(txt.split(LABEL).length - 1).toBeGreaterThanOrEqual(2);
     expect(txt).toContain(`\n${LABEL}\nparameter: 1.02, the odds ratio the cited paper gives for score-to-door time measured in hours, applied here to each hour of recognition delay (that transfer is judgement) [cited: Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h]\nunder the assumption that `);
-    expect(txt).toContain("\noutcome model: spread of the per-seed difference (change minus baseline)\n");
+    expect(txt).toContain(`\n${LABEL}: outcome model: spread of the per-seed difference (change minus baseline)\n`);
+    expect(txt).toContain(`\n${LABEL}: outcome model: same episode under both rules, `);
     expect(txt).toContain(`\n${LABEL}: sensitivity to the odds ratio per hour`);
     expect(txt).toMatch(/^zero +1 +0 +0 +0$/m);
     // after the paired block, before the notes; the old "no outcome is given" note is replaced by the block's own
     expect(txt.indexOf("same episode under both rules")).toBeLessThan(txt.indexOf(LABEL));
     expect(txt.indexOf(LABEL)).toBeLessThan(txt.indexOf("\nnote: "));
-    expect(txt.indexOf("note: W4 is a monitored ward")).toBeLessThan(txt.indexOf("note: nothing in the run responds to a warning"));
+    expect(txt.indexOf("note: in the hospital model W4 counts as monitored")).toBeGreaterThan(-1);
+    expect(txt.indexOf("note: in the hospital model W4 counts as monitored")).toBeLessThan(txt.indexOf("note: nothing in the run responds to a warning"));
     expect(txt).not.toContain("the outcome of a warning is not modelled"); // it would contradict the block
     expect(txt).not.toContain("no outcome is given");
     expect(j.notes.join("\n")).not.toContain("no outcome is given");
@@ -349,10 +373,15 @@ describe("outcome model", () => {
   it("the exported function also refuses fewer than 20 seeds, too few evaluated episodes, and one cohort counted as many seeds", () => {
     expect(() => compareW4Seeds(4, 19, 7, "news2_total_ge_5", "news2_chart_trigger", stub, true)).toThrow(/^--outcome-model needs --seeds 20 or more \(one seed, or a few, is noise\)$/);
     const empty = (() => ({ "manifest.json": "", "cohort.csv": `${COHORT_HEADER}\n`, "episodes.csv": `${EPISODES_HEADER}\n`, "summary.json": '{"patient_days":1}' })) as never;
-    expect(() => compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", empty, true)).toThrow(/^--outcome-model: only 0 episodes were evaluated in these seeds; it needs 30 or more \(use more seeds or more days\)$/);
-    // One cohort offered as 20 seeds is one run, not 20.
-    const same = ((o: { seed: number }) => (stub as (o: { seed: number }) => unknown)({ ...o, seed: 4 })) as never;
-    expect(() => compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", same, true)).toThrow(/^--outcome-model: two seeds gave the same cohort, so they are not separate runs$/);
+    const run20 = (trial: Trial) => () => compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", trial as never, true);
+    // One cohort offered as 20 seeds is one run, not 20. This is checked first: "use more seeds" would be the wrong advice.
+    expect(run20(empty)).toThrow(/^--outcome-model: two seeds gave the same cohort, so they are not separate runs$/);
+    expect(run20((o) => stubWith(4)({ ...o, seed: 4 }))).toThrow(/^--outcome-model: two seeds gave the same cohort, so they are not separate runs$/);
+    // 20 seeds run, but only 8 of them have an episode.
+    expect(run20((o) => (o.seed < 12 ? stubWith(4)(o) : noEpisode(o)))).toThrow(/^--outcome-model: only 8 seeds had an evaluated episode; it needs 20 or more \(use more seeds or more days\)$/);
+    // 20 seeds with one episode each is 20 episodes: too few. Two each is 40: enough.
+    expect(run20(stubWith(1))).toThrow(/^--outcome-model: only 20 episodes were evaluated in these seeds; it needs 30 or more \(use more seeds or more days\)$/);
+    expect(JSON.parse(run20(stubWith(2))()["compare.json"]).outcome_model.arms.baseline.episodes_evaluated).toBe(40);
     expect(compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", empty)["compare.json"]).not.toContain("outcome_model"); // the plain report still works
   });
 
