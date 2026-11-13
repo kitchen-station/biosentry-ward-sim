@@ -334,6 +334,12 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     expect(x).toBeGreaterThan(g);
   };
 
+  it("the frame loop keeps its hidden-tab wiring and the renderer's quarter-second clamp", () => {
+    for (const s of ['document.addEventListener("visibilitychange", onVisibility)', "frameDt(now - last, wasHidden)", "pending += Math.min(dt, 0.25)"]) expect(app()).toContain(s);
+    expect(code("src/flip.tsx")).toContain("onEnd={setDone}");
+    expect(code("src/flip.tsx")).toContain("onAnimationEnd={() => onEnd?.(n)}");
+  });
+
   it("the viewer clock is fed at two places and frozen at two", () => {
     expect(app().match(/viewClock\.take\(/g)).toHaveLength(2);
     expect(app().match(/viewClock\.down\(\)/g)).toHaveLength(2);

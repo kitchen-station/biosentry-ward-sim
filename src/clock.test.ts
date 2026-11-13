@@ -193,4 +193,42 @@ describe("the viewer clock", () => {
     expect(maxStep).toBeLessThan(4);
     expect(Math.abs(runner(600_000) - shown)).toBeLessThan(130);
   });
+
+  it("one lower read is a late answer; a second in a row is a restart", () => {
+    const c = createViewClock();
+    c.take(300, 1, false, 0);
+    c.read(100);
+    c.take(2, 1, false, 2000);
+    expect(c.read(2000)).toBeGreaterThan(299);
+    c.take(4, 1, false, 4000);
+    expect(c.read(4001)).toBeCloseTo(4, 1);
+  });
+  it("at 60x an early restart recovers within one read", () => {
+    const c = createViewClock();
+    c.take(300, 60, false, 0);
+    c.read(0);
+    c.take(2, 60, false, 2000);
+    c.take(4, 60, false, 4000);
+    expect(c.read(4000)).toBe(4);
+  });
+  it("a late answer between two good reads never moves the clock back", () => {
+    const c = createViewClock();
+    c.take(1000, 60, false, 0);
+    c.read(0);
+    c.take(1120, 60, false, 2000);
+    let prev = c.read(2000);
+    c.take(1060, 60, false, 2100);
+    for (const [ms, clock] of [[2100, null], [4000, 1180]] as const) {
+      if (clock) c.take(clock, 60, false, ms);
+      const v = c.read(ms);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+  it("has() is false until the first read", () => {
+    const c = createViewClock();
+    expect(c.has()).toBe(false);
+    c.take(1, 1, false, 0);
+    expect(c.has()).toBe(true);
+  });
 });

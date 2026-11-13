@@ -532,7 +532,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onSignIn={watch?.onLeave}
-        readClock={VIEW_API ? () => viewClock.read(performance.now()) : undefined}
+        readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
         onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
         onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
         hospital={

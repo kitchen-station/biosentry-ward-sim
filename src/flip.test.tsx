@@ -58,11 +58,12 @@ describe("the top bar", () => {
       expect(html).not.toContain('class="flip"');
     });
   }
-  it("the seconds are not inside a flipbox", () => {
-    const html = renderToStaticMarkup(<TopBar s={s} src={src} notice={null} />);
+  it.each([[60, 2], [10, 3], [1, 3]])("at %ix the clock has %i flipboxes, and the seconds are plain text", (speed, boxes) => {
+    const html = renderToStaticMarkup(<TopBar s={{ ...s, speed: speed as 1 } as typeof s} src={src} notice={null} />);
     const clock = html.replace(/<!-- -->/g, "").match(/<span class="clock">.*?<\/span><span class="pill"/)![0];
-    expect(clock).toContain("</span></span>:00 Manila"); // the minute's flipbox closes, then the seconds are plain text
-    expect(clock.match(/class="flipbox"/g)).toHaveLength(3); // date, hour, minute
+    expect(clock.match(/class="flipbox"/g)).toHaveLength(boxes); // date, hour, and the minute only at 10x or slower
+    expect(clock).toMatch(/:00 Manila<\/span><span class="pill"/);
+    expect(clock).toContain(speed > 10 ? "</span></span>:00:00 Manila" : "</span></span>:00 Manila"); // 60x: the minute is bare text too
   });
   it("a paused sim reads Paused", () => {
     const html = renderToStaticMarkup(<TopBar s={{ ...s, speed: 0 }} src={src} notice={null} />);

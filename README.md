@@ -92,13 +92,14 @@ The dev-server bridge above stays for now. A physician's list starts as the fixt
 ## How fast 60x is
 
 - 60x means 60 simulated seconds per real second. The top bar shows the speed as text next to the clock, and the clock counts seconds.
-- Measured: 59.996 simulated seconds per real second in a browser at 60 frames a second, over 20 s, on a development build.
+- Measured: 59.992 simulated seconds per real second in a browser at 60 frames a second over 20 s on a development build (59.996 before this change).
 - Measured: 60.00 from the page's frame arithmetic with the real `step()` in a test, at 1 to 120 frames a second.
 - Measured: 59.995 from the headless runner over 70 s.
-- Before this change, a page that got about one frame a second ran at about a quarter of its speed (measured 0.24 at 1x). Now a visible page keeps its speed and catches up at most 5 s after a stall.
-- A hidden tab pauses. It does not jump ahead on return.
+- Before this change, a page that got about one frame a second ran at about a quarter of its speed (0.242 at 1x, 2.74 at 10x). After it, with frame gaps up to 1017 ms, it measured 0.994 at 1x, 9.92 at 10x and 60.9 at 60x over 20 s windows. A stall longer than 5 s still loses the time beyond 5 s.
+- A hidden tab's own simulation pauses and does not jump ahead on return. This follows from the code; it was not measured.
 - Staff figures walk and work at 6x at most, so they look the same at 10x and 60x. This was kept on purpose.
-- The viewer's clock runs on between reads at the runner's speed, and moves toward each read at no more than twice that speed. It snaps on the first read, a runner restart, a pause, an end, a speed change, or a gap over 10 real seconds. It stops when the run has ended or the page says "Not updating". A read that is older than the last one is ignored. This was modelled in tests, not measured against a real runner.
+- The viewer's clock runs on between reads at the runner's speed, and moves toward each read at no more than twice that speed. It snaps on the first read, a runner restart, a pause, an end, a speed change, or a gap over 10 real seconds. It stops when the run has ended or the page says "Not updating". A read lower than the last is taken as a late answer and ignored once; a second lower read in a row, or one lower by 600 s or more, is a restart. With no new read, the clock stops 3 s after the last one. This was modelled in tests, not measured against a real runner.
+- The minute turns over with a flip at 1x and 10x; at 60x it changes in place, because it changes every second.
 
 ## Run the ward without a browser
 

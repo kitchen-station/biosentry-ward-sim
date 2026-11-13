@@ -74,7 +74,8 @@ function vitalText(p: Patient, v: Vital, minute: number, digits = 0) {
 const bpText = (p: Patient) => (p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "--");
 
 /** Sets the whole second each frame. Only this component re-renders. Seconds never flip; date, hour and minute do. */
-function Clock({ src, read }: { src: VitalsSource; read: () => number }) {
+/** The minute flips only at 10x or slower: at 60x it changes every second. */
+function Clock({ src, read, speed }: { src: VitalsSource; read: () => number; speed: number }) {
   const readRef = useRef(read);
   readRef.current = read;
   const [sec, setSec] = useState(() => Math.floor(read()));
@@ -97,7 +98,7 @@ function Clock({ src, read }: { src: VitalsSource; read: () => number }) {
           <Flip value={`${dateText(minute)} 2026`} />,{" "}
         </>
       )}
-      <Flip value={hour} />:<Flip value={min} />:{ss}
+      <Flip value={hour} />:{speed > 10 ? min : <Flip value={min} />}:{ss}
       {src.synthetic && " Manila"}
     </span>
   );
@@ -132,7 +133,7 @@ export function TopBar({
       <h1>BioSentry ward sim</h1>
       <PageNav page="simulation" />
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
-      <Clock src={src} read={readClock ?? (() => s.clockS)} />
+      <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
       <span className="pill" title="Simulation speed">
         {s.speed === 0 ? "Paused" : `${s.speed}x`}
       </span>

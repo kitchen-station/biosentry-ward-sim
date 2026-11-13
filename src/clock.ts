@@ -30,7 +30,7 @@ export function shownClock(lastClockS: number, lastSpeed: number, receivedAtMs: 
 /**
  * Holds the last read. The shown clock follows the last read run on at its speed, moving at most twice the speed.
  * It snaps on the first read, a restart, a pause, an end, a speed change, or a gap of over SNAP_WALL_S wall seconds.
- * It never runs backwards otherwise. A read lower by under RESTART_S is an old answer and is ignored.
+ * It never runs backwards otherwise. One read lower by under RESTART_S is an old answer and is ignored; a second in a row is a restart.
  */
 export function createViewClock() {
   let last = { clockS: 0, speed: 0, receivedAt: 0, stopped: false };
@@ -38,18 +38,25 @@ export function createViewClock() {
   let lastNow: number | null = null;
   let snap = true;
   let started = false;
+  let lowerOnce = false; // one lower read is a late answer; a second in a row is a restart
   return {
     take(clockS: number, speed: number, ended: boolean, atMs: number) {
       if (started) {
         if (clockS < last.clockS) {
-          if (last.clockS - clockS < RESTART_S) return; // an older answer that landed late
+          if (last.clockS - clockS < RESTART_S && !lowerOnce) {
+            lowerOnce = true;
+            return; // an older answer that landed late
+          }
           snap = true; // a restart
         } else if (speed === 0 || ended || speed !== last.speed) snap = true;
       }
+      lowerOnce = false;
       started = true;
       last = { clockS, speed, receivedAt: atMs, stopped: ended };
       if (snap) shown = clockS;
     },
+    /** False until the first read has been taken. */
+    has: () => started,
     /** "Not updating": frozen until the next take. */
     down() {
       last = { ...last, stopped: true };
