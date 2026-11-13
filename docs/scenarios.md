@@ -23,7 +23,7 @@ The top bar's scenario select lists these. Each sets a scenario file, a hospital
 - A chosen demonstration group, not a ward rate: 4 of ward W4's 12 starting patients are made to start a simulated deterioration in the first 6 hours. The 4 and the 6 hours are chosen values, with no source. Another of the 12 can start one of its own by chance in those hours (in 7 of seeds 1 to 200), so the screen says "others may start one by chance".
 - It always draws the 12 (also with no seed in the address). The pick uses its own stream, `critical`, so with one seed the 12 people are the same as under "Pitch ward" with that seed. Only patients due to leave after minute 360 can be picked.
 - Each picked patient gets `inject` at a minute from 0 to 359, the same call the page's "Start deterioration" button makes. That button can still move a picked patient's start earlier.
-- Limit: if fewer than 4 of the 12 are due after 6 hours, fewer are picked. The first log line shows the real count. The scenario's hover sentence always says 4. In seeds 1 to 20000 the count was never under 4. A drawn patient may also have a deterioration of its own scheduled (see below), and that is not counted.
+- Limit: if fewer than 4 of the 12 are due after 6 hours, fewer are picked. The simulation log's first line holds the real count; the page does not show that line (it shows log lines only in a machine's panel). The scenario's hover sentence always says 4. In seeds 1 to 20000 the count was never under 4. A drawn patient may also have a deterioration of its own scheduled (see below), and that is not counted.
 - The seed pill reads `Seed 101 / 20261114 · chosen group`, or `Seed 777 · chosen group` with a seed.
 
 ## The seed pill
