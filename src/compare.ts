@@ -46,7 +46,8 @@ interface Report { mode: string; seed: number; days: number; baseline: unknown; 
 
 function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles {
   const json = { compare_format: 1, synthetic: true, mode: r.mode, seed: r.seed, days: r.days, node_major: nodeMajor, baseline: r.baseline, change: r.change, pairing: r.pairing, arms: r.arms, difference, notes: r.notes };
-  const L = [`compare ${r.mode}: seed ${r.seed}, ${r.days} days, node ${nodeMajor}`, `baseline: ${isObj(r.baseline) ? r.baseline.name : r.baseline}`, `change: ${r.change.kind} ${r.change.name}`];
+  // The Node version is in the JSON only, so the text report reads the same on every Node version.
+  const L = [`compare ${r.mode}: seed ${r.seed}, ${r.days} days`, `baseline: ${isObj(r.baseline) ? r.baseline.name : r.baseline}`, `change: ${r.change.kind} ${r.change.name}`];
   for (const f of r.change.fields) L.push(`  ${f.path}: ${f.baseline} -> ${f.change}`);
   L.push(`pairing: ${r.pairing.status}`, ...r.pairing.lines.map((l) => `  ${l}`), "");
   const [b, c, d] = [leaves(r.arms.baseline), leaves(r.arms.change), leaves(difference)];

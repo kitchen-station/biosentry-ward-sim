@@ -68,10 +68,10 @@ The 16-bin re-arm and the 120-minute window are judgement values. They are taken
 
 ### Worked example
 
-Real output of the first command above (`compare.txt`, Node 25):
+Real output of the first command above (`compare.txt`):
 
 ```
-compare w4: seed 4, 30 days, node 25
+compare w4: seed 4, 30 days
 baseline: news2_total_ge_5
 change: rule news2_chart_trigger
   rule: news2_total_ge_5 -> news2_chart_trigger
@@ -147,7 +147,7 @@ Each arm shows the trial's own figures. Their definitions and limits are in `doc
 Real output of the second command above. The header and pairing block in full, then a few of the table rows:
 
 ```
-compare hospital: seed 101, 7 days, node 25
+compare hospital: seed 101, 7 days
 baseline: typical
 change: group staffing
   er.nurses: 2 -> 3
@@ -193,7 +193,7 @@ How to read it:
 - **One seed is one night.** Use several seeds before drawing any conclusion.
 - **Hospital arms are partly paired.** The minute-0 residents and the arrival minutes are the same. The person at each arrival is checked and reported. Everything after the first differing event is not paired. A difference between arms is the model's response to the change, under the judgement values listed in the report's last note.
 - **Hospital effects are assumptions.** How staffing drives late rounds, late notice and deaths comes from judgement values in `src/sim/hospital/params.ts`.
-- **Same Node major version.** Byte-identical files are promised for the same Node major only. The report records it as `node_major`.
+- **Same Node major version.** Byte-identical files are promised for the same Node major only, because the generator uses `Math.exp`, `log` and `cos`. `compare.json` records it as `node_major`. The header of `compare.txt` does not carry the Node version.
 
 ## Refusals
 

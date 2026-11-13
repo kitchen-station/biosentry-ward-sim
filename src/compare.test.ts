@@ -41,6 +41,8 @@ describe("W4 compare", () => {
     expect(j.pairing.status).toBe("one cohort for both arms");
     expect(j.notes[0]).toMatch(/^the outcome of a warning is not modelled on W4: /);
     expect(first["compare.txt"].trimEnd().endsWith("synthetic, not validated")).toBe(true);
+    expect(first["compare.txt"].split("\n")[0]).toBe("compare w4: seed 4, 3 days"); // the Node version is in the JSON only
+    expect(j.node_major).toBe(Number(process.versions.node.split(".")[0]));
     for (const f of Object.values(first)) {
       expect(f).not.toContain(process.cwd());
       expect(f).not.toContain(".json\"");
