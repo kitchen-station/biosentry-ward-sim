@@ -1,6 +1,6 @@
 {
   "name": "more-nurses",
-  "note": "typical with one change: ward nurses as in doh-standard (MED3A, MED3B, SURG5A), for a compare",
+  "note": "typical with the ward nurse counts of doh-standard (MED3A, MED3B, SURG5A) and nothing else changed, for a compare (a judgement)",
   "arrivalsPerDay": 60,
   "startOccupancy": 1.0,
   "transferOutAfterH": 72,

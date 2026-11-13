@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import doh from "../scenarios/hospital/doh-standard.json?raw";
 import moreNurses from "../scenarios/hospital/more-nurses.json?raw";
@@ -15,7 +16,8 @@ const hash = (text: string) => {
   return (h >>> 0).toString(16);
 };
 const mapped = (_: string, v: unknown) => (v instanceof Map ? [...v] : v instanceof Set ? [...v] : v);
-const fingerprint = (s: Sim) => hash(JSON.stringify({ flow: s.flow, patients: s.patients, hospital: s.hospital, clock: s.clockS }, mapped));
+// The whole Sim, not a chosen part: staff, tasks, the log and the stays are in it too.
+const fingerprint = (s: Sim) => hash(JSON.stringify(s, mapped));
 
 // Today's newWorld("typical"), written out.
 const oldWorld = () => {
@@ -106,5 +108,14 @@ describe("seed and URL", () => {
   it("shows the seed", () => {
     expect(seedText("pitch", null)).toBe("Seed 101 / 20260903");
     expect(seedText("surge", 55)).toBe("Seed 55");
+  });
+});
+
+describe("who gets Shuffle", () => {
+  it("only the standalone hospital page: a viewer or ward-only build passes no handler", () => {
+    const app = readFileSync(new URL("./App.tsx", import.meta.url), "utf8");
+    expect(app).toContain("onShuffle: HOSPITAL ? ");
+    expect(app.match(/onShuffle:/g)).toHaveLength(1);
+    expect(app).toContain("const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;");
   });
 });

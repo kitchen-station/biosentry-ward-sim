@@ -170,7 +170,7 @@ export function TopBar({
             {hospital.scenarios.map((n) => <option key={n.id} value={n.id} title={n.sentence}>{n.label}</option>)}
           </select>
           {hospital.onShuffle && (
-            <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4's first 12 patients are the same people; only their noise and who arrives later change." onClick={hospital.onShuffle}>Shuffle</button>
+            <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4's first 12 patients are the same people; their noise, how long they stay and who arrives later change." onClick={hospital.onShuffle}>Shuffle</button>
           )}
           <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address">{hospital.seedText}</span>
           <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>

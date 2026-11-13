@@ -18,7 +18,7 @@ export const NAMED: Named[] = [
   { id: "pitch", label: "Pitch ward", sentence: "Today's run, exactly.", file: "typical", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
   { id: "calm", label: "Calm, fully staffed", sentence: "Fewer arrivals and the DOH staffing standard.", file: "doh-standard", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
   { id: "surge", label: "Surge", sentence: "More arrivals than typical, same staff.", file: "surge", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
-  { id: "more-nurses", label: "More nurses (one change)", sentence: "The typical hospital with one change, ward nurses as in the DOH standard, ready for a compare.", file: "more-nurses", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
+  { id: "more-nurses", label: "More ward nurses (DOH ward staffing)", sentence: "The typical hospital with the ward nurse counts of the DOH standard and nothing else changed, ready for a compare.", file: "more-nurses", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
 ];
 export const DEFAULT_ID = "pitch";
 const byId = (id: string) => NAMED.find((n) => n.id === id) ?? NAMED[0];
