@@ -2,7 +2,7 @@
 // Two arms, one seed, one difference: `npm run compare -- --seed N --days N --baseline B --change C --out DIR`.
 // Pure functions take strings and objects and return the text of compare.json and compare.txt; the CLI at the bottom only
 // reads files and writes the result. It must not import src/trial.ts or src/hospital-trial.ts: their CLI would run inside the bundle.
-// Every check that can refuse runs before any arm; a refusal is one line on stderr and exit 2, and nothing is written.
+// Every input check runs before any arm; the pairing checks run after the arms and also refuse. A refusal is one line on stderr and exit 2, and nothing is written.
 import { createHash } from "node:crypto";
 import { mkdirSync, lstatSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { arbitrate } from "./sim/arbiter";
 import { createHospital } from "./sim/hospital/step";
 import { MAX_BYTES, parseScenario, ScenarioError, type Scenario } from "./sim/hospital/scenario";
-import { runHospitalTrial } from "./sim/hospital/trial";
+import { LIMITS, runHospitalTrial } from "./sim/hospital/trial";
 import { scoreNews2 } from "./sim/news2";
 import { runTrial, SCENARIO_V1 } from "./sim/trial";
 
@@ -42,7 +42,7 @@ const diff = (a: unknown, b: unknown): unknown =>
   typeof a === "number" && typeof b === "number" ? r4(b - a)
     : isObj(a) && isObj(b) ? Object.fromEntries(Object.keys({ ...a, ...b }).map((k) => [k, diff(a[k], b[k])])) : null;
 
-interface Report { mode: string; seed: number; days: number; baseline: unknown; change: { kind: string; name: string; fields: { path: string; baseline: unknown; change: unknown }[] }; pairing: { status: string; same_people: boolean; lines: string[] }; arms: { baseline: unknown; change: unknown }; notes: string[] }
+interface Report { mode: string; seed: number; days: number; baseline: unknown; change: { kind: string; name: string; fields: { path: string; baseline: unknown; change: unknown }[] }; pairing: { status: string; same_person_at_each_arrival: boolean; lines: string[] }; arms: { baseline: unknown; change: unknown }; notes: string[] }
 
 function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles {
   const json = { compare_format: 1, synthetic: true, mode: r.mode, seed: r.seed, days: r.days, node_major: nodeMajor, baseline: r.baseline, change: r.change, pairing: r.pairing, arms: r.arms, difference, notes: r.notes };
@@ -50,11 +50,14 @@ function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles
   for (const f of r.change.fields) L.push(`  ${f.path}: ${f.baseline} -> ${f.change}`);
   L.push(`pairing: ${r.pairing.status}`, ...r.pairing.lines.map((l) => `  ${l}`), "");
   const [b, c, d] = [leaves(r.arms.baseline), leaves(r.arms.change), leaves(difference)];
-  const paths = Object.keys({ ...b, ...c });
+  const all = Object.keys({ ...b, ...c });
+  const kind = (p: string) => (Array.isArray(b[p] ?? c[p]) ? "list" : typeof (b[p] ?? c[p]) === "string" ? "text" : "cell");
+  const paths = all.filter((p) => kind(p) === "cell");
   const w = Math.max(...paths.map((p) => p.length), 6);
-  const cell = (v: unknown) => (v === null || v === undefined ? "-" : Array.isArray(v) ? JSON.stringify(v) : String(v)).padStart(12);
+  const cell = (v: unknown) => (v === null || v === undefined ? "-" : String(v)).padStart(12);
   L.push(`${"metric".padEnd(w)}${"baseline".padStart(14)}${"change".padStart(14)}${"difference".padStart(14)}`);
   for (const p of paths) L.push(`${p.padEnd(w)}  ${cell(b[p])}  ${cell(c[p])}  ${cell(d[p])}`);
+  for (const p of all.filter((x) => kind(x) === "list")) for (const [arm, v] of [["baseline", b[p]], ["change", c[p]]] as const) L.push(`${p} ${arm}: ${(v as unknown[]).join(" ") || "-"}`);
   L.push("", ...r.notes.map((n) => `note: ${n}`), "synthetic, not validated");
   return { "compare.json": `${JSON.stringify(json, null, 2)}\n`, "compare.txt": `${L.map((l) => l.trimEnd()).join("\n")}\n` };
 }
@@ -153,13 +156,14 @@ export function compareW4(seed: number, days: number, baseline: string, change: 
     mode: "w4", seed, days, baseline,
     change: { kind: "rule", name: change, fields: [{ path: "rule", baseline, change }] },
     pairing: {
-      status: "one cohort for both arms", same_people: true,
+      status: "one cohort for both arms", same_person_at_each_arrival: true,
       lines: [`one run serves both arms (the rule is applied after it), so the people, arrivals and true episodes are the same; a second run of the same seed gave the same cohort.csv sha256 ${h1} and episodes.csv sha256 ${h2}`],
     },
     arms: { baseline: a, change: b },
     notes: [
       "the outcome of a warning is not modelled on W4: a staff review does not change vitals and the rule is never fed back into the run, so a rule changes only alerts and their timing",
       "starting patients (admit minute 0) are in the alert burden; their episodes are not evaluated; p-001 has a scripted worsening that is not an episode",
+      "lead = fully-in minute minus the first new alert in the window; positive means the alert came before the episode was fully in",
       `alerts re-arm after ${REARM_BINS} bins (4 h) not alerting; window = episode_start to fully in + ${WINDOW_AFTER_FULL_MIN} min (both are judgement values taken from BioSentry-Intelligence research/)`,
     ],
   }, diff(a, b), nodeMajor());
@@ -195,7 +199,7 @@ export function pairEvents(a: string, b: string, residentsA: string[], residents
   const lines: string[] = [];
   const [pa, pb] = [A.filter((e) => e[4] === "arrive"), B.filter((e) => e[4] === "arrive")];
   const p = firstDiff(pa.map((e) => `${e[0]}:${e[1]}:${e[7]}`), pb.map((e) => `${e[0]}:${e[1]}:${e[7]}`));
-  lines.push(p < 0 ? `same people at every arrival minute (${pa.length} arrivals)`
+  lines.push(p < 0 ? `the same person arrives at each of the ${pa.length} arrival minutes`
     : `same arrival minutes; from minute ${minuteOf(pa[p], pb[p])} the person at ${pa.filter((e, i) => e[1] !== pb[i]?.[1] || e[7] !== pb[i]?.[7]).length} of ${pa.length} arrivals differs (a return or a turned-away arrival depends on the scenario)`);
 
   const course = (r: string[][]) => {
@@ -210,20 +214,21 @@ export function pairEvents(a: string, b: string, residentsA: string[], residents
   let same = 0, once = 0, unchecked = 0;
   for (const key of new Set([...ka.det.keys(), ...kb.det.keys()])) {
     if (!ka.det.has(key) || !kb.det.has(key)) once += 1;
-    else if (ka.dec.has(key) && kb.dec.has(key)) {
+    else if (ka.dec.has(key) !== kb.dec.has(key)) refuse(`pairing broken: person ${key.split(":")[0]} has an admit decision in one arm only`);
+    else if (ka.dec.has(key)) {
       if (ka.det.get(key)! - ka.dec.get(key)! !== kb.det.get(key)! - kb.dec.get(key)!) refuse(`pairing broken: the course offset from the admit decision differs for person ${key.split(":")[0]}`);
       same += 1;
     } else unchecked += 1; // a minute-0 resident has no admit decision in the run
   }
-  lines.push(`deterioration: offset from the admit decision equal for ${same} courses seen in both arms; ${unchecked} have no admit decision in the run and are not checked; ${once} are recorded in one arm only (where the person was at onset depends on the scenario)`);
+  lines.push(`deterioration courses seen in both arms: ${same} with an equal offset from the admit decision, ${unchecked} with no admit decision in the run (not checked); courses recorded in one arm only: ${once} (where the person was at onset depends on the scenario)`);
 
   const e = firstDiff(A.map((r) => r.join(",")), B.map((r) => r.join(",")));
   const at = e < 0 ? null : minuteOf(A[e], B[e]);
-  lines.push(at === null ? "event logs identical for the whole run (no differing event)" : `event logs identical up to minute ${at} (first differing event)`);
+  lines.push(at === null ? "event logs identical for the whole run (no differing event)" : `event logs identical before minute ${at}; the first differing event is at minute ${at}`);
   if (at !== null) lines.push(`outcomes after minute ${at} differ by design; cohorts are not identical after it`);
   lines.push("W4 inside the hospital is not paired once placements differ (W4 uses its own fixed seed, drawn in placement order)");
-  const what = p < 0 ? "same residents, arrival clock and people" : "same residents and arrival clock; the people differ";
-  return { status: at === null ? `${what}; no event differs` : `partly paired (${what}; events differ from minute ${at})`, same_people: p < 0, lines };
+  const what = p < 0 ? "same minute-0 residents, arrival minutes and person at each arrival" : "same minute-0 residents and arrival minutes; the person at some arrivals differs";
+  return { status: at === null ? `${what}; no event differs` : `partly paired (${what}; event logs differ from minute ${at})`, same_person_at_each_arrival: p < 0, lines };
 }
 
 const MEAN_SKIP = ["hour", "unit"];
@@ -263,7 +268,11 @@ export function compareHospital(seed: number, days: number, a: Scenario, b: Scen
     mode: "hospital", seed, days, baseline: a,
     change: { kind: "group", name: group, fields: differ.map((path) => ({ path, baseline: la[path], change: lb[path] })) },
     pairing, arms: { baseline: x, change: y },
-    notes: ["synthetic hospital; the groups compared here keep the same minute-0 residents and the same arrival clock"],
+    notes: [
+      "synthetic hospital; the groups compared here keep the same minute-0 residents and the same arrival clock",
+      "the effects shown are the simulator's assumptions, not evidence about a real hospital",
+      `limits of the hospital model, from its summary.json: ${LIMITS}`,
+    ],
   }, diff(x, y), nodeMajor());
 }
 
@@ -325,7 +334,8 @@ export function compare(argv: string[]): { out: string; files: CompareFiles } {
   const rules = [base, change].map((t) => t.startsWith("rule="));
   const eq = change.indexOf("=");
   if (rules[0] !== rules[1] || (!rules[1] && eq < 1)) refuse("--baseline and --change must both be rules or a scenario and a group");
-  if (!rules[0]) groupTest(change.slice(0, eq));
+  const group = change.slice(0, eq);
+  const inGroup = rules[0] ? null : groupTest(group);
   if (lstatOrNull(out)) refuse("--out exists");
   const parent = lstatOrNull(dirname(out)) && statSync(dirname(out));
   if (!parent) refuse("--out: parent folder does not exist");
@@ -333,11 +343,9 @@ export function compare(argv: string[]): { out: string; files: CompareFiles } {
   if (rules[0]) return { out, files: compareW4(seed, days, base.slice(5), change.slice(5)) };
   const baseline = readScenario(base, "baseline");
   const other = readScenario(change.slice(eq + 1), "change");
-  const group = change.slice(0, eq);
-  const inGroup = groupTest(group);
   const arm = structuredClone(baseline);
   for (const [path, v] of Object.entries(leaves(other))) {
-    if (!inGroup.test(path)) continue;
+    if (!inGroup!.test(path)) continue;
     const keys = path.split(".");
     keys.slice(0, -1).reduce((o, k) => o[k] as Json, arm as unknown as Json)[keys[keys.length - 1]] = v;
   }

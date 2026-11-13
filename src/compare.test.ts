@@ -35,6 +35,7 @@ describe("W4 compare", () => {
     });
     expect(j.arms.change).toMatchObject({ alerts: 32, alerts_outside_episode_windows: 31, bins: 3498, bins_alerting: 979 });
     expect(j.difference).toMatchObject({ alerts: 2, bins_alerting: 139, lead_minutes: null });
+    expect(first["compare.txt"]).toContain("\nlead_minutes baseline: -16.3637\nlead_minutes change: -16.3637\n");
     expect(j.pairing.status).toBe("one cohort for both arms");
     expect(j.notes[0]).toMatch(/^the outcome of a warning is not modelled on W4: /);
     expect(first["compare.txt"].trimEnd().endsWith("synthetic, not validated")).toBe(true);
@@ -64,7 +65,7 @@ describe("W4 alert rules, on hand-made rows", () => {
       patient("n-3", [30, 285], [30, 285]), // 16 missing bins between: it fires again
     ]);
     const episodes = [
-      ["n-1", "10", "", "", "respiratory", "100", "60"], // window 100 to 280: alerting at 270, but no new alert
+      ["n-1", "10", "", "", "respiratory", "100", "50"], // window 100 to 270, its end included: alerting at 270, but no new alert
       ["n-2", "10", "", "", "respiratory", "200", "100"], // fully in at 300, new alert at 285: lead 15
       ["p-1", "0", "", "", "respiratory", "50", "60"], // a starting patient is not evaluated
     ];
@@ -94,7 +95,10 @@ describe("hospital compare", () => {
     const j = JSON.parse(files["compare.json"]);
     expect(j.change.name).toBe("nurses");
     expect(j.change.fields.length).toBeGreaterThan(0);
-    expect(j.pairing.status).toMatch(/^(partly paired \(same residents, arrival clock and people; events differ from minute \d+\)|same residents, arrival clock and people; no event differs)$/);
+    expect(j.pairing.status).toMatch(/^(partly paired \(same minute-0 residents, arrival minutes and person at each arrival; event logs differ from minute \d+\)|same minute-0 residents, arrival minutes and person at each arrival; no event differs)$/);
+    // The difference is change minus baseline: MED3A has 2 nurses in typical and 3 in doh-standard.
+    expect([j.arms.baseline.hourly_means.MED3A.nurses, j.arms.change.hourly_means.MED3A.nurses, j.difference.hourly_means.MED3A.nurses]).toEqual([2, 3, 1]);
+    expect(j.notes.join("\n")).toContain("not evidence about a real hospital");
     expect(Object.keys(j.arms.baseline.summary)).toEqual(["all_days", "after_warm_up"]);
     for (const f of Object.values(files)) expect(f).not.toContain("scenarios/");
   });
@@ -115,14 +119,14 @@ describe("pairing", () => {
 
   it("accepts an equal pair, and a swapped person is not paired", () => {
     const same = pairEvents(ev(...base), ev(...base), ["1"], ["1"]);
-    expect(same.same_people).toBe(true);
-    expect(same.status).toBe("same residents, arrival clock and people; no event differs");
-    expect(same.lines[0]).toBe("same people at every arrival minute (2 arrivals)");
-    expect(same.lines.join("\n")).toContain("offset from the admit decision equal for 1 courses seen in both arms; 0 have no admit decision");
+    expect(same.same_person_at_each_arrival).toBe(true);
+    expect(same.status).toBe("same minute-0 residents, arrival minutes and person at each arrival; no event differs");
+    expect(same.lines[0]).toBe("the same person arrives at each of the 2 arrival minutes");
+    expect(same.lines.join("\n")).toContain("courses seen in both arms: 1 with an equal offset from the admit decision, 0 with no admit decision");
     const swapped = [...base.slice(0, 3), "50,1000009,,ER,arrive,b,no,1"];
     const p = pairEvents(ev(...base), ev(...swapped), ["1"], ["1"]);
-    expect(p.same_people).toBe(false);
-    expect(p.status).toBe("partly paired (same residents and arrival clock; the people differ; events differ from minute 50)");
+    expect(p.same_person_at_each_arrival).toBe(false);
+    expect(p.status).toBe("partly paired (same minute-0 residents and arrival minutes; the person at some arrivals differs; event logs differ from minute 50)");
     expect(p.lines[0]).toContain("from minute 50 the person at 1 of 2 arrivals differs");
     expect(p.lines).toContain("outcomes after minute 50 differ by design; cohorts are not identical after it");
   });
@@ -131,35 +135,39 @@ describe("pairing", () => {
     const shifted = [base[0], base[1], base[2], "51,1000002,,ER,arrive,b,no,1"];
     expect(() => pairEvents(ev(...base), ev(...shifted), ["1"], ["1"])).toThrow(/^pairing broken: arrival minutes differ from minute 50$/);
     const moved = [base[0], base[1], "91,1000001,,MED3A,deteriorate,,no,1", base[3]];
-    expect(() => pairEvents(ev(...base), ev(...moved), ["1"], ["1"])).toThrow(Refusal);
-    expect(() => pairEvents(ev(...base), ev(...base), ["1"], ["2"])).toThrow(Refusal);
+    expect(() => pairEvents(ev(...base), ev(...moved), ["1"], ["1"])).toThrow(/^pairing broken: the course offset from the admit decision differs for person 1000001$/);
+    const undecided = [base[0], base[2], base[3]];
+    expect(() => pairEvents(ev(...base), ev(...undecided), ["1"], ["1"])).toThrow(/^pairing broken: person 1000001 has an admit decision in one arm only$/);
+    expect(pairEvents(ev(...undecided), ev(...undecided), ["1"], ["1"]).lines[1]).toContain("0 with an equal offset from the admit decision, 1 with no admit decision in the run (not checked)");
+    expect(() => pairEvents(ev(...base), ev(...base), ["1"], ["2"])).toThrow(/^pairing broken: the minute-0 residents differ$/);
   });
 });
 
 describe("refusals", () => {
-  const cases = (): Record<string, string[]> => ({
-    "no flags": [],
-    "unknown flag": [...w4(60), "--extra", "1"],
-    "repeated flag": [...w4(60), "--seed", "1"],
-    "two changes": [...w4(60), "--change", "rule=news2_total_ge_3"],
-    "bad seed": ["--seed", "-1", ...w4(60).slice(2)],
-    "bad days": args(4, 61, "rule=news2_total_ge_5", "rule=news2_chart_trigger"),
-    "mixed": args(4, 60, "rule=news2_total_ge_5", `nurses=${DOH}`),
-    "unknown rule": args(4, 60, "rule=news2_total_ge_5", "rule=nope"),
-    "rule out of range": args(4, 60, "rule=news2_total_ge_5", "rule=news2_total_ge_21"),
-    "same rule": args(4, 60, "rule=news2_total_ge_5", "rule=news2_total_ge_5"),
-    "unknown group": args(4, 60, SCEN, `colour=${DOH}`),
-    "unpaired group": args(4, 60, SCEN, `beds=${DOH}`),
-    "missing file": args(4, 60, "no-such.json", `nurses=${DOH}`),
-    "same values": args(4, 60, SCEN, `nurses=${SCEN}`),
-  });
+  const cases = (): [RegExp, string[]][] => [
+    [/^usage: compare /, []],
+    [/^usage: compare /, [...w4(60), "--extra", "1"]],
+    [/^usage: compare /, [...w4(60), "--seed", "1"]],
+    [/^exactly one --change is allowed$/, [...w4(60), "--change", "rule=news2_total_ge_3"]],
+    [/^--seed must be a whole number from 0 to 2147483647$/, ["--seed", "-1", ...w4(60).slice(2)]],
+    [/^--days must be a whole number from 1 to 60$/, args(4, 61, "rule=news2_total_ge_5", "rule=news2_chart_trigger")],
+    [/^--baseline and --change must both be rules or a scenario and a group$/, args(4, 60, "rule=news2_total_ge_5", `nurses=${DOH}`)],
+    [/^rule: unknown "nope"; use /, args(4, 60, "rule=news2_total_ge_5", "rule=nope")],
+    [/^rule: unknown "news2_total_ge_21"; use /, args(4, 60, "rule=news2_total_ge_5", "rule=news2_total_ge_21")],
+    [/^change: same rule as the baseline$/, args(4, 60, "rule=news2_total_ge_5", "rule=news2_total_ge_5")],
+    [/^change: unknown group "colour"; use /, args(4, 60, SCEN, `colour=${DOH}`)],
+    [/^change: group beds is not paired /, args(4, 60, SCEN, `beds=${DOH}`)],
+    [/^baseline: cannot read the scenario file "no-such.json"$/, args(4, 60, "no-such.json", `nurses=${DOH}`)],
+    [/^change: group nurses has the same values in both files$/, args(4, 60, SCEN, `nurses=${SCEN}`)],
+  ];
 
   it("each leaves --out absent, writes nothing, and returns at once even for 60 days", () => {
     const before = readdirSync(root);
-    for (const [name, a] of Object.entries(cases())) {
+    for (const [line, a] of cases()) {
       const t = Date.now();
-      expect(() => compare(a), name).toThrow(Refusal);
-      expect(Date.now() - t, name).toBeLessThan(2000);
+      expect(() => compare(a), String(line)).toThrow(Refusal);
+      expect(() => compare(a), String(line)).toThrow(line);
+      expect(Date.now() - t, String(line)).toBeLessThan(2000);
     }
     expect(readdirSync(root)).toEqual(before);
     expect(existsSync(join(root, "never"))).toBe(false);
