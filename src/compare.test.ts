@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { compare, compareHospital, compareW4, pairEvents, parseRule, Refusal, rescore, w4Arm } from "./compare";
+import { compare, compareHospital, compareW4, compareW4Seeds, pairedDiffs, pairedOf, pairEvents, pooledMedian, parseRule, Refusal, rescore, spreadOf, w4Arm } from "./compare";
 import { parseScenario } from "./sim/hospital/scenario";
 import { LIMITS } from "./sim/hospital/trial";
 import { COHORT_HEADER, EPISODES_HEADER, runTrial, SCENARIO_V1 } from "./sim/trial";
@@ -27,7 +27,9 @@ describe("W4 compare", () => {
   it("is byte-identical on a rerun, keeps its keys in order, and holds no path or name", { timeout: 120_000 }, () => {
     expect(compare(w4()).files).toEqual(first);
     const j = JSON.parse(first["compare.json"]);
-    expect(Object.keys(j)).toEqual(["compare_format", "synthetic", "mode", "seed", "days", "node_major", "baseline", "change", "pairing", "arms", "difference", "notes"]);
+    expect(Object.keys(j)).toEqual(["compare_format", "synthetic", "mode", "seed", "days", "node_major", "baseline", "change", "pairing", "arms", "difference", "paired_episodes", "notes"]);
+    // Seed 4, 3 days: the one episode gets its first new alert in the same bin under both rules.
+    expect(j.paired_episodes).toEqual({ episodes_with_new_alert_under_both: 1, change_earlier: 0, same_bin: 1, change_later: 0, min: 0, median: 0, max: 0, mean: 0, sd: null });
     expect(Object.keys(j.arms)).toEqual(["baseline", "change"]);
     // Checked by hand against this trial's cohort.csv and episodes.csv with the research package's rules.
     expect(j.arms.baseline).toMatchObject({
@@ -40,6 +42,7 @@ describe("W4 compare", () => {
     expect(first["compare.txt"]).not.toMatch(/^lead_minutes {2,}/m); // a list is not a table row
     expect(j.pairing.status).toBe("one cohort for both arms");
     expect(j.notes[0]).toMatch(/^the outcome of a warning is not modelled on W4: /);
+    expect(j.notes.at(-1)).toMatch(/^no outcome is given: /); // the single-seed report prints delays, so it says this too
     expect(first["compare.txt"].trimEnd().endsWith("synthetic, not validated")).toBe(true);
     expect(first["compare.txt"].split("\n")[0]).toBe("compare w4: seed 4, 3 days"); // the Node version is in the JSON only
     expect(j.node_major).toBe(Number(process.versions.node.split(".")[0]));
@@ -78,6 +81,8 @@ describe("W4 alert rules, on hand-made rows", () => {
       episodes_evaluated: 2, episodes_with_new_alert: 1, episodes_with_new_alert_share: 0.5,
       episodes_alerting_any_bin: 2, episodes_alerting_any_bin_share: 1,
       alerts_outside_episode_windows: 4, lead_minutes: [15], lead_median_minutes: 15, bins: 39, bins_alerting: 6, // 18 + 19 + 2 rows
+      // n-2: first new alert 285, episode start 200: delay 85 (and 85 + lead 15 = ramp 100); n-1 has no new alert, so no delay and one episode counted in no_new_alert.
+      delay_minutes: [85], delay_median_minutes: 85, episodes_no_new_alert: 1,
     });
   });
 
@@ -88,6 +93,109 @@ describe("W4 alert rules, on hand-made rows", () => {
     let n = 0;
     const drifting = () => ({ "manifest.json": "", "cohort.csv": `${COHORT_HEADER}\n${n++ ? `${row}0\n` : ""}`, "episodes.csv": `${EPISODES_HEADER}\n`, "summary.json": '{"patient_days":1}' });
     expect(() => compareW4(4, 1, "news2_total_ge_5", "news2_chart_trigger", drifting)).toThrow(/^pairing broken: two runs of the same seed differ$/);
+  });
+});
+
+describe("W4 recognition delay and spread", () => {
+  const hit = parseRule("news2_total_ge_5");
+  const at = (id: string, minutes: number[]) => [id, minutes.map((minute) => ({ id, minute, total: 5, escalated: false }))] as const;
+
+  it("delay is the first new alert minus start, and delay + lead is the ramp", () => {
+    // e-1 starts 100, ramp 60, window 100..280; alert at 130: delay 30, lead 30. e-2 starts 100, ramp 40; alert at 100: delay 0, lead 40. e-3 has no row: no new alert.
+    const rowsBy = new Map([at("e-1", [130]), at("e-2", [100])]);
+    const eps = [["e-1", "10", "", "", "x", "100", "60"], ["e-2", "10", "", "", "x", "100", "40"], ["e-3", "10", "", "", "x", "100", "40"]];
+    const first = new Map<string, number>();
+    const arm = w4Arm(rowsBy, hit, eps, 1, 1, first);
+    expect([...first]).toEqual([["e-1", 130], ["e-2", 100]]); // each episode's first new alert, for the paired figure
+    expect(arm.delay_minutes).toEqual([0, 30]);
+    expect(arm.lead_minutes).toEqual([30, 40]);
+    expect(arm.delay_median_minutes).toBe(15);
+    expect(arm.episodes_no_new_alert).toBe(1);
+    expect(arm.episodes_evaluated - arm.episodes_with_new_alert).toBe(1);
+  });
+
+  it("spread: min, median, max, mean, sample sd; one value gives null sd; a null on either side is left out", () => {
+    // differences 1, 2, 4, 9: min 1, median (2+4)/2 = 3, max 9, mean 16/4 = 4, sd = sqrt((9+4+0+25)/3) = sqrt(12.6667) = 3.5590
+    expect(spreadOf([[0, 1], [1, 3], [2, 6], [0, 9]])).toEqual({ seeds_with_value: 4, min: 1, median: 3, max: 9, mean: 4, sd: 3.559 });
+    expect(spreadOf([[1, 3]])).toEqual({ seeds_with_value: 1, min: null, median: null, max: null, mean: null, sd: null }); // one value is not a spread
+    // pooled over episodes: 10, 20, 30, 40 gives 25; the median of the seeds' own medians would be 20
+    expect(pooledMedian([[10], [20, 30, 40]])).toBe(25);
+    expect(pooledMedian([[], []])).toBeNull();
+    expect(spreadOf([[1, 3], [null, 5], [2, null], [0, 4]])).toMatchObject({ seeds_with_value: 2, min: 2, max: 4, mean: 3 });
+    expect(spreadOf([[null, 1]])).toEqual({ seeds_with_value: 0, min: null, median: null, max: null, mean: null, sd: null });
+  });
+
+  it("paired: the same episode under both rules, change minus baseline", () => {
+    // e-1: 130 then 100, so the change rule is 30 minutes earlier. e-2: same bin. e-3 alerted under one rule only: not paired.
+    const d = pairedDiffs(new Map([["e-1", 130], ["e-2", 100], ["e-3", 200]]), new Map([["e-1", 100], ["e-2", 100], ["e-4", 50]]));
+    expect(d).toEqual([-30, 0]);
+    // -30, 0, 45: mean 5, sd = sqrt((35^2 + 5^2 + 40^2) / 2) = sqrt(1425) = 37.7492
+    expect(pairedOf([...d, 45])).toEqual({ episodes_with_new_alert_under_both: 3, change_earlier: 1, same_bin: 1, change_later: 1, min: -30, median: 0, max: 45, mean: 5, sd: 37.7492 });
+    expect(pairedOf([])).toEqual({ episodes_with_new_alert_under_both: 0, change_earlier: 0, same_bin: 0, change_later: 0, min: null, median: null, max: null, mean: null, sd: null });
+  });
+
+  const seeds = (k: number, out = join(root, "never")) => ["--seed", "4", "--seeds", String(k), "--days", "7", "--baseline", "rule=news2_total_ge_5", "--change", "rule=news2_chart_trigger", "--out", out];
+
+  it("a 2-seed report is byte-identical on a rerun, keeps its key order, and names no outcome", { timeout: 240_000 }, () => {
+    const files = compare(seeds(2)).files;
+    expect(compare(seeds(2)).files).toEqual(files);
+    const j = JSON.parse(files["compare.json"]);
+    expect(Object.keys(j)).toEqual(["compare_format", "synthetic", "mode", "seed", "seeds", "days", "node_major", "baseline", "change", "pairing", "arms", "difference", "spread", "paired_episodes", "notes"]);
+    expect(Object.keys(j.paired_episodes)).toEqual(["episodes_with_new_alert_under_both", "change_earlier", "same_bin", "change_later", "min", "median", "max", "mean", "sd"]);
+    expect(files["compare.txt"]).toContain("\nsame episode under both rules: first new alert of the change rule minus the baseline rule's, in minutes (negative: the change rule warned earlier)\n");
+    expect([j.mode, j.compare_format, j.seeds]).toEqual(["w4_seeds", 1, [4, 5]]);
+    expect(Object.keys(j.arms.baseline)).toEqual(["pooled", "seed_4", "seed_5"]);
+    expect(Object.keys(j.spread)).toEqual(["lead_median_minutes", "delay_median_minutes", "alerts_per_patient_per_12h_shift", "episodes_with_new_alert_share"]);
+    expect(Object.keys(j.spread.lead_median_minutes)).toEqual(["seeds_with_value", "min", "median", "max", "mean", "sd"]);
+    expect(j.pairing.status).toBe("one cohort for both arms, for each of 2 seeds");
+    expect(j.arms.baseline.pooled.alerts).toBe(j.arms.baseline.seed_4.alerts + j.arms.baseline.seed_5.alerts);
+    // The pooled burden uses every seed's patient days, so it lies between the two seeds' own figures.
+    const burden = (k: string) => j.arms.baseline[k].alerts_per_patient_per_12h_shift as number;
+    expect(burden("pooled")).toBeGreaterThan(Math.min(burden("seed_4"), burden("seed_5")));
+    expect(burden("pooled")).toBeLessThan(Math.max(burden("seed_4"), burden("seed_5")));
+    // The spread is of change minus baseline, the same sign as the difference rows.
+    const d = [j.difference.seed_4.alerts_per_patient_per_12h_shift, j.difference.seed_5.alerts_per_patient_per_12h_shift] as number[];
+    expect([j.spread.alerts_per_patient_per_12h_shift.min, j.spread.alerts_per_patient_per_12h_shift.max]).toEqual([Math.min(...d), Math.max(...d)]);
+    expect(Math.min(...d)).not.toBe(-Math.max(...d));
+    // Checked by hand from the trials' own files: seed 4 has two episodes alerted under both rules (n-0009: 8235 against 8310, n-0011: the same bin); seed 5 has none.
+    expect(j.paired_episodes).toEqual({ episodes_with_new_alert_under_both: 2, change_earlier: 1, same_bin: 1, change_later: 0, min: -75, median: -37.5, max: 0, mean: -37.5, sd: 53.033 });
+    expect(j.arms.baseline.seed_4.delay_median_minutes).toBe(256.6803);
+    expect(j.arms.change.seed_4.delay_median_minutes).toBe(219.1803);
+    expect(files["compare.txt"].split("\n")[0]).toBe("compare w4: seeds 4 to 5 (2 seeds), 7 days");
+    expect(files["compare.txt"]).toContain("\nspread of the per-seed difference (change minus baseline)\n");
+    for (const s of [4, 5]) expect(files["compare.txt"]).toMatch(new RegExp(`^  seed ${s}: cohort.csv sha256 [0-9a-f]{64}, episodes.csv sha256 [0-9a-f]{64}, equal on a second run$`, "m"));
+    expect(j.notes.slice(-5, -1)).toEqual([expect.stringMatching(/^alert delay = /), expect.stringMatching(/^the paired figure is the same episode under both rules, /), expect.stringMatching(/^a rule that alerts more can show fewer new alerts /), expect.stringMatching(/^spread is across seeds: .* it says nothing when seeds_with_value is below 2/)]);
+    expect(j.notes.at(-1)).toMatch(/^no outcome is given: /);
+    expect(files["compare.txt"].trimEnd().endsWith("synthetic, not validated")).toBe(true);
+    const keys = (v: unknown): string[] => (typeof v === "object" && v !== null ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : []);
+    expect(keys(j).filter((k) => /death|mortal|surviv|outcome/i.test(k))).toEqual([]);
+    // the other modes' reports have neither key
+    expect(Object.keys(JSON.parse(compare(w4(1)).files["compare.json"]))).not.toContain("spread");
+  });
+
+  it("a stub trial: any seed's pairing failure refuses the whole run", () => {
+    let n = 0;
+    const drifting = (o: { seed: number }) => ({ "manifest.json": "", "cohort.csv": `${COHORT_HEADER}\n`, "episodes.csv": `${EPISODES_HEADER}\n${o.seed === 5 && n++ % 2 ? "x\n" : ""}`, "summary.json": '{"patient_days":1}' });
+    expect(() => compareW4Seeds(4, 2, 1, "news2_total_ge_5", "news2_chart_trigger", drifting as never)).toThrow(/^pairing broken: two runs of the same seed differ$/);
+  });
+
+  it("each new refusal gives its line, writes nothing and returns at once", () => {
+    const before = readdirSync(root);
+    const cases: [RegExp, string[]][] = [
+      [/^--seeds is for rule arms only$/, ["--seed", "4", "--seeds", "3", ...args(4, 60, SCEN, `nurses=${DOH}`).slice(2)]],
+      [/^--seeds must be a whole number from 2 to 50$/, seeds(1)],
+      [/^--seeds must be a whole number from 2 to 50$/, seeds(51)],
+      [/^--seeds must be a whole number from 2 to 50$/, ["--seed", "4", "--seeds", "x", ...w4(60).slice(2)]],
+      [/^--seed plus --seeds runs past 2147483647$/, ["--seed", "2147483647", "--seeds", "2", ...w4(60).slice(2)]],
+      [/^usage: compare --seed N \[--seeds K\] /, [...seeds(2), "--seeds", "3"]],
+    ];
+    for (const [line, a] of cases) {
+      const t = Date.now();
+      expect(() => compare(a), String(line)).toThrow(Refusal);
+      expect(() => compare(a), String(line)).toThrow(line);
+      expect(Date.now() - t, String(line)).toBeLessThan(2000);
+    }
+    expect(readdirSync(root)).toEqual(before);
   });
 });
 

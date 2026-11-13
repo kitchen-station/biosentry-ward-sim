@@ -1,5 +1,5 @@
 /// <reference types="node" />
-// Two arms, one seed, one difference: `npm run compare -- --seed N --days N --baseline B --change C --out DIR`.
+// Two arms, the same seed (or the same seeds), one difference: `npm run compare -- --seed N [--seeds K] --days N --baseline B --change C --out DIR`.
 // Pure functions take strings and objects and return the text of compare.json and compare.txt; the CLI at the bottom only
 // reads files and writes the result. It must not import src/trial.ts or src/hospital-trial.ts: their CLI would run inside the bundle.
 // Every input check runs before any arm; the pairing checks run after the arms and also refuse. A refusal is one line on stderr and exit 2, and nothing is written.
@@ -31,6 +31,9 @@ const isObj = (v: unknown): v is Json => typeof v === "object" && v !== null && 
 const rows = (csv: string) => csv.trimEnd().split("\n").slice(1).map((l) => l.split(","));
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 const share = (n: number, of: number) => (of === 0 ? null : r4(n / of));
+/** Median of a sorted list; null when empty. */
+const median = (xs: number[]) => (xs.length === 0 ? null : r4(xs.length % 2 ? xs[xs.length >> 1] : (xs[xs.length / 2 - 1] + xs[xs.length / 2]) / 2));
+const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
 
 /** Every leaf by dotted path. An array or a null is a leaf. */
 function leaves(v: unknown, prefix = ""): Json {
@@ -42,12 +45,13 @@ const diff = (a: unknown, b: unknown): unknown =>
   typeof a === "number" && typeof b === "number" ? r4(b - a)
     : isObj(a) && isObj(b) ? Object.fromEntries(Object.keys({ ...a, ...b }).map((k) => [k, diff(a[k], b[k])])) : null;
 
-interface Report { mode: string; seed: number; days: number; baseline: unknown; change: { kind: string; name: string; fields: { path: string; baseline: unknown; change: unknown }[] }; pairing: { status: string; same_person_at_each_arrival: boolean; lines: string[] }; arms: { baseline: unknown; change: unknown }; notes: string[] }
+interface Report { mode: string; seed: number; seeds?: number[]; spread?: unknown; paired?: Json; days: number; baseline: unknown; change: { kind: string; name: string; fields: { path: string; baseline: unknown; change: unknown }[] }; pairing: { status: string; same_person_at_each_arrival: boolean; lines: string[] }; arms: { baseline: unknown; change: unknown }; notes: string[] }
 
 function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles {
-  const json = { compare_format: 1, synthetic: true, mode: r.mode, seed: r.seed, days: r.days, node_major: nodeMajor, baseline: r.baseline, change: r.change, pairing: r.pairing, arms: r.arms, difference, notes: r.notes };
+  const json = { compare_format: 1, synthetic: true, mode: r.mode, seed: r.seed, ...(r.seeds ? { seeds: r.seeds } : {}), days: r.days, node_major: nodeMajor, baseline: r.baseline, change: r.change, pairing: r.pairing, arms: r.arms, difference, ...(r.spread ? { spread: r.spread } : {}), ...(r.paired ? { paired_episodes: r.paired } : {}), notes: r.notes };
   // The Node version is in the JSON only, so the text report reads the same on every Node version.
-  const L = [`compare ${r.mode}: seed ${r.seed}, ${r.days} days`, `baseline: ${isObj(r.baseline) ? r.baseline.name : r.baseline}`, `change: ${r.change.kind} ${r.change.name}`];
+  const head = r.seeds ? `seeds ${r.seeds[0]} to ${r.seeds[r.seeds.length - 1]} (${r.seeds.length} seeds)` : `seed ${r.seed}`;
+  const L = [`compare ${r.seeds ? "w4" : r.mode}: ${head}, ${r.days} days`, `baseline: ${isObj(r.baseline) ? r.baseline.name : r.baseline}`, `change: ${r.change.kind} ${r.change.name}`];
   for (const f of r.change.fields) L.push(`  ${f.path}: ${f.baseline} -> ${f.change}`);
   L.push(`pairing: ${r.pairing.status}`, ...r.pairing.lines.map((l) => `  ${l}`), "");
   const [b, c, d] = [leaves(r.arms.baseline), leaves(r.arms.change), leaves(difference)];
@@ -60,6 +64,15 @@ function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles
   for (const p of paths) L.push(`${p.padEnd(w)}  ${cell(b[p])}  ${cell(c[p])}  ${cell(d[p])}`);
   // Lists and fixed wording (a caveat label next to a figure) go under the table, one line per arm.
   for (const p of all.filter((x) => kind(x) !== "cell")) for (const [arm, v] of [["baseline", b[p]], ["change", c[p]]] as const) L.push(`${p} ${arm}: ${(Array.isArray(v) ? v.join(" ") : v) || "-"}`);
+  if (isObj(r.spread)) {
+    const cols = ["seeds_with_value", "min", "median", "max", "mean", "sd"];
+    L.push("", "spread of the per-seed difference (change minus baseline)", `${"metric".padEnd(w)}${cols.map((k) => k.padStart(18)).join("")}`);
+    for (const [k, v] of Object.entries(r.spread)) L.push(`${k.padEnd(w)}${cols.map((c) => cell((v as Json)[c]).padStart(18)).join("")}`);
+  }
+  if (r.paired) {
+    L.push("", "same episode under both rules: first new alert of the change rule minus the baseline rule's, in minutes (negative: the change rule warned earlier)");
+    for (const [k, v] of Object.entries(r.paired)) L.push(`${k.padEnd(w)}  ${cell(v)}`);
+  }
   L.push("", ...r.notes.map((n) => `note: ${n}`), "synthetic, not validated");
   return { "compare.json": `${JSON.stringify(json, null, 2)}\n`, "compare.txt": `${L.map((l) => l.trimEnd()).join("\n")}\n` };
 }
@@ -86,7 +99,8 @@ export function rescore(cohortCsv: string): Row[] {
   });
 }
 
-export function w4Arm(byPatient: Map<string, Row[]>, hit: Hit, episodes: string[][], patientDays: number, days: number) {
+/** `firstOut`, when given, receives, for each evaluated episode with a new alert, that first new alert minute by patient, so two arms can be compared episode by episode. */
+export function w4Arm(byPatient: Map<string, Row[]>, hit: Hit, episodes: string[][], patientDays: number, days: number, firstOut?: Map<string, number>) {
   const alerts = new Map<string, number[]>();
   const hits = new Map<string, number[]>();
   let bins = 0;
@@ -113,16 +127,16 @@ export function w4Arm(byPatient: Map<string, Row[]>, hit: Hit, episodes: string[
   const evaluated = episodes.filter((e) => Number(e[1]) > 0 && e[5] !== "" && Number(e[5]) >= Number(e[1]) && (e[2] === "" || Number(e[5]) < Number(e[2])) && Number(e[5]) < days * 1440);
   const window = new Map(evaluated.map((e) => [e[0], [Number(e[5]), Number(e[5]) + Number(e[6]) + WINDOW_AFTER_FULL_MIN]]));
   const inWin = (id: string, m: number) => { const w = window.get(id); return w !== undefined && m >= w[0] && m <= w[1]; };
-  const leads: number[] = [];
+  const leads: number[] = [], delays: number[] = [];
   let withNew = 0, withAny = 0;
   for (const e of evaluated) {
     // A stay with no cohort row has no alert, as in the research package.
     const first = (alerts.get(e[0]) ?? []).find((m) => inWin(e[0], m));
-    if (first !== undefined) { withNew += 1; leads.push(r4(Number(e[5]) + Number(e[6]) - first)); }
+    if (first !== undefined) { withNew += 1; leads.push(r4(Number(e[5]) + Number(e[6]) - first)), delays.push(r4(first - Number(e[5]))); firstOut?.set(e[0], first); }
     if ((hits.get(e[0]) ?? []).some((m) => inWin(e[0], m))) withAny += 1;
   }
   leads.sort((a, b) => a - b);
-  const mid = leads.length >> 1;
+  delays.sort((a, b) => a - b);
   const count = [...alerts.values()].reduce((a, f) => a + f.length, 0);
   return {
     alerts: count,
@@ -135,15 +149,20 @@ export function w4Arm(byPatient: Map<string, Row[]>, hit: Hit, episodes: string[
     episodes_alerting_any_bin_share: share(withAny, evaluated.length),
     alerts_outside_episode_windows: [...alerts].reduce((a, [id, f]) => a + f.filter((m) => !inWin(id, m)).length, 0),
     lead_minutes: leads,
-    lead_median_minutes: leads.length === 0 ? null : r4(leads.length % 2 ? leads[mid] : (leads[mid - 1] + leads[mid]) / 2),
+    lead_median_minutes: median(leads),
+    delay_minutes: delays,
+    delay_median_minutes: median(delays),
+    episodes_no_new_alert: evaluated.length - withNew,
     bins,
     bins_alerting: [...hits.values()].reduce((a, h) => a + h.length, 0),
   };
 }
 
-export function compareW4(seed: number, days: number, baseline: string, change: string, trial = runTrial): CompareFiles {
-  const [hitA, hitB] = [parseRule(baseline), parseRule(change)];
-  if (baseline === change) refuse("change: same rule as the baseline");
+const NOTE_DELAY = "alert delay = first new alert in the window minus episode start (when the rule first flags, not when anyone acts); an episode with no new alert has no delay and is counted, not filled in";
+type Arm = ReturnType<typeof w4Arm>;
+
+/** One seed: two runs (the pairing check), then both rules on the first. */
+function w4Seed(seed: number, days: number, hitA: Hit, hitB: Hit, trial: typeof runTrial) {
   const run = () => trial({ scenario: { ...SCENARIO_V1, format_version: 1, name: "default" }, seed, days, scenarioSha256: "0".repeat(64), simCommit: "unknown", nodeMajor: nodeMajor() });
   // The rule is applied after the run and never fed back, so the arms share one cohort; the second run proves it is repeatable.
   const [one, two] = [run(), run()];
@@ -153,7 +172,41 @@ export function compareW4(seed: number, days: number, baseline: string, change: 
   for (const r of rescore(one["cohort.csv"])) byPatient.set(r.id, [...(byPatient.get(r.id) ?? []), r]);
   const episodes = rows(one["episodes.csv"]);
   const patientDays = (JSON.parse(one["summary.json"]) as { patient_days: number }).patient_days;
-  const [a, b] = [w4Arm(byPatient, hitA, episodes, patientDays, days), w4Arm(byPatient, hitB, episodes, patientDays, days)];
+  const [fa, fb] = [new Map<string, number>(), new Map<string, number>()];
+  const [a, b] = [w4Arm(byPatient, hitA, episodes, patientDays, days, fa), w4Arm(byPatient, hitB, episodes, patientDays, days, fb)];
+  return { h1, h2, patientDays, a, b, paired: pairedDiffs(fa, fb) };
+}
+
+/** For each episode with a new alert under both rules: the change rule's alert minute minus the baseline rule's. */
+export const pairedDiffs = (baseline: Map<string, number>, change: Map<string, number>) => [...baseline].flatMap(([id, m]) => (change.has(id) ? [change.get(id)! - m] : []));
+
+const stats = (xs: number[]) => {
+  const d = [...xs].sort((p, q) => p - q);
+  const mean = d.length === 0 ? null : sum(d) / d.length;
+  const sd = d.length < 2 ? null : Math.sqrt(sum(d.map((x) => (x - mean!) ** 2)) / (d.length - 1)); // sample sd
+  const n = (v: number | null) => (v === null ? null : r4(v));
+  return { min: n(d[0] ?? null), median: median(d), max: n(d[d.length - 1] ?? null), mean: n(mean), sd: n(sd) };
+};
+/** The same episodes under both rules: how many, which rule was earlier, and the spread of the difference. This is the paired figure; the medians above are over different sets of episodes. */
+export const pairedOf = (d: number[]) => ({
+  episodes_with_new_alert_under_both: d.length, change_earlier: d.filter((x) => x < 0).length, same_bin: d.filter((x) => x === 0).length, change_later: d.filter((x) => x > 0).length, ...stats(d),
+});
+const NOTE_PAIRED = "the paired figure is the same episode under both rules, pooled over the seeds of this report (each episode counted once; its sd treats episodes as independent); episodes with a new alert under one rule only are left out (see episodes_with_new_alert); the lead and delay medians of an arm, and their difference column, are over that arm's own alerted episodes, which can differ between arms; alert minutes are 15-minute bins, so each paired difference is a multiple of 15 min";
+const NOTE_REARM = "a rule that alerts more can show fewer new alerts in a window: an alert before the window keeps the patient un-armed until 16 quiet bins pass";
+const NOTE_NO_OUTCOME = "no outcome is given: the hospital model's late-recognition death rule (obs.excessDeathPerHour, a judgement value) is for unmonitored wards; W4 is monitored, and no one dies on W4";
+
+const W4_NOTES = [
+  "the outcome of a warning is not modelled on W4: a staff review does not change vitals and the rule is never fed back into the run, so a rule changes only alerts and their timing",
+  "starting patients (admit minute 0) are in the alert burden; their episodes are not evaluated; p-001 has a scripted worsening that is not an episode",
+  "lead = fully-in minute minus the first new alert in the window; positive means the alert came before the episode was fully in",
+  `alerts re-arm after ${REARM_BINS} bins (4 h) not alerting; window = episode_start to fully in + ${WINDOW_AFTER_FULL_MIN} min (both are judgement values taken from BioSentry-Intelligence research/)`,
+  NOTE_DELAY,
+];
+
+export function compareW4(seed: number, days: number, baseline: string, change: string, trial = runTrial): CompareFiles {
+  const [hitA, hitB] = [parseRule(baseline), parseRule(change)];
+  if (baseline === change) refuse("change: same rule as the baseline");
+  const { h1, h2, a, b, paired } = w4Seed(seed, days, hitA, hitB, trial);
   return render({
     mode: "w4", seed, days, baseline,
     change: { kind: "rule", name: change, fields: [{ path: "rule", baseline, change }] },
@@ -162,11 +215,72 @@ export function compareW4(seed: number, days: number, baseline: string, change: 
       lines: [`one run serves both arms (the rule is applied after it), so the people, arrivals and true episodes are the same; a second run of the same seed gave the same cohort.csv sha256 ${h1} and episodes.csv sha256 ${h2}`],
     },
     arms: { baseline: a, change: b },
+    paired: pairedOf(paired),
+    notes: [...W4_NOTES, NOTE_PAIRED, NOTE_REARM, NOTE_NO_OUTCOME],
+  }, diff(a, b), nodeMajor());
+}
+
+/** min, median, max, mean and sample sd of the per-seed differences; a seed with a null on either side is left out. */
+export function spreadOf(pairs: [number | null, number | null][]) {
+  const d = pairs.flatMap(([x, y]) => (x === null || y === null ? [] : [y - x]));
+  // One value is not a spread: nothing but the count is given below two.
+  return { seeds_with_value: d.length, ...stats(d.length < 2 ? [] : d) };
+}
+
+/** The median over every episode of every seed, not the median of the seeds' medians. */
+export const pooledMedian = (lists: number[][]) => median(lists.flat().sort((p, q) => p - q));
+
+/** `--seeds K`: seeds seed .. seed+K-1, each with its own pairing check; any failure refuses the whole run. */
+export function compareW4Seeds(seed: number, count: number, days: number, baseline: string, change: string, trial = runTrial): CompareFiles {
+  const [hitA, hitB] = [parseRule(baseline), parseRule(change)];
+  if (baseline === change) refuse("change: same rule as the baseline");
+  const seeds = Array.from({ length: count }, (_, i) => seed + i);
+  const runs = seeds.map((s) => w4Seed(s, days, hitA, hitB, trial));
+  const pooled = (arm: "a" | "b") => {
+    const arms: Arm[] = runs.map((r) => r[arm]);
+    const total = (k: "alerts" | "episodes_evaluated" | "episodes_with_new_alert" | "episodes_no_new_alert" | "episodes_alerting_any_bin" | "alerts_outside_episode_windows" | "bins" | "bins_alerting") => sum(arms.map((x) => x[k]));
+    const list = (k: "lead_minutes" | "delay_minutes") => pooledMedian(arms.map((x) => x[k]));
+    return {
+      alerts: total("alerts"),
+      alerts_per_patient_per_12h_shift: share(total("alerts"), sum(runs.map((r) => r.patientDays)) * 2),
+      episodes_evaluated: total("episodes_evaluated"),
+      episodes_with_new_alert: total("episodes_with_new_alert"),
+      episodes_with_new_alert_share: share(total("episodes_with_new_alert"), total("episodes_evaluated")),
+      episodes_no_new_alert: total("episodes_no_new_alert"),
+      episodes_alerting_any_bin: total("episodes_alerting_any_bin"),
+      alerts_outside_episode_windows: total("alerts_outside_episode_windows"),
+      lead_median_minutes: list("lead_minutes"),
+      delay_median_minutes: list("delay_minutes"),
+      bins: total("bins"),
+      bins_alerting: total("bins_alerting"),
+    };
+  };
+  const perSeed = (x: Arm) => ({
+    episodes_evaluated: x.episodes_evaluated, episodes_with_new_alert: x.episodes_with_new_alert, episodes_no_new_alert: x.episodes_no_new_alert,
+    alerts: x.alerts, alerts_per_patient_per_12h_shift: x.alerts_per_patient_per_12h_shift, lead_median_minutes: x.lead_median_minutes, delay_median_minutes: x.delay_median_minutes,
+  });
+  const arm = (which: "a" | "b") => ({ pooled: pooled(which), ...Object.fromEntries(seeds.map((s, i) => [`seed_${s}`, perSeed(runs[i][which])])) });
+  const [a, b] = [arm("a"), arm("b")];
+  const metrics = ["lead_median_minutes", "delay_median_minutes", "alerts_per_patient_per_12h_shift", "episodes_with_new_alert_share"] as const;
+  return render({
+    mode: "w4_seeds", seed, seeds, days, baseline,
+    change: { kind: "rule", name: change, fields: [{ path: "rule", baseline, change }] },
+    pairing: {
+      status: `one cohort for both arms, for each of ${count} seeds`, same_person_at_each_arrival: true,
+      lines: [
+        `one run per seed serves both arms (the rule is applied after it), so the people, arrivals and true episodes are the same in both arms of a seed; a second run of each seed gave the same cohort.csv and episodes.csv`,
+        ...seeds.map((s, i) => `seed ${s}: cohort.csv sha256 ${runs[i].h1}, episodes.csv sha256 ${runs[i].h2}, equal on a second run`),
+      ],
+    },
+    arms: { baseline: a, change: b },
+    spread: Object.fromEntries(metrics.map((m) => [m, spreadOf(runs.map((r) => [r.a[m], r.b[m]]))])),
+    paired: pairedOf(runs.flatMap((r) => r.paired)),
     notes: [
-      "the outcome of a warning is not modelled on W4: a staff review does not change vitals and the rule is never fed back into the run, so a rule changes only alerts and their timing",
-      "starting patients (admit minute 0) are in the alert burden; their episodes are not evaluated; p-001 has a scripted worsening that is not an episode",
-      "lead = fully-in minute minus the first new alert in the window; positive means the alert came before the episode was fully in",
-      `alerts re-arm after ${REARM_BINS} bins (4 h) not alerting; window = episode_start to fully in + ${WINDOW_AFTER_FULL_MIN} min (both are judgement values taken from BioSentry-Intelligence research/)`,
+      ...W4_NOTES,
+      NOTE_PAIRED,
+      NOTE_REARM,
+      "spread is across seeds: each seed is one simulated run of one ward; it says nothing when seeds_with_value is below 2; a difference whose min and max have opposite signs is not a finding, and one whose signs agree is only what this model does",
+      NOTE_NO_OUTCOME,
     ],
   }, diff(a, b), nodeMajor());
 }
@@ -281,14 +395,14 @@ export function compareHospital(seed: number, days: number, a: Scenario, b: Scen
 // ---- command line ----
 
 const nodeMajor = () => Number(process.versions.node.split(".")[0]);
-const USAGE = "usage: compare --seed N --days N --baseline B --change C --out DIR";
-const FLAGS = ["--seed", "--days", "--baseline", "--change", "--out"];
+const USAGE = "usage: compare --seed N [--seeds K] --days N --baseline B --change C --out DIR";
+const FLAGS = ["--seed", "--days", "--baseline", "--change", "--out"]; // required; --seeds is optional
 
 function parseArgs(argv: string[]): Record<string, string> {
   const got: Record<string, string> = {};
   for (let i = 0; i < argv.length; i += 2) {
     if (argv[i] === "--change" && argv[i] in got) refuse("exactly one --change is allowed");
-    if (!FLAGS.includes(argv[i]) || argv[i] in got || i + 1 >= argv.length) refuse(USAGE);
+    if (![...FLAGS, "--seeds"].includes(argv[i]) || argv[i] in got || i + 1 >= argv.length) refuse(USAGE);
     got[argv[i]] = argv[i + 1];
   }
   if (FLAGS.some((f) => !(f in got))) refuse(USAGE);
@@ -331,17 +445,21 @@ export function compare(argv: string[]): { out: string; files: CompareFiles } {
   const a = parseArgs(argv);
   const seed = whole("--seed", a["--seed"], 0, 2 ** 31 - 1);
   const days = whole("--days", a["--days"], 1, 60);
+  const seeds = "--seeds" in a ? whole("--seeds", a["--seeds"], 2, 50) : null;
+  if (seeds !== null && seed + seeds - 1 > 2 ** 31 - 1) refuse("--seed plus --seeds runs past 2147483647");
   const out = resolve(a["--out"]);
   const [base, change] = [a["--baseline"], a["--change"]];
   const rules = [base, change].map((t) => t.startsWith("rule="));
   const eq = change.indexOf("=");
   if (rules[0] !== rules[1] || (!rules[1] && eq < 1)) refuse("--baseline and --change must both be rules or a scenario and a group");
+  if (seeds !== null && !rules[0]) refuse("--seeds is for rule arms only");
   const group = change.slice(0, eq);
   const inGroup = rules[0] ? null : groupTest(group);
   if (lstatOrNull(out)) refuse("--out exists");
   const parent = lstatOrNull(dirname(out)) && statSync(dirname(out));
   if (!parent) refuse("--out: parent folder does not exist");
   else if (!parent.isDirectory()) refuse("--out: parent is not a folder");
+  if (rules[0] && seeds !== null) return { out, files: compareW4Seeds(seed, seeds, days, base.slice(5), change.slice(5)) };
   if (rules[0]) return { out, files: compareW4(seed, days, base.slice(5), change.slice(5)) };
   const baseline = readScenario(base, "baseline");
   const other = readScenario(change.slice(eq + 1), "change");
