@@ -101,16 +101,22 @@ export function todayCounts(h: Hospital, unit: UnitId): { in: number; out: numbe
   };
 }
 
-/** Moves today at one unit, from the event rows (read, never drained): a placement, a move in or out, a discharge, a death or a transfer to another hospital here, and a move out "to" another unit. `partial` when older rows may have rolled out of the capped buffer. */
-export function movesToday(h: Hospital, unit: UnitId): { count: number; rows: { minute: number; name: string; text: string }[]; partial: boolean } {
+/** The ways a person leaves the ER, by event kind. Every `place` row comes from the ER (tryPlace runs only for ER boarders and ER decisions), at the destination unit. */
+const ER_EXITS: [EventKind, string][] = [["place", "Placed in a unit"], ["decide_home", "home"], ["lwbs", "left unseen"], ["transfer_out", "transferred out"], ["died", "died"]];
+
+/** Moves today at one unit, from the event rows (read, never drained). A ward or the ICU: a placement, a move in or out, a discharge, a death or a transfer out here, and a move out "to" another unit. The ER: every way a person left it today. `split` is the ER's parts. `partial` when older rows may have rolled out of the capped buffer. */
+export function movesToday(h: Hospital, unit: UnitId): { count: number; rows: { minute: number; name: string; text: string }[]; split: [string, number][]; partial: boolean } {
   const today = dayOf(now(h));
-  const mine = h.events.filter((e) => dayOf(e.minute) === today && (
-    (e.unit === unit && (["place", "transfer", "discharge", "died", "transfer_out"] as EventKind[]).includes(e.kind)) || (e.kind === "transfer" && e.detail.startsWith(`${unit} to `))
-  ));
+  const er = unit === "ER";
+  const isMove = (e: Hospital["events"][number]) => er
+    ? ER_EXITS.some(([k]) => k === e.kind) && (e.kind === "place" || e.unit === "ER")
+    : (e.unit === unit && (["place", "transfer", "discharge", "died", "transfer_out"] as EventKind[]).includes(e.kind)) || (e.kind === "transfer" && e.detail.startsWith(`${unit} to `));
+  const mine = h.events.filter((e) => dayOf(e.minute) === today && isMove(e));
   const names = new Map([...h.people, ...h.gone].map((q) => [q.id, q.name]));
   const rows = mine.slice(-10).reverse().map((e) => ({ minute: e.minute, name: names.get(e.person) ?? e.person, text: EVENT_TEXT[e.kind](h, e.unit, e.detail) }));
+  const split: [string, number][] = er ? ER_EXITS.map(([k, label]): [string, number] => [label, mine.filter((e) => e.kind === k).length]).filter(([, n]) => n > 0) : [];
   const first = h.events[0];
-  return { count: mine.length, rows, partial: h.events.length >= PARAMS.bufferCap.events.value && first !== undefined && dayOf(first.minute) === today && first.minute > today * DAY - START };
+  return { count: mine.length, rows, split, partial: h.events.length >= PARAMS.bufferCap.events.value && first !== undefined && first.minute > today * DAY - START };
 }
 
 /** ER doctors on shift now, busy and free. */
@@ -324,7 +330,7 @@ function PersonPanel({ h, p, onSelect, vitals }: { h: Hospital; p: Person; onSel
       <h3>Complications</h3>
       {comps.length === 0 ? <p className="story">None recorded.</p> : <ul className="plist">{comps.map((c) => <li key={c}>{c}</li>)}</ul>}
       <Path h={h} p={p} />
-      {pv && <PersonTimeline pv={pv} onSelect={onSelect} />}
+      {pv && <PersonTimeline pv={pv} last={pv.bins.at(-1)?.m} nSpans={pv.spans.length} onSelect={onSelect} />}
       {p.w4Id !== null && alive && <p className="story">On ward W4: <button className="linkbtn" onClick={() => onSelect(p.w4Id!)}>open the ward panel</button>.</p>}
     </>
   );
@@ -393,7 +399,8 @@ function MovesToday({ h, id }: { h: Hospital; id: UnitId }) {
   return (
     <>
       <h3>Moves today: {m.count}</h3>
-      {id === "ICU" && <p className="tiny">The ICU has {beds} beds and never discharges home, so moves out are few.</p>}
+      {id === "ER" && m.split.length > 0 && <p className="tiny">{m.split.map(([label, n]) => `${label} ${n}`).join(" · ")}</p>}
+      {id === "ICU" && <p className="tiny">The ICU has {beds} beds. In this model a person leaves the ICU only by stepping down to a ward or by dying.</p>}
       {m.partial && <p className="tiny">Older rows may have rolled out of the event buffer.</p>}
       {m.rows.length > 0 && <ul className="plist mono">{m.rows.map((r, i) => <li key={i}>{clock(r.minute)} · {r.name} · {r.text}</li>)}</ul>}
     </>
