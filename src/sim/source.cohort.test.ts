@@ -70,9 +70,9 @@ describe("drawn cohort", () => {
       for (let k = 0; k < 5; k += 1) expect(b.read(id, m + k)).toEqual(a.src.read(id, m + k));
       expect(b.cuff(id, m)).toEqual(a.src.cuff(id, m));
     }
-    expect(() => b.seeds()).toThrow(/restored drawn world/);
+    expect(() => b.seeds()).toThrow(/no fixture patient has no seeds/);
     // persist.ts passes no cohort: a saved drawn world must still refuse.
-    expect(() => createSyntheticSource(777, true, saved).seeds()).toThrow(/restored drawn world/);
+    expect(() => createSyntheticSource(777, true, saved).seeds()).toThrow(/no fixture patient has no seeds/);
   });
 
   it("a restored fixture source still returns the 12 fixture patients", () => {

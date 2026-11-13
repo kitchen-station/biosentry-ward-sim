@@ -32,9 +32,9 @@ How the 12 are drawn: each one is drawn by the same code that draws an arriving 
 Limits.
 
 - A drawn group never repeats a full name: a repeat gets a new name (only the name) from its own stream `cohort:i:name`. An arriving patient can still share a name with one of the 12.
-- A drawn patient is drawn exactly as an arriving patient is, so about 6 in 100 have a simulated deterioration scheduled (the arrivals' rate), always after minute 0; about half of those start before the patient leaves. The Analytics page's episode table does not list them, because it leaves out stays that were already on the ward at the start, as the compare runner does.
-- Oxygen and the discharge time of a drawn patient are drawn separately, as for the hand-written 12: oxygen comes from the patient's own drawn stay, and the due time comes from the ward's own rule for patients already present.
-- A saved state that holds no fixture patient is a drawn world. Its source refuses to seat the 12 again (`seeds()` throws).
+- A drawn patient is drawn exactly as an arriving patient is, so about 6 in 100 have a simulated deterioration scheduled (the arrivals' rate), never before minute 0; about half of those start before the patient leaves. The Analytics page's episode table does not list them, because it leaves out stays that were already on the ward at the start, as the compare runner does.
+- A drawn patient's oxygen and discharge time are not linked: oxygen is drawn at the arrivals' rate and comes off at 32% of the patient's own drawn stay, counted from minute 0. The due time comes from the ward's rule for patients already present, as for the hand-written 12 (whose oxygen is fixed from the fixture and never comes off).
+- A restored source whose saved state holds no fixture id refuses `seeds()` (it throws). That covers a drawn world, and also a fixture ward saved after its 12 have all left. Nothing calls `seeds()` on a restored source.
 - The runner, the trial runners, the compare runner and the viewer always use the fixture 12; only the standalone page draws.
 
 ## Repeat a run by URL
