@@ -49,7 +49,7 @@ describe("the Analytics page", () => {
     expect(count(html, "Synthetic hospital. Simulated patients. No outcome claim.")).toBe(1);
     const at = ["Hospital</h3>", "Every unit</h3>", "Ward W4</h3>", "Everything in this section is ward W4&#x27;s own record.", "Person</h3>"].map((s) => html.indexOf(s));
     expect(at.every((x) => x > 0) && [...at].sort((a, b) => a - b).join() === at.join()).toBe(true);
-    const names = ["Beds in use", "In and out", "NEWS2 levels, every unit", "Intensive care: people read per hour", "NEWS2 levels", "Alerts per patient per shift", "Beds in use", "Length of stay", "NEWS2 by hour", "What happened", "Vitals, last 3 h"];
+    const names = ["Beds in use", "In and out", "NEWS2 levels, every unit", "Intensive care: people read at each whole hour", "NEWS2 levels", "Alerts per patient per shift", "Beds in use", "Length of stay", "NEWS2 by hour", "What happened", "Vitals, last 3 h"];
     const heads = [...html.matchAll(/<h4>([^<]*)<\/h4>/g)].map((m) => m[1]);
     expect(heads).toEqual(names);
   });
@@ -255,12 +255,12 @@ describe("the Every unit section", () => {
   const sec = every(html);
 
   it("sits between Hospital and Ward W4, with one small multiple per ranked unit and one line for intensive care", () => {
-    expect([...sec.matchAll(/<h4>([^<]*)<\/h4>/g)].map((m) => m[1])).toEqual(["NEWS2 levels, every unit", "Intensive care: people read per hour"]);
+    expect([...sec.matchAll(/<h4>([^<]*)<\/h4>/g)].map((m) => m[1])).toEqual(["NEWS2 levels, every unit", "Intensive care: people read at each whole hour"]);
     for (const u of ["Emergency", "Medicine 3A", "Medicine 3B", "Surgery 5A"]) expect(sec).toContain(`<span>${u}</span>`);
     for (const id of ["ER", "MED3A", "MED3B", "SURG5A"]) expect(sec).toContain(UNIT_LABEL[id as "ER"]!);
     expect(sec).toContain(`${UNIT_LABEL.ER} Includes the waiting room.`);
     expect(sec).toContain(`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`);
-    expect(sec).toContain("Per unit, per hour: people at each NEWS2 level. Same generator as W4, not fitted to each unit. Display only: care does not read it.");
+    expect(sec).toContain("Per unit, at each whole hour: people at each NEWS2 level. Same generator as W4, not fitted to each unit. Display only: care does not read it.");
     expect(count(sec, 'aria-label="NEWS2 levels per hour"')).toBe(0); // W4's own label is not reused
     expect(count(sec, "<svg")).toBeGreaterThanOrEqual(4 + 1 + 5); // four bar charts, one line, the legend swatches
   });

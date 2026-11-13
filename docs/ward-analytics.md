@@ -13,8 +13,8 @@ Hospital (standalone hospital world only)
 - In and out: per unit, per day, admitted, discharged, transferred in, transferred out. The ER also shows arrivals. The page draws these counts and prints no sums.
 
 Every unit (standalone hospital world only; synthetic vitals, display only)
-- NEWS2 levels, every unit: four small charts (ER, MED3A, MED3B, SURG5A), people at each level per hour, drawn with the same chart pieces, level list and colours as W4's chart. Source: `pageView()` of the vitals engine (`src/sim/hospital/vitals.ts`), the capped table `hourly` (840 rows: 168 hours of 5 units, oldest dropped). Complete hours only: the hour still filling is not drawn. Under each chart is the unit's own label (`UNIT_LABEL`, shared in `src/hospital-labels.ts`); the ER adds "Includes the waiting room."
-- Intensive care: people read per hour: a line of the ICU rows. No NEWS2: it is a ward score, so ICU rows hold only the count read.
+- NEWS2 levels, every unit: four small charts (ER, MED3A, MED3B, SURG5A), people at each level at each whole hour, drawn with the same chart pieces, level list and colours as W4's chart. Source: `pageView()` of the vitals engine (`src/sim/hospital/vitals.ts`), the capped table `hourly` (840 rows: 168 hours of 5 units, oldest dropped). Complete hours only: the hour still filling is not drawn. Under each chart is the unit's own label (`UNIT_LABEL`, shared in `src/hospital-labels.ts`); the ER adds "Includes the waiting room."
+- Intensive care: people read at each whole hour: a line of the ICU rows. No NEWS2: it is a ward score, so ICU rows hold only the count read.
 - One line: "Vital-sign streams opened outside ward W4: N (one per person per visit). Readings: M." Both numbers come from the engine as given.
 - Display only: care in the model does not read any of it. While the run is under 24 hours the first-day note shows ("First day: everyone starts as a new admission, so scores run high."). Before the first complete hour the charts say "No data yet". A ward-only or viewer build shows none of this section.
 

@@ -142,7 +142,7 @@ function EveryUnit({ sum, vitals }: { sum: WardSummary | null; vitals: VitalsVie
     <>
       <Fig
         name="NEWS2 levels, every unit"
-        caption="Per unit, per hour: people at each NEWS2 level. Same generator as W4, not fitted to each unit. Display only: care does not read it."
+        caption="Per unit, at each whole hour: people at each NEWS2 level. Same generator as W4, not fitted to each unit. Display only: care does not read it."
         note={rowsOf("ER").length === 0 ? NO_DATA : undefined}
       >
         <Legend names={LEVELS.map((k) => LEVEL_NAME[k])} colors={LEVEL_COLOR} />
@@ -163,8 +163,8 @@ function EveryUnit({ sum, vitals }: { sum: WardSummary | null; vitals: VitalsVie
           </div>
         ))}
       </Fig>
-      <Fig name="Intensive care: people read per hour" caption={`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`} note={lines.length === 0 ? NO_DATA : undefined}>
-        <LineChart values={withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read))} label="Intensive care people read per hour" />
+      <Fig name="Intensive care: people read at each whole hour" caption={`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`} note={lines.length === 0 ? NO_DATA : undefined}>
+        <LineChart values={withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read))} label="Intensive care people read at each whole hour" />
       </Fig>
     </>
   );

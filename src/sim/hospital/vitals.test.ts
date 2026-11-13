@@ -117,6 +117,8 @@ describe("read-only", () => {
     const again = createVitals();
     run(101, 60, DAY, (s) => feedVitals(again, s.hospital!, s.clockS));
     expect(pageView(again)).toEqual(pageView(v));
+    expect(pageView(v).hourly).not.toBe(v.hourly); // a copy: the page cannot change the engine's rows
+    expect(pageView(v).hourly[0]).not.toBe(v.hourly[0]);
     const other = createVitals();
     run(102, 60, DAY, (s) => feedVitals(other, s.hospital!, s.clockS));
     expect(pageView(other)).not.toEqual(pageView(v));
@@ -124,7 +126,6 @@ describe("read-only", () => {
 
   it("counts every read in an hour row: the levels sum to read in a ranked unit, and intensive care holds no level", () => {
     const view = pageView(v);
-    console.log(`PAGEVIEW seed 101, one day: created ${view.created}, reads ${view.reads}, hourly rows ${view.hourly.length}`);
     expect(view.created).toBe(v.created);
     expect(view.reads).toBe(v.reads);
     expect(view.hourly).toHaveLength(25 * 5); // hours 0 to 24, five units
