@@ -24,6 +24,8 @@ npm test
 
 CI runs the tests and the build on every push and pull request. Dependabot proposes dependency updates weekly.
 
+The app has two pages with one switch at the top: **Simulation** and **Analytics**. Analytics (`#analytics`, no sign-in) shows the pipeline, models, evaluations, simulator checks, registry and research agent record from committed, synthetic files only. `npm run sync:evaluation -- <BioSentry-Intelligence checkout>` brings those files up to date. See [docs/analytics.md](docs/analytics.md).
+
 `npm install` needs the committed `package-lock.json`. Without it, npm 10 fails while resolving Vitest's optional peers.
 
 ## Feed the BioSentry dashboard
