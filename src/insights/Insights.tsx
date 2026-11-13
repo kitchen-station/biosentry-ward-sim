@@ -4,7 +4,7 @@ import { useState } from "react";
 import { VITAL_CARD } from "../panels";
 import { RISK_LIGHT } from "../render/draw";
 import type { Patient } from "../sim/sim";
-import type { WardSummary } from "../sim/ward-stats";
+import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
 import { LineChart, StackedBars, Strip, type Slot } from "./charts";
 
 export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history">;
@@ -170,6 +170,53 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
   );
 }
 
+const EP_SHOWN = 50;
+/** Simulated episodes: the simulator's own truth, newest first. A viewer build shows nothing here. */
+function Episodes({ mode, sum, label }: { mode: Mode; sum: WardSummary | null; label: (minute: number) => string }) {
+  if (mode === "viewer") return null;
+  const all = sum?.episodes;
+  const rows = arr(all).filter((e) => fin(e?.start)).sort((a, b) => b.start - a.start);
+  const at = (m: number) => label(Math.floor(m)); // a start can fall between minutes; the clock shows whole minutes
+  return (
+    <>
+      <p>Simulated episode, the simulator&apos;s ground truth. A real ward never knows this. No outcome shown.</p>
+      <p>Alert = NEWS2 5 or more (demo line). Window: start to fully in, plus {WINDOW_AFTER_FULL_MIN} min.</p>
+      {!Array.isArray(all) ? (
+        <p>Not available here.</p>
+      ) : rows.length === 0 ? (
+        <p>No simulated episode has started yet.</p>
+      ) : (
+        <>
+          {rows.length > EP_SHOWN ? <p>Showing the newest {EP_SHOWN} of {rows.length}</p> : null}
+          <table>
+            <caption>Simulated episodes</caption>
+            <thead>
+              <tr>
+                <th scope="col">Start</th>
+                <th scope="col">Kind</th>
+                <th scope="col">First alert</th>
+                <th scope="col">Minutes between</th>
+                <th scope="col">Fully in</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, EP_SHOWN).map((e, i) => (
+                <tr key={i}>
+                  <td>{at(e.start)}</td>
+                  <td>{String(e.kind)}</td>
+                  <td>{fin(e.alertMin) ? at(e.alertMin) : e.windowOpen ? "window still open" : "none in the window"}</td>
+                  <td>{fin(e.minutesBetween) ? n(e.minutesBetween) : ""}</td>
+                  <td>{fin(e.fullIn) ? at(e.fullIn) : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </>
+  );
+}
+
 function PersonSection({ patients, label }: { patients: Person[]; label: (minute: number) => string }) {
   const [picked, setPicked] = useState("");
   const list = arr(patients);
@@ -252,6 +299,7 @@ export default function Insights({ mode, summary, patients, label }: { mode: Mod
       <div className="figs">
         <Ward mode={mode} sum={summary} />
       </div>
+      <Episodes mode={mode} sum={summary} label={label} />
       <h3>Person</h3>
       <PersonSection patients={patients} label={label} />
     </section>

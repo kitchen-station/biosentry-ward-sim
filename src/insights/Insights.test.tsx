@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { WardSummary } from "../sim/ward-stats";
+import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
 import { VITAL_CARD } from "../panels";
 import Insights, { type Mode, type Person } from "./Insights";
 
@@ -13,7 +13,12 @@ const summary: WardSummary = {
   // 41 and 47: their sum, 88, is nowhere in this data, so a printed sum fails the no-new-number test
   shifts: [{ start: -480, alerts: 41, patientMin: 5400, partial: true }, { start: 240, alerts: 47, patientMin: 8100, partial: false }],
   stays: [{ inMin: 10, outMin: 700, outcome: "discharged" }, { inMin: 20, outMin: 3000, outcome: "higher_care" }],
-  episodes: null, staff: null,
+  episodes: [
+    { start: 300, rampMin: 60, fullIn: 360, kind: "sepsis_like", alertMin: 315, minutesBetween: 15, windowOpen: false },
+    { start: 120, rampMin: 30, fullIn: 150, kind: "sepsis_like", alertMin: null, minutesBetween: null, windowOpen: false },
+    { start: 590, rampMin: 60, fullIn: 650, kind: "sepsis_like", alertMin: null, minutesBetween: null, windowOpen: true },
+  ],
+  staff: null,
   hospital: {
     units: [{ id: "ER", name: "Emergency", floor: 0, beds: 12 }, { id: "W4", name: "Ward 4", floor: 4, beds: 18 }],
     hours: [...hours("ER", 30), ...hours("W4", 30)],
@@ -84,6 +89,7 @@ describe("the Analytics page", () => {
     walk(summary);
     walk(person);
     for (const m of [30, 90]) given.add(String(m)); // through label()
+    given.add(String(WINDOW_AFTER_FULL_MIN)); // the window rule line, read from the constant
     // A vital printed by the ward's own formatter (VITAL_CARD digits) from a datum.
     for (const [k, xs] of Object.entries(person.history)) for (const x of xs) if (x !== null) given.add(x.toFixed(VITAL_CARD[k as keyof typeof VITAL_CARD].digits));
     // Fixed words with digits: names of things, the 3 h window, the demo line, the dashed line at 5.
@@ -141,6 +147,48 @@ describe("the Analytics page", () => {
       expect(src).not.toMatch(/dangerouslySetInnerHTML|innerHTML/);
       expect([...src.matchAll(/from "([^"]+)"/g)].map((m) => m[1]).filter((m) => !m.startsWith("."))).toEqual(["react"]);
     }
+  });
+});
+
+describe("the simulated episodes table", () => {
+  const ward = (html: string) => html.slice(html.indexOf("Ward W4</h3>"), html.indexOf("Person</h3>"));
+  const html = render("hospital", summary);
+  it("renders a table with a caption, column headers and one row per episode, newest first", () => {
+    expect(html).toContain("<caption>Simulated episodes</caption>");
+    expect(count(html, '<th scope="col">')).toBe(5);
+    const rows = [...html.matchAll(/<tr><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><td>([^<]*)<\/td><\/tr>/g)].map((m) => m.slice(1));
+    expect(rows).toEqual([
+      ["t590", "sepsis_like", "window still open", "", "t650"],
+      ["t300", "sepsis_like", "t315", "15", "t360"],
+      ["t120", "sepsis_like", "none in the window", "", "t150"],
+    ]);
+  });
+  it("has the exact label and rule lines, and the empty and missing messages", () => {
+    expect(html).toContain("Simulated episode, the simulator&#x27;s ground truth. A real ward never knows this. No outcome shown.");
+    expect(html).toContain(`Alert = NEWS2 5 or more (demo line). Window: start to fully in, plus ${WINDOW_AFTER_FULL_MIN} min.`);
+    expect(render("hospital", { ...summary, episodes: [] })).toContain("No simulated episode has started yet.");
+    expect(render("hospital", { ...summary, episodes: null })).toContain("Not available here.");
+    expect(render("hospital", { ...summary, episodes: null })).not.toContain("<table");
+  });
+  it("caps the rows on screen at 50 and says so", () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ start: i, rampMin: 1, fullIn: i + 1, kind: "k", alertMin: null, minutesBetween: null, windowOpen: false }));
+    const out = render("hospital", { ...summary, episodes: many });
+    expect(count(out, "<td>none in the window</td>")).toBe(50);
+    expect(out).toContain("Showing the newest 50 of 60");
+  });
+  it("uses no outcome or judgement word in the Ward section", () => {
+    expect(ward(html)).not.toMatch(/\b(caught|missed|late|early|in time|benefit|saved|prevented)\b/i); // whole words: "Simulated" holds "late"
+  });
+  it("escapes a hostile kind", () => {
+    const bad = "<img src=x onerror=alert(1)>";
+    const out = render("hospital", { ...summary, episodes: [{ ...summary.episodes![0], kind: bad }] });
+    expect(out).not.toMatch(/<img/);
+    expect(out).toContain("&lt;img src=x onerror=alert(1)&gt;");
+  });
+  it("shows no table in the viewer build", () => {
+    const viewer = render("viewer", summary);
+    expect(viewer).not.toContain("<table");
+    expect(viewer).not.toContain("Simulated episode");
   });
 });
 
