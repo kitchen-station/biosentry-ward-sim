@@ -747,5 +747,6 @@ nav a[aria-current="page"] {
 }
 
 .analytics code {
+  font: inherit; /* a hash in the browser's own monospace is larger than the text around it */
   word-break: break-all;
 }
