@@ -14,8 +14,9 @@ import { NotRankedRow, RankedRow, RISK_WORDS, VitalCards } from "./vital-cards";
 import { unitRank, vitalsOf, type HospitalVitals, type PersonVitals } from "./sim/hospital/vitals";
 import { SYNTHETIC_RULES } from "./sim/source";
 import { PersonTimeline, RECOVERY_NOTE } from "./person-timeline";
+import { FIRST_DAY, UNIT_LABEL } from "./hospital-labels";
 
-export { RECOVERY_NOTE };
+export { RECOVERY_NOTE, FIRST_DAY, UNIT_LABEL };
 
 const START = PARAMS.clock.startMinuteOfDay.value;
 const DAY = 1440;
@@ -178,18 +179,8 @@ function whereNow(h: Hospital, p: Person): string {
 
 // ---- vitals (display only: nothing here reaches care, a move or a task) ----
 
-/** The plan's labels, by unit. W4 is listed for the docs and the tests; the page keeps W4's own panels as they were. */
-export const UNIT_LABEL: Partial<Record<UnitId, string>> = {
-  W4: "Synthetic. Generator fitted to ICU data at ward-like baselines.",
-  MED3A: "Synthetic. Same generator as W4.",
-  MED3B: "Synthetic. Same generator as W4.",
-  SURG5A: "Synthetic. Adult generator, not fitted to surgical patients.",
-  ER: "Synthetic. Not ER data: ward generator.",
-  ICU: "Synthetic. ICU vitals are not modelled: ward generator values.",
-};
 export const ICU_NOT_RANKED = "Not ranked: NEWS2 is a ward score.";
 export const DISPLAY_ONLY = "Display only. Care in the model does not read this score.";
-export const FIRST_DAY = "First day: everyone starts as a new admission, so scores run high.";
 
 /** Where a person is, in the unit's own words. */
 function placeOf(h: Hospital, q: Person): string {

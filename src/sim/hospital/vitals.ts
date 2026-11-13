@@ -31,7 +31,7 @@ import type { Hospital, Person, Where } from "./types";
 /** The owner's pending decision: clear the generator's episode when a person steps down from intensive care. */
 export const CLEAR_EPISODE_AT_ICU_STEP_DOWN = true;
 
-export const CAPS = { bins: 800, scores: 200, finished: 100, catchUpMin: 60 } as const;
+export const CAPS = { bins: 800, scores: 200, finished: 100, catchUpMin: 60, hourRows: 840 } as const;
 export const RANKED_UNITS: UnitId[] = ["ER", "MED3A", "MED3B", "SURG5A"];
 
 const BIN_MIN = 15;
@@ -39,6 +39,10 @@ const HOUR_MIN = 60;
 
 export interface Span { unit: UnitId; where: Where; fromMin: number; w4Id: string | null; gap?: "not_read"; recovery?: "not_modelled" }
 export interface VitalBin { m: number; unit: UnitId; hr: number | null; rr: number | null; spo2: number | null; temp: number | null; sbp: number | null; news2: number | null }
+
+/** People read in one unit in one simulated hour, by NEWS2 level. Intensive care holds `read` only: its levels stay 0. */
+export interface HourRow { hour: number; unit: UnitId; low: number; low_medium: number; medium: number; high: number; not_ranked: number; read: number }
+const HOUR_UNITS: UnitId[] = [...RANKED_UNITS, "ICU"];
 
 export interface PersonVitals {
   id: string; visit: number; n: number;
@@ -57,6 +61,7 @@ export interface HospitalVitals {
   live: Map<string, PersonVitals>;
   finished: PersonVitals[];
   at: number | null; // the hospital minute last synced
+  hourly: HourRow[]; // one row per unit per hour, oldest out past CAPS.hourRows; display only
   clearAtStepDown: boolean;
   created: number; reads: number; episodes: number; generatorEpisodesCleared: number; stepDownsCleared: number; gaps: number;
 }
@@ -71,7 +76,7 @@ export interface VitalsSummary {
 
 export function createVitals(opts: { clearEpisodeAtIcuStepDown?: boolean } = {}): HospitalVitals {
   return {
-    live: new Map(), finished: [], at: null, clearAtStepDown: opts.clearEpisodeAtIcuStepDown ?? CLEAR_EPISODE_AT_ICU_STEP_DOWN,
+    live: new Map(), finished: [], at: null, hourly: [], clearAtStepDown: opts.clearEpisodeAtIcuStepDown ?? CLEAR_EPISODE_AT_ICU_STEP_DOWN,
     created: 0, reads: 0, episodes: 0, generatorEpisodesCleared: 0, stepDownsCleared: 0, gaps: 0,
   };
 }
@@ -114,6 +119,11 @@ function finish(v: HospitalVitals, pv: PersonVitals) {
 function sync(v: HospitalVitals, h: Hospital) {
   const minute = h.lastMinute;
   v.at = minute;
+  // One zero row per unit for each hour that starts (hour 0 from the first sync at minute -1, for the minute-0 reads): a unit with nobody shows 0, not a gap. A jump over an hour still gets its rows.
+  for (let hour = (v.hourly.at(-1)?.hour ?? -1) + 1; hour <= Math.max(0, Math.floor(minute / HOUR_MIN)); hour += 1) {
+    for (const unit of HOUR_UNITS) v.hourly.push({ hour, unit, low: 0, low_medium: 0, medium: 0, high: 0, not_ranked: 0, read: 0 });
+    while (v.hourly.length > CAPS.hourRows) v.hourly.shift();
+  }
   const seen = new Set<string>();
   for (const q of h.people) {
     if (q.where === "awaiting_morgue" || q.where === "morgue") continue;
@@ -186,6 +196,11 @@ function sample(v: HospitalVitals, pv: PersonVitals, m: number) {
   if (m % HOUR_MIN === 0) {
     pv.scores.push(total);
     if (pv.scores.length > CAPS.scores) pv.scores.shift();
+    const row = v.hourly.findLast((r) => r.hour === m / HOUR_MIN && r.unit === pv.unit);
+    if (row) {
+      row.read += 1;
+      if (pv.unit !== "ICU") row[p.decision.kind === "ranked" ? p.decision.news2.risk : "not_ranked"] += 1;
+    }
   }
 }
 
@@ -262,4 +277,9 @@ export function summary(v: HospitalVitals): VitalsSummary {
     byUnit,
     digest: fnv1a(JSON.stringify(all.map((pv) => [pv.id, pv.visit, pv.bins, pv.scores, pv.spans, pv.episode, pv.reads]))).toString(16).padStart(8, "0"),
   };
+}
+
+/** What the Analytics page reads: two counts and a copy of the hourly rows. No stringify, no digest, no write on the engine. */
+export function pageView(v: HospitalVitals): { created: number; reads: number; hourly: HourRow[] } {
+  return { created: v.created, reads: v.reads, hourly: v.hourly.map((r) => ({ ...r })) };
 }

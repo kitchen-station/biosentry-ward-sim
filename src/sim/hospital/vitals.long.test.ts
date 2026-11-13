@@ -4,7 +4,7 @@ import { setSpeed, step } from "../sim";
 import { createSyntheticSource, FIXTURE_SEED } from "../source";
 import { createHospitalSim } from "./attach";
 import { parseScenario } from "./scenario";
-import { CAPS, createVitals, feedVitals, summary } from "./vitals";
+import { CAPS, createVitals, feedVitals, pageView, summary } from "./vitals";
 
 // Its own file so vitest runs it in a worker of its own: ten simulated days take about 25 s with the engine, more on a busy machine.
 describe("long vitals run", () => {
@@ -29,6 +29,9 @@ describe("long vitals run", () => {
     expect(sum.finished).toBeLessThanOrEqual(CAPS.finished);
     expect(peak).toBeLessThanOrEqual(h.peopleCap);
     expect(sum.gaps).toBe(0);
+    expect(v.hourly.length).toBeLessThanOrEqual(CAPS.hourRows);
+    const last = v.hourly.at(-1)!.hour;
+    for (let hour = last - 167; hour <= last; hour += 1) expect(pageView(v).hourly.filter((r) => r.hour === hour)).toHaveLength(5); // one row per unit per hour
     expect(sum.episodes).toBeGreaterThan(0);
     expect(sum.generatorEpisodesCleared).toBeGreaterThan(0);
     for (const pv of v.live.values()) {

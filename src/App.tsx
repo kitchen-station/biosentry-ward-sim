@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
-import { createVitals, feedVitals, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
+import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
 import { floorOf } from "./hospital-panels";
 import { fetchOpenWard, nextGate, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
@@ -573,6 +573,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
                 summary={VIEW_API ? null : summary(statsRef.current)}
                 patients={world.s.patients}
                 label={(m) => stamp(world.src, m)}
+                vitals={vitalsRef.current?.world === world.s ? pageView(vitalsRef.current.v) : null}
               />
             </Suspense>
             </AnalyticsBoundary>

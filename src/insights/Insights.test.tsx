@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
 import { VITAL_CARD } from "../panels";
-import Insights, { type Mode, type Person } from "./Insights";
+import { FIRST_DAY, UNIT_LABEL } from "../hospital-labels";
+import Insights, { type Mode, type Person, type VitalsView } from "./Insights";
 
 const hours = (unit: string, n: number) => Array.from({ length: n }, (_, hour) => ({ hour, unit, census: 3 + (hour % 4), arrivals: 2, admitted_in: 1, discharged: 1, transferred_in: 0, transferred_out: 1 }));
 const levelRow = (m: number) => ({ m, low: 5, low_medium: 2, medium: 1, high: 1, not_ranked: 1, beds: 10 });
@@ -20,17 +21,23 @@ const summary: WardSummary = {
   ],
   staff: null,
   hospital: {
-    units: [{ id: "ER", name: "Emergency", floor: 0, beds: 12 }, { id: "W4", name: "Ward 4", floor: 4, beds: 18 }],
-    hours: [...hours("ER", 30), ...hours("W4", 30)],
+    units: [{ id: "ER", name: "Emergency", floor: 0, beds: 12 }, { id: "MED3A", name: "Medicine 3A", floor: 3, beds: 20 }, { id: "MED3B", name: "Medicine 3B", floor: 3, beds: 20 }, { id: "SURG5A", name: "Surgery 5A", floor: 5, beds: 16 }, { id: "ICU", name: "Intensive care", floor: 2, beds: 8 }, { id: "W4", name: "Ward 4", floor: 4, beds: 18 }],
+    hours: ["ER", "MED3A", "MED3B", "SURG5A", "ICU", "W4"].flatMap((u) => hours(u, 30)),
   },
 };
+// Hours 0 to `last`: the newest hour is still filling, so the page draws hours 0 to last - 1. 57 and 4321 are in no other fixture.
+const hourRows = (last: number): VitalsView["hourly"] =>
+  Array.from({ length: last + 1 }, (_, hour) => ["ER", "MED3A", "MED3B", "SURG5A", "ICU"].map((unit) => (unit === "ICU"
+    ? { hour, unit, low: 0, low_medium: 0, medium: 0, high: 0, not_ranked: 0, read: 8 + (hour % 3) }
+    : { hour, unit, low: 3 + (hour % 2), low_medium: 1, medium: 1, high: hour % 2, not_ranked: 1, read: 6 + 2 * (hour % 2) + (hour % 2) }))).flat();
+const vitals: VitalsView = { created: 57, reads: 4321, hourly: hourRows(29) };
 const person: Person = {
   id: "n-1", name: "Test Person", bed: "4A",
   stay: { id: "n-1", name: "Test Person", bed: "4A", context: "", rn: "", md: null, inMin: 10, outMin: null, outcome: null, peak: 6, peakRisk: "high", scores: [1, 2, null, 6, 3], events: [{ minute: 30, text: "Assessed" }, { minute: 90, text: "Called a physician" }] },
   history: { heart_rate: [80, 82, null, 134.75734533816004], respiratory_rate: [16, 18, 20, 21], spo2: [97, 96, 95, 94], temperature: [36.8, 36.9, 37.1, 37.46039487245385] },
 };
 const label = (m: number) => `t${m}`;
-const render = (mode: Mode, s: WardSummary | null, patients: Person[] = [person]) => renderToStaticMarkup(<Insights mode={mode} summary={s} patients={patients} label={label} />);
+const render = (mode: Mode, s: WardSummary | null, patients: Person[] = [person], v: VitalsView | null = vitals) => renderToStaticMarkup(<Insights mode={mode} summary={s} patients={patients} label={label} vitals={v} />);
 const count = (html: string, text: string) => html.split(text).length - 1;
 const text = (html: string) => html.replace(/<[^>]+>/g, " ");
 
@@ -40,16 +47,16 @@ describe("the Analytics page", () => {
   it("has the title, the top line once, and the sections in order", () => {
     expect(html).toContain("<h2>Analytics</h2>");
     expect(count(html, "Synthetic hospital. Simulated patients. No outcome claim.")).toBe(1);
-    const at = ["Hospital</h3>", "Ward W4</h3>", "Everything in this section is ward W4&#x27;s own record.", "Person</h3>"].map((s) => html.indexOf(s));
+    const at = ["Hospital</h3>", "Every unit</h3>", "Ward W4</h3>", "Everything in this section is ward W4&#x27;s own record.", "Person</h3>"].map((s) => html.indexOf(s));
     expect(at.every((x) => x > 0) && [...at].sort((a, b) => a - b).join() === at.join()).toBe(true);
-    const names = ["Beds in use", "In and out", "NEWS2 levels", "Alerts per patient per shift", "Beds in use", "Length of stay", "NEWS2 by hour", "What happened", "Vitals, last 3 h"];
+    const names = ["Beds in use", "In and out", "NEWS2 levels, every unit", "Intensive care: people read per hour", "NEWS2 levels", "Alerts per patient per shift", "Beds in use", "Length of stay", "NEWS2 by hour", "What happened", "Vitals, last 3 h"];
     const heads = [...html.matchAll(/<h4>([^<]*)<\/h4>/g)].map((m) => m[1]);
     expect(heads).toEqual(names);
   });
 
   it("makes each chart a figure with a one-line caption", () => {
-    expect(count(html, "<figure")).toBe(9);
-    expect(count(html, "<figcaption>")).toBe(9);
+    expect(count(html, "<figure")).toBe(11);
+    expect(count(html, "<figcaption>")).toBe(11);
     expect(html).toContain("Alert = NEWS2 5 or more (demo line)");
     expect(html).toContain("Per unit, per hour");
     expect(html).toContain("Counts from the simulator");
@@ -87,6 +94,7 @@ describe("the Analytics page", () => {
       else if (v && typeof v === "object") Object.values(v).forEach(walk);
     };
     walk(summary);
+    walk(vitals);
     walk(person);
     for (const m of [30, 90]) given.add(String(m)); // through label()
     given.add(String(WINDOW_AFTER_FULL_MIN)); // the window rule line, read from the constant
@@ -94,18 +102,19 @@ describe("the Analytics page", () => {
     // A vital printed by the ward's own formatter (VITAL_CARD digits) from a datum.
     for (const [k, xs] of Object.entries(person.history)) for (const x of xs) if (x !== null) given.add(x.toFixed(VITAL_CARD[k as keyof typeof VITAL_CARD].digits));
     // Fixed words with digits: names of things, the 3 h window, the demo line, the dashed line at 5.
-    const fixed = text(html).replace(/W4|NEWS2|SpO2|3 h|NEWS2 5 or more|Dashed line: 5/g, " ");
+    const unitNames = summary.hospital!.units.map((u) => u.name).join("|"); // "Medicine 3A" holds a digit; its unit data is given
+    const fixed = text(html).replace(new RegExp(`${unitNames}|W4|NEWS2|SpO2|3 h|NEWS2 5 or more|Dashed line: 5`, "g"), " ");
     const printed = [...fixed.matchAll(/\d+(\.\d+)?/g)].map((m) => m[0]);
     expect(printed.length).toBeGreaterThan(20);
     expect(printed.filter((n) => !given.has(n))).toEqual([]);
   });
 
   it("says No data yet, once per chart, for an empty summary", () => {
-    const empty = render("hospital", { ...summary, levels: [], shifts: [], stays: [], hospital: null }, []);
-    expect(count(empty, "No data yet")).toBe(8);
+    const empty = render("hospital", { ...summary, levels: [], shifts: [], stays: [], hospital: null }, [], null);
+    expect(count(empty, "No data yet")).toBe(10); // 8 and the two Every unit figures
     expect(count(empty, "No finished stay yet (stays that began before the run are not counted)")).toBe(1);
     expect(empty).not.toContain("NaN");
-    expect(count(render("hospital", null, []), "No data yet")).toBe(8);
+    expect(count(render("hospital", null, [], null), "No data yet")).toBe(10);
   });
 
   it("shows one line for the hospital in a ward-only build", () => {
@@ -122,6 +131,15 @@ describe("the Analytics page", () => {
     expect(viewer).not.toContain("Emergency");
     expect(viewer).toContain("Last score: 3");
     expect(viewer).not.toContain("No data yet");
+  });
+
+  it("shows no Every unit section in a ward-only or viewer build, even when given vitals", () => {
+    for (const mode of ["ward", "viewer"] as const) {
+      const out = render(mode, mode === "ward" ? summary : null);
+      expect(out).not.toContain("Every unit");
+      expect(out).not.toContain("every unit");
+      expect(out).not.toContain("Vital-sign streams");
+    }
   });
 
   it("escapes markup in a unit name, a person's name and an event line", () => {
@@ -207,8 +225,8 @@ describe("a summary that is missing pieces or holds odd numbers", () => {
   it("shows No data yet and does not throw for missing arrays", () => {
     const broken = { ...summary, levels: undefined, shifts: undefined, stays: undefined, hospital: { units: [] } } as unknown as WardSummary;
     const bare = { id: "x", name: "X", bed: "1A" } as unknown as Person;
-    const out = render("hospital", broken, [bare]);
-    expect(count(out, "No data yet") + count(out, "No finished stay yet")).toBe(9);
+    const out = render("hospital", broken, [bare], null);
+    expect(count(out, "No data yet") + count(out, "No finished stay yet")).toBe(11);
     expect(() => render("hospital", { ...summary, hospital: { units: [{ id: "ER", name: "E", floor: 0, beds: 1 }] } } as unknown as WardSummary)).not.toThrow();
   });
 
@@ -228,5 +246,61 @@ describe("a summary that is missing pieces or holds odd numbers", () => {
     expect(attrs.length).toBeGreaterThan(100);
     const badAttr = [...out.matchAll(/<[^>]*="[^"]*(NaN|Infinity|undefined)[^"]*"[^>]*>/g)].map((m) => m[0]);
     expect(badAttr).toEqual([]);
+  });
+});
+
+describe("the Every unit section", () => {
+  const every = (h: string) => h.slice(h.indexOf("Every unit</h3>"), h.indexOf("Ward W4</h3>"));
+  const html = render("hospital", summary);
+  const sec = every(html);
+
+  it("sits between Hospital and Ward W4, with one small multiple per ranked unit and one line for intensive care", () => {
+    expect([...sec.matchAll(/<h4>([^<]*)<\/h4>/g)].map((m) => m[1])).toEqual(["NEWS2 levels, every unit", "Intensive care: people read per hour"]);
+    for (const u of ["Emergency", "Medicine 3A", "Medicine 3B", "Surgery 5A"]) expect(sec).toContain(`<span>${u}</span>`);
+    for (const id of ["ER", "MED3A", "MED3B", "SURG5A"]) expect(sec).toContain(UNIT_LABEL[id as "ER"]!);
+    expect(sec).toContain(`${UNIT_LABEL.ER} Includes the waiting room.`);
+    expect(sec).toContain(`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`);
+    expect(sec).toContain("Per unit, per hour: people at each NEWS2 level. Same generator as W4, not fitted to each unit. Display only: care does not read it.");
+    expect(count(sec, 'aria-label="NEWS2 levels per hour"')).toBe(0); // W4's own label is not reused
+    expect(count(sec, "<svg")).toBeGreaterThanOrEqual(4 + 1 + 5); // four bar charts, one line, the legend swatches
+  });
+
+  it("draws complete hours only: the newest hour is still filling", () => {
+    const bars = (rows: VitalsView["hourly"]) => count(every(render("hospital", summary, [person], { ...vitals, hourly: rows })), "<title>low");
+    expect(bars(hourRows(29))).toBe(4 * 29);
+    expect(bars(hourRows(0))).toBe(0);
+  });
+
+  it("prints the count line exactly, and never says thousands", () => {
+    expect(html).toContain("<p>Vital-sign streams opened outside ward W4: 57 (one per person per visit). Readings: 4321.</p>");
+    expect(text(html)).not.toMatch(/thousand/i);
+    expect(render("hospital", summary, [person], null)).not.toContain("Vital-sign streams");
+  });
+
+  it("shows the first-day note under 24 hours and not after", () => {
+    expect(count(render("hospital", summary, [person], { ...vitals, hourly: hourRows(6) }), FIRST_DAY)).toBe(1);
+    expect(count(render("hospital", summary, [person], { ...vitals, hourly: hourRows(23) }), FIRST_DAY)).toBe(1);
+    expect(sec).not.toContain(FIRST_DAY);
+  });
+
+  it("says No data yet before the first complete hour, for both figures, and still prints the count line", () => {
+    const out = render("hospital", summary, [person], { created: 3, reads: 9, hourly: hourRows(0) });
+    expect(count(every(out), "No data yet")).toBe(2);
+    expect(out).toContain("Readings: 9.");
+  });
+
+  it("shows a missing hour as a gap labelled skipped", () => {
+    const rows = hourRows(29).filter((r) => r.hour !== 10);
+    expect(every(render("hospital", summary, [person], { ...vitals, hourly: rows }))).toContain(">skipped<");
+  });
+
+  it("uses no outcome or judgement word", () => {
+    expect(sec).not.toMatch(/\b(caught|missed|late|later|early|earlier|in time|benefit|saved|prevented|delayed|faster|better|died|death|mortality|survival)\b/i);
+  });
+
+  it("does not throw for odd numbers", () => {
+    const odd = [NaN, Infinity, -1e308];
+    const out = render("hospital", summary, [person], { created: NaN, reads: Infinity, hourly: odd.flatMap((v, hour) => ["ER", "ICU"].map((unit) => ({ hour: hour + 1, unit, low: v, low_medium: v, medium: v, high: v, not_ranked: v, read: v }))).concat([{ hour: 9, unit: "ER", low: 1, low_medium: 1, medium: 1, high: 1, not_ranked: 1, read: 5 }]) });
+    expect(out).not.toMatch(/="[^"]*(NaN|Infinity|undefined)[^"]*"/);
   });
 });
