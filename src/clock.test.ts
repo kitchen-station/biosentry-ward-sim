@@ -55,6 +55,16 @@ describe("the standalone frame loop at 60x", () => {
 });
 
 describe("the viewer clock", () => {
+  it("an accepted read clears the late-answer flag", () => {
+    const c = createViewClock();
+    c.take(1120, 1, false, 0);
+    c.read(0);
+    c.take(1060, 1, false, 2000); // late: ignored
+    c.take(1124, 1, false, 4000); // accepted: clears the flag
+    c.take(1100, 1, false, 6000); // late again: ignored once, not a restart
+    expect(c.read(6000)).toBeGreaterThanOrEqual(1124);
+  });
+
   it("runs the last read on at its speed", () => {
     expect(shownClock(100, 60, 0, 1000, false)).toBe(160);
   });

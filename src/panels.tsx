@@ -73,8 +73,8 @@ function vitalText(p: Patient, v: Vital, minute: number, digits = 0) {
 
 const bpText = (p: Patient) => (p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "--");
 
-/** Sets the whole second each frame. Only this component re-renders. Seconds never flip; date, hour and minute do. */
-/** The minute flips only at 10x or slower: at 60x it changes every second. */
+/** Sets the whole second each frame. Only this component re-renders. Seconds never flip; the date and hour do.
+ *  The minute flips only at 10x or slower: at 60x it changes every second. */
 function Clock({ src, read, speed }: { src: VitalsSource; read: () => number; speed: number }) {
   const readRef = useRef(read);
   readRef.current = read;
