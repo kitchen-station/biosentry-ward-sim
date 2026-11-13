@@ -68,5 +68,16 @@ Only the standalone hospital build makes the engine. A viewer build, a watcher a
 - **Legend.** "ICU: no NEWS2 colour. Waiting room: triage colour."
 - **Entrance panel.** Its "Skip 1 day" button is hidden in a hospital world, because that jump steps with no feed. The top bar's "+1 day" stays and is fed.
 
+## One person across moves
+Code: `src/person-timeline.tsx`. The person panel (outside W4) shows "Whole stay" under the path:
+- A strip of unit bands from the engine's spans, each with the unit's id. Below it, small line charts for heart rate, respiratory rate, SpO2, temperature, systolic pressure and NEWS2 on a 15-minute grid. Each chart scales to its own data. NEWS2 is blank in intensive-care bands: "NEWS2 is a ward score".
+- Where the person was on ward W4 the engine read nothing. The band says "On W4: see the W4 stay" and has a button that opens W4's own stay panel. If that stay has left the record (W4 keeps the last 500 stays), the panel says so.
+- A gap the engine did not read is a band labelled "Not read". A band after an intensive-care step-down shows "Simulated recovery, not modelled."
+- At 800 bins the view says "Last 200 h".
+
+Each unit panel (and the ER queue panel) shows "Moves today: N" and the 10 newest rows as `clock · name · text`. A move is a `place`, `transfer`, `discharge`, `died` or `transfer_out` row at that unit, plus a `transfer` whose detail starts "<unit> to ". It reads the hospital's event rows, which are capped at 5000, and says so when older rows may be gone. The intensive-care panel adds one line with its bed count read from the hospital: the ICU never discharges home in `step.ts`, so its moves out are step-downs and deaths.
+
+Measured moves per day in the design plan's Appendix table 3 (seven-day `hospital-trial` runs, typical, seed 101): 2.6 between units, 5.6 stretcher to bed, 15.9 discharges.
+
 ## Not claimed
 No outcome claim. A NEWS2 colour outside W4 is a display of a synthetic score. It is not a finding about any real ward.
