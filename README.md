@@ -2,7 +2,7 @@
 
 **Live demo:** <https://biosentry-ward-sim.pages.dev> (synthetic patients; deploys from `main`)
 
-An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond. The standalone page shows a whole synthetic hospital around it: an emergency room, wards and intensive care, each with synthetic vital signs (display only outside W4).
+An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond. The standalone hospital page shows a whole synthetic hospital around it: an emergency room, wards and intensive care, each with synthetic vital signs (display only outside W4).
 
 It runs on synthetic patients wearing chest patches. Their movement is fitted to real open datasets; see [Fitted to real data](#fitted-to-real-data). A real de-identified dataset is planned and will plug in at the vitals source (see "Adding another dataset").
 

@@ -293,7 +293,7 @@ export default function Insights({ mode, summary, patients, label }: { mode: Mod
         <Hospital mode={mode} sum={summary} />
       </div>
       <h3>Ward W4</h3>
-      <p>Alerts, stays and episodes below are ward W4's own record.</p>
+      <p>Everything in this section is ward W4's own record.</p>
       <div className="figs">
         <Ward mode={mode} sum={summary} />
       </div>

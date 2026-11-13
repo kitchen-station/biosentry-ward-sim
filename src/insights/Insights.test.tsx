@@ -40,7 +40,7 @@ describe("the Analytics page", () => {
   it("has the title, the top line once, and the sections in order", () => {
     expect(html).toContain("<h2>Analytics</h2>");
     expect(count(html, "Synthetic hospital. Simulated patients. No outcome claim.")).toBe(1);
-    const at = ["Hospital</h3>", "Ward W4</h3>", "Alerts, stays and episodes below are ward W4&#x27;s own record.", "Person</h3>"].map((s) => html.indexOf(s));
+    const at = ["Hospital</h3>", "Ward W4</h3>", "Everything in this section is ward W4&#x27;s own record.", "Person</h3>"].map((s) => html.indexOf(s));
     expect(at.every((x) => x > 0) && [...at].sort((a, b) => a - b).join() === at.join()).toBe(true);
     const names = ["Beds in use", "In and out", "NEWS2 levels", "Alerts per patient per shift", "Beds in use", "Length of stay", "NEWS2 by hour", "What happened", "Vitals, last 3 h"];
     const heads = [...html.matchAll(/<h4>([^<]*)<\/h4>/g)].map((m) => m[1]);

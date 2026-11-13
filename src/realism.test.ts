@@ -202,7 +202,7 @@ describe("the printed table is pinned", () => {
     expect(createHash("sha256").update(butLast).digest("hex")).toBe("42fd4a0892a177d95c5ddeb4fc9fed5bdf26829a2dc6cff95d8ccf71a23ba0c4");
     // The whole text. It was 1085587c156c52e10c2914541767e149e9a753258aed38c84fc50a771a55cd44 until the footer's last line
     // said that every unit has vitals; only that line changed, as the pin above shows.
-    expect(createHash("sha256").update(text).digest("hex")).toBe("13692adc24dd3cee6f260a860a39b67f68514eab1753ef657c32aa88e3b4d123");
+    expect(createHash("sha256").update(text).digest("hex")).toBe("69ac0854da053af405c5011b4250f8ede9d78590ae14155298d6f942323814cd");
   });
 
   it("realismBlock holds the cells tableRows prints, and the footer", () => {
