@@ -143,7 +143,7 @@ npm run compare -- --seed 4 --days 30 --baseline rule=news2_total_ge_5 --change 
 npm run compare -- --seed 101 --days 7 --baseline scenarios/hospital/typical.json --change staffing=scenarios/hospital/doh-standard.json --out trials/compare-staffing
 ```
 
-- **Ward W4, two warning rules.** Both rules read the same vitals from one run. The simulator knows the minute each patient started to get worse, so the report gives alerts per patient per 12-hour shift, the share of true episodes with an alert, alerts outside any episode window, and the lead time from the first new alert in the episode window to the episode being fully in.
+- **Ward W4, two warning rules.** Both rules read the same vitals from one run. `--seeds 20` repeats that over 20 seeds and gives the spread across them. Both forms give a paired figure: the same episode under both rules. The simulator knows the minute each patient started to get worse, so the report gives alerts per patient per 12-hour shift, the share of true episodes with an alert, alerts outside any episode window, and the lead time from the first new alert in the episode window to the episode being fully in.
 - **Hospital, one group of settings.** For example the staffing of `doh-standard` on the `typical` hospital. The report shows the trial's hourly and summary figures for both arms, and their difference.
 - **The pairing is checked and printed.** On W4 both arms are the same cohort, proved by a second run with the same hashes. On the hospital the minute-0 residents and the arrival minutes are the same. The report says whether the same person is at each arrival, and names the minute of the first event that differs. A change that breaks the pairing, or more than one change, is refused with exit 2.
 - **What it does not show.** On W4 a staff review does not change vitals, so the outcome of a warning is not modelled: the report covers alert timing and alarm counts only. Everything is synthetic and not validated.
@@ -238,13 +238,13 @@ npm run fit -- ~/Documents/datasets
 
 Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
 
-`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss, occupancy and the 24-hour heart rate and respiratory rate swings pass. Three checks are marked as known misses:
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss and occupancy pass. The 24-hour heart rate and respiratory rate swings also pass, but the simulator was set from those figures, so that agreement is by construction. Three checks are marked as known misses:
 
 | Known miss | Sim | Published |
 |---|---|---|
 | Observation sets at NEWS 5+ | about 35% | about 20% (RCP 2012, medical wards) |
-| Observation sets at NEWS 7+ | about 18% | about 10% |
-| SpO2, low end | 1st to 10th percentiles 90 to 93 | 86 to 91 (Welch 2015) |
+| Observation sets at NEWS 7+ | about 16% | about 10% |
+| SpO2, low end | 1st to 10th percentiles 90 to 94 | 86 to 91 (Welch 2015) |
 
 Patients spend about 14% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
 
@@ -259,6 +259,8 @@ Limits:
 - **AF episodes are short:** the median is a few minutes, as recorded in patients referred for AF, so a Start AF episode can end quickly.
 
 MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
+
+`npm run realism` prints the vital-sign and NEWS checks from `sim.test.ts`, `calibration.test.ts` and `published.test.ts`: the simulator's number beside the real one, the verdict and the dataset. It leaves out oxygen use, patch data loss and occupancy. Temperature, diastolic pressure and heart rhythm are mostly fitted from real recordings, but are not compared with real data. Temperature's minute noise and daily swing are hand-set. [docs/realism.md](docs/realism.md) says what "fitted to real data" means here, signal by signal.
 
 ### Patient flow
 
