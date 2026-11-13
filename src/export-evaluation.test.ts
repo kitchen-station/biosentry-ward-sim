@@ -28,8 +28,8 @@ const INSIDE: WardStats = {
   setsAt7: 10,
 };
 const A1: Row = { check: "A1", signal: "heart rate", statistic: "sd, 5-min reads", sim: "12.34", real: "12.00", tolerance: "ratio 0.75-1.25", inside: true, data: "eICU held-out hospitals" };
-const H1: Row = { check: "H1", signal: "temperature", statistic: "fitted from eICU; not tested", sim: "-", real: "-", tolerance: "-", inside: null, data: "none" };
-const ROWS = [A1, H1, ...wardRows(INSIDE)]; // 9 of the D and E rows are UNEXPECTED here
+const B3: Row = { check: "B3", signal: "blood pressure (diastolic)", statistic: "fitted from eICU; not tested", sim: "-", real: "-", tolerance: "-", inside: null, data: "none" };
+const ROWS = [A1, B3, ...wardRows(INSIDE)]; // 9 of the D and E rows are UNEXPECTED here
 const realism = realismBlock(ROWS);
 
 const mutate = (f: (c: J) => void) => {
