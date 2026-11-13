@@ -4,7 +4,7 @@ The dashboard's Simulation lab lets a physician or charge nurse ask for one pair
 
 The worker claims a request from the API, runs this repository's own `compare` once, and posts the two files compare wrote. Then it claims again. Everything it runs is synthetic.
 
-The wire contract between the API and the worker is `contract-d7` (version 3). It is kept by the two teams outside this repository. This page says what the worker does; where the two differ, the contract wins.
+The wire contract between the API and the worker is `contract-d7` (version 3.1). It is kept by the two teams outside this repository. This page says what the worker does; where the two differ, the contract wins.
 
 ## Run it
 
@@ -18,14 +18,14 @@ BIOSENTRY_API_URL=http://127.0.0.1:8000 BIOSENTRY_INGEST_KEY=dev-local npm run l
 node dist/lab/lab-worker.js
 ```
 
-The image's default command is still the ward runner. A compose service for the worker overrides the command with the line above. That service lives in the BioSentry-Intelligence repository, not here.
+The image's default command is still the ward runner. A compose service for the worker would override the command with the line above. That service belongs in the BioSentry-Intelligence repository (`deploy/compose.yaml`), not here, and is a separate change.
 
 | Variable | Meaning |
 |---|---|
 | `BIOSENTRY_API_URL` | The API's address. `http` or `https` only. No user name, password, query or fragment |
 | `BIOSENTRY_INGEST_KEY` | The same ingest key the ward runner uses |
 
-The worker stops with exit 2 and one line when a variable is missing, when the address is not acceptable, when the key holds a character that cannot go in a header, when the compare bundle or a scenario file is missing, or when a proxy variable is set (see below).
+The worker stops with exit 2 and one line when a variable is missing or empty, when the address is not acceptable, when the key holds a character that cannot go in a header, when the compare bundle or a scenario file is missing, or when a proxy variable is set (see below).
 
 ## What it calls
 
@@ -46,7 +46,7 @@ A job has `id`, `kind`, `mode`, `seed`, `days`, `baseline` and `change`. The wor
 - W4: `baseline` and `change` are two different names out of `news2_total_ge_1` to `news2_total_ge_20` and `news2_chart_trigger`.
 - Hospital: `baseline` is `typical`, `surge` or `doh-standard`. `change` is `staffing=`, `nurses=` or `doctors=` followed by `doh-standard` (for `typical` and `surge`) or `typical` (for `doh-standard`). Nine pairs in all.
 
-Anything else is refused before running, with the reason `the worker does not accept this job: <field>`. A field the worker does not know is ignored and never read.
+A claim with no usable `id` (a whole number from 1 to 2^53-1) gets no report: the worker logs that the claim was not a job, and the API fails the run after 20 minutes. Any other value outside these lists is refused before running, with the reason `the worker does not accept this job: <field>`, naming the first field that fails. A field the worker does not know is ignored.
 
 It then runs, with an argument list and never through a shell:
 
@@ -61,8 +61,8 @@ This is the single-seed compare of `docs/compare.md`. The worker never passes `-
 | What happened | Report |
 |---|---|
 | compare exited 0 and both files are there | `done`, with the two files' text unchanged |
-| compare exited 2 (a refusal) | `refused`, with compare's own one-line reason, cut to 300 characters |
-| compare exited with another code | `failed`: `compare exited with code N` |
+| compare exited 2 with a `compare: ` line on stderr (a refusal) | `refused`, with that line, control characters removed, cut to 300 characters |
+| compare exited with any other code, or 2 with no `compare: ` line | `failed`: `compare exited with code N` (a signal counts as 128 + its number) |
 | compare could not be started | `failed`: `compare did not start` |
 | compare ran longer than 15 minutes | the worker kills it; `failed`: `compare did not finish within 15 minutes` |
 | a file is missing | `failed`: `the compare output is missing` |
@@ -74,15 +74,15 @@ The caps are 524288 characters for `compare.json` and 131072 for `compare.txt`.
 
 - Idle: one claim every 30 seconds. After a report: the next claim at once.
 - One job at a time. No claim while compare runs.
-- API unreachable, or a 5xx answer: wait 30 seconds, then double, up to 5 minutes.
+- API unreachable, any claim answer other than 200, 204, 403 or 503, or a claim answer that is not a job: wait 30 seconds, then double, up to 5 minutes.
 - `403` or `503` (the key is wrong or not configured): one log line, then one try every 5 minutes.
-- A report that fails on the network is tried up to 5 times within 10 minutes, then dropped. A `204`, `404`, `409` or `422` answer is final: the report is never sent again and the job is never run again.
+- A report that fails on the network, or gets any answer other than `204`, `404`, `409` or `422`, is tried up to 5 times within 10 minutes, then dropped. A `204`, `404`, `409` or `422` answer is final: the report is never sent again and the job is never run again.
 - Nothing is resumed after a restart. The worker keeps no state file.
-- When the worker is stopped (SIGTERM or SIGINT) during a run, it kills compare, deletes its temp folder, reports nothing and exits 0. The API marks that run failed after 20 minutes.
+- When the worker is stopped (SIGTERM or SIGINT) during a run, it kills compare, deletes its temp folder, reports nothing more and exits 0. The API marks that run failed once 20 minutes have passed since the claim.
 
 ## Safety rules it follows
 
-- **The key goes to one address only.** Every request is built from the one configured address. Redirects are refused. The worker refuses to start when `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` (or their lowercase forms) or `NODE_USE_ENV_PROXY` is set, or when Node is started with `--use-env-proxy` (in its arguments or in `NODE_OPTIONS`): it does not send the ingest key through a proxy.
+- **The key goes to one address only.** Every request is built from the one configured address. Redirects are refused. The worker refuses to start when `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` (or their lowercase forms) or `NODE_USE_ENV_PROXY` is set to a non-empty value, or when Node is started with `--use-env-proxy` (in its arguments or in `NODE_OPTIONS`): it does not send the ingest key through a proxy.
 - **The key is never written down.** Not in a log line, not in the command line, not in compare's environment, not in a file.
 - **No text from a job reaches a shell or a path.** Compare's arguments come from the fixed tables above. Seed and days are checked as whole numbers.
 - **It reads little from the API.** A claim answer over 64 KiB is treated as not a job. Other answers are judged by their status and their body is not read.
