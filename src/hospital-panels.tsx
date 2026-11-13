@@ -9,6 +9,7 @@ import { PARAMS, type UnitId } from "./sim/hospital/params";
 import { noticedLateMin, overdueRounds } from "./sim/hospital/step";
 import type { EventKind, Hospital, Person } from "./sim/hospital/types";
 import type { Patient, Sim } from "./sim/sim";
+import { Flip } from "./flip";
 
 const START = PARAMS.clock.startMinuteOfDay.value;
 const DAY = 1440;
@@ -154,7 +155,7 @@ function whereNow(h: Hospital, p: Person): string {
 // ---- small views ----
 
 function Stat({ label, value }: { label: string; value: string | number }) {
-  return <div className="vital"><div className="vhead">{label}</div><span className="vnum">{value}</span></div>;
+  return <div className="vital"><div className="vhead">{label}</div><span className="vnum"><Flip value={value} /></span></div>;
 }
 const PersonLink = ({ p, onSelect, children }: { p: Person; onSelect: (id: string) => void; children?: string }) => (
   <button className="linkbtn" onClick={() => onSelect(`h:${p.n}`)}>{children ?? p.name}</button>
@@ -201,7 +202,7 @@ function PersonPanel({ h, p, onSelect }: { h: Hospital; p: Person; onSelect: (id
           <p className="mono">{p.age} {p.sex} · {p.id}</p>
           <p className="mono">Synthetic person, hospital record{p.visit > 1 ? ` · visit ${p.visit}, a returning patient` : ""}</p>
         </div>
-        <span className="pill">{status.pill}</span>
+        <span className="pill"><Flip value={status.pill} /></span>
       </div>
       <h3>Came in for</h3>
       <p className="story">{p.complaint} ({p.group}). Triage: {p.triage.replace("_", "-")}.</p>
@@ -229,7 +230,7 @@ function BedPanel({ h, unit, slot, onSelect }: { h: Hospital; unit: UnitId; slot
   const who = unit === "W4" ? h.people.filter((p) => p.unit === "W4")[slot] : h.people.find((p) => p.unit === unit && p.slot === slot);
   return (
     <>
-      <div className="chead"><h2>{slotName(unit, u.beds, u.stretchers, slot)}</h2><span className="pill">{who ? "Occupied" : "Empty"}</span></div>
+      <div className="chead"><h2>{slotName(unit, u.beds, u.stretchers, slot)}</h2><span className="pill"><Flip value={who ? "Occupied" : "Empty"} /></span></div>
       <p className="mono">{u.name}</p>
       {who ? <p className="story">Occupant: <PersonLink p={who} onSelect={onSelect} /> ({who.age} {who.sex}, {who.group}).</p> : <p className="story">Empty.</p>}
     </>
@@ -285,7 +286,7 @@ function QueuePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => vo
   const t = todayCounts(h, "ER");
   return (
     <>
-      <div className="chead"><h2>ER queue</h2><span className="pill">{waiting.length} waiting</span></div>
+      <div className="chead"><h2>ER queue</h2><span className="pill"><Flip value={`${waiting.length} waiting`} /></span></div>
       <div className="vitals">
         <Stat label="In consult" value={er.filter((p) => p.where === "consult").length} />
         <Stat label="In work-up" value={er.filter((p) => p.where === "workup").length} />
@@ -317,7 +318,7 @@ function MorguePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => v
   const drawers = bodies.filter((p) => p.where === "morgue" && p.slot !== null && p.slot < u.beds).length;
   return (
     <>
-      <div className="chead"><h2>Morgue</h2><span className="pill">{bodies.length} bodies</span></div>
+      <div className="chead"><h2>Morgue</h2><span className="pill"><Flip value={`${bodies.length} bodies`} /></span></div>
       <div className="vitals">
         <Stat label="Drawers used" value={`${drawers} of ${u.beds}`} />
         <Stat label={`Released, 24 h${releasedPartial(h) ? " (partial)" : ""}`} value={releasedLast24h(h)} />

@@ -304,7 +304,13 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     const bar = renderToStaticMarkup(createElement(TopBar, { s, src: VIEW_SOURCE, notice: null, onSignIn: () => {} }));
     expect(bar).toContain("Sign in to control");
     expect(bar).toContain("Watching, read-only");
-    for (const word of ["Pause", "1x", "60x", "Reset"]) expect(bar).not.toContain(word);
+    for (const word of ["Pause", "Reset"]) expect(bar).not.toContain(word);
+    // The speed shows as read-only text. A speed button or the speed group must not appear.
+    for (const word of ["1x", "10x", "60x"]) expect(bar).not.toContain(`>${word}</button>`);
+    expect(bar).not.toContain('aria-label="Simulation speed"');
+    expect(bar).toMatch(/<span class="pill" title="Simulation speed">60x<\/span>/);
+    // The pill is not inside a button.
+    expect([...bar.matchAll(/<button[\s\S]*?<\/button>/g)].map((m) => m[0]).join("")).not.toMatch(/\d+x|Paused/);
     const panel = renderToStaticMarkup(createElement(Inspector, { s, src: VIEW_SOURCE, selected: null, onSelect: () => {}, onTimeline: () => {}, watching: true }));
     expect(panel).toContain("Watching W4");
     expect(panel).not.toContain("<button");

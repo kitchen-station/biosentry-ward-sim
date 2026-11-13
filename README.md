@@ -89,6 +89,14 @@ The tests always use one `client_id`, so consecutive runs replace each other. An
 
 The dev-server bridge above stays for now. A physician's list starts as the fixture's: p-004 and p-005 are stored with no physician. A new admission goes on the list of the physician who is called to their bedside.
 
+## How fast 60x is
+
+- 60x means 60 simulated seconds per real second. The top bar shows the speed as text next to the clock, and the clock counts seconds.
+- Measured: 60.00 in the page and 59.995 in the headless runner.
+- The page pauses in a hidden tab. It also gives up any real time beyond a quarter second per frame, so a long hitch loses that time.
+- Staff figures walk and work at 6x at most, so they look the same at 10x and 60x.
+- In viewer mode the clock runs on between reads at the runner's speed. Each read corrects it. It stops when the run has ended or the page says "Not updating".
+
 ## Run the ward without a browser
 
 `npm run ward` builds `src/headless.ts` and runs the same sim engine as a Node process. It writes to the BioSentry API, so the ward keeps running with no tab open.

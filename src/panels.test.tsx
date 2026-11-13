@@ -18,6 +18,12 @@ describe("the top bar", () => {
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />)).not.toContain("Pause");
   });
 
+  it("shows the runner's speed as read-only text in viewer, and the clock with seconds", () => {
+    const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />);
+    expect(html).toContain('<span class="pill" title="Simulation speed">60x</span>');
+    expect(html.replace(/<[^>]+>/g, "")).toContain("3 Sept 2026, 15:00:00 Manila");
+  });
+
   it("shows the runner's speed, and offers pause, 1x, 10x, 60x and Reset, once control is on", () => {
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />);
     for (const label of ["Pause", "1x", "10x", "60x", "Reset"]) expect(html).toContain(`>${label}</button>`);

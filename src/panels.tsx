@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Flip } from "./flip";
 import { Sparkline } from "./chart";
 import { EcgStrip } from "./ecg";
 import { explain } from "./explain";
@@ -72,6 +73,36 @@ function vitalText(p: Patient, v: Vital, minute: number, digits = 0) {
 
 const bpText = (p: Patient) => (p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "--");
 
+/** Sets the whole second each frame. Only this component re-renders. Seconds never flip; date, hour and minute do. */
+function Clock({ src, read }: { src: VitalsSource; read: () => number }) {
+  const readRef = useRef(read);
+  readRef.current = read;
+  const [sec, setSec] = useState(() => Math.floor(read()));
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      setSec(Math.floor(readRef.current()));
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const minute = Math.floor(sec / 60);
+  const [hour, min] = clockText(src, minute).split(":");
+  const ss = String(((sec % 60) + 60) % 60).padStart(2, "0");
+  return (
+    <span className="clock">
+      {src.synthetic && (
+        <>
+          <Flip value={`${dateText(minute)} 2026`} />,{" "}
+        </>
+      )}
+      <Flip value={hour} />:<Flip value={min} />:{ss}
+      {src.synthetic && " Manila"}
+    </span>
+  );
+}
+
 export function TopBar({
   s,
   src,
@@ -80,9 +111,12 @@ export function TopBar({
   onReset,
   onSpeed,
   hospital,
+  readClock,
 }: {
   s: Sim;
   src: VitalsSource;
+  /** Viewer mode: the clock runs on between reads (see clock.ts). Left out, the clock reads the sim itself. */
+  readClock?: () => number;
   notice: string | null;
   /** Watching with no token: a pill and a button that opens the sign-in form. */
   onSignIn?: () => void;
@@ -93,16 +127,14 @@ export function TopBar({
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: string[]; onScenario: (name: string) => void };
 }) {
-  const minute = minuteOf(s);
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
       <PageNav page="simulation" />
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
-      <span className="clock">
-        {src.synthetic
-          ? `${dateText(minute)} 2026, ${clockText(src, minute)} Manila`
-          : clockText(src, minute)}
+      <Clock src={src} read={readClock ?? (() => s.clockS)} />
+      <span className="pill" title="Simulation speed">
+        {s.speed === 0 ? "Paused" : `${s.speed}x`}
       </span>
       {notice && (
         <span className="pill solid" role="status">
@@ -172,12 +204,12 @@ function RankedRow({
   return (
     <li>
       <button className={`row${selected ? " sel" : ""}`} onClick={() => onSelect(p.id)}>
-        <span className="rank">{p.rank}</span>
+        <span className="rank"><Flip value={p.rank ?? ""} /></span>
         <span className="who">
           <b>{p.name}</b> <span className="mono">{p.bed}</span>
         </span>
         <span className="score">
-          {d.news2.total}
+          <Flip value={d.news2.total} />
           <small>{p.trend === "insufficient" ? "" : p.trend}</small>
         </span>
         <span className="mini">
@@ -254,10 +286,10 @@ function VitalCard({
     <div className="vital" title={source}>
       <div className="vhead">
         <span>{label}</span>
-        {quality !== "ok" && <span className="pill">{quality}</span>}
+        {quality !== "ok" && <span className="pill"><Flip value={quality} /></span>}
       </div>
       <span className="vnum">
-        {value}
+        <Flip value={value} />
         <small>{unit}</small>
       </span>
       <Sparkline data={data} height={22} />
@@ -270,7 +302,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="vital">
       <div className="vhead">{label}</div>
-      <span className="vnum">{value}</span>
+      <span className="vnum"><Flip value={value} /></span>
     </div>
   );
 }
@@ -413,13 +445,12 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
             Bed {p.bed} · {p.age} {p.sex}
           </p>
           <p className="mono">
-            {d.kind === "ranked" ? `${RISK_WORDS[d.news2.risk]} · Rank ${p.rank}` : "Not ranked"}
-            {p.trend === "insufficient" ? "" : ` · ${p.trend}`}
+            <Flip value={`${d.kind === "ranked" ? `${RISK_WORDS[d.news2.risk]} · Rank ${p.rank}` : "Not ranked"}${p.trend === "insufficient" ? "" : ` · ${p.trend}`}`} />
           </p>
           <p className="mono">In for {stayLength(p.stay, minute)}</p>
         </div>
         <div className="big">
-          {d.kind === "ranked" ? d.news2.total : "--"}
+          <Flip value={d.kind === "ranked" ? d.news2.total : "--"} />
           <small>NEWS2</small>
         </div>
       </div>
@@ -778,7 +809,7 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
           <p className="mono">{m.title}</p>
           <span className="chip">
             <i style={{ background: CHIP_COLOURS[chip] }} />
-            {chip}
+            <Flip value={chip} />
           </span>
         </div>
       </div>

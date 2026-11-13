@@ -18,9 +18,9 @@ import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { createReader, ease, finishedStays, type LiveView, type StayRow } from "./sim/view";
+import { createViewClock, frameDt, frameTicks } from "./clock";
 import { createPerf, perfLine, whileVisible } from "./perf";
 
-const TICK = 1 / 60;
 const DRAW_MS = 1000 / 61; // at most one painted frame per 60 Hz refresh: a 120 Hz display draws every other frame
 const POLL_MS = 2000; // as often as the runner publishes
 const STAYS_MS = 30_000; // slower: each read of the stays writes an audit row
@@ -154,6 +154,7 @@ type Watch = { first: OpenWard; onBody: (w: OpenWard) => void; onGone: () => voi
 
 function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut: () => void; watch?: Watch }) {
   const [world, setWorld] = useState(() => newWorld());
+  const [viewClock] = useState(createViewClock);
   const [scenario, setScenario] = useState("typical");
   const [view, setView] = useState<number | null>(null); // hospital world: null is the building, else the floor pulled out
   const [skipping, setSkipping] = useState(false);
@@ -210,6 +211,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     const read = createReader();
     const apply = (w: OpenWard) => {
       const sim = read(toLive(w));
+      viewClock.take(sim.clockS, sim.speed, sim.ended, performance.now());
       const glide = glideRef.current;
       glideRef.current = { ...glide, at: performance.now(), from: new Map(glide.drawn), to: new Map(sim.staff.map((m) => [m.id, { x: m.x, y: m.y }])) };
       setWorld({ s: sim, src: VIEW_SOURCE });
@@ -224,7 +226,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         watch.onBody(w);
         apply(w);
       },
-      onDown: () => setViewNotice("Not updating"), // the last ward stays drawn
+      onDown: () => {
+        viewClock.down();
+        setViewNotice("Not updating");
+      }, // the last ward stays drawn
       onGone: watch.onGone,
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -253,6 +258,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         const live = (await response.json()) as LiveView;
         if (off) return;
         const sim = read(live);
+        viewClock.take(sim.clockS, sim.speed, sim.ended, performance.now());
         // Not awaited: the stays show from the next answer, and a slow read never holds the ward back.
         if (live.shared && performance.now() - staysAt >= STAYS_MS) {
           staysAt = performance.now();
@@ -265,7 +271,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         setViewNotice(live.shared ? null : "No live ward yet");
         setCanControl(live.can_control === true);
       } catch {
-        if (!off) setViewNotice("Not updating"); // the last ward stays drawn
+        if (!off) {
+          viewClock.down();
+          setViewNotice("Not updating"); // the last ward stays drawn
+        }
       }
     };
     void poll();
@@ -301,15 +310,15 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     let lastDraw = -Infinity;
     let pending = 0; // seconds not yet given to the renderer: it eases and moves trolleys by the time since its last frame
     const loop = (now: number) => {
-      const dt = Math.min(0.25, (now - last) / 1000); // a hidden tab must not fast-forward
+      const dt = frameDt(now - last);
       last = now;
-      spare += dt;
       pending += dt;
       const { s, src } = worldRef.current;
       const [t0, m0] = PERF ? [performance.now(), minuteOf(s)] : [0, 0];
-      while (spare >= TICK) {
+      const [ticks, left] = frameTicks(spare, dt);
+      spare = left;
+      for (let i = 0; i < ticks; i++) {
         if (!VIEW_API && !skippingRef.current) step(s, src); // a viewer draws the runner's ward and never advances one
-        spare -= TICK;
       }
       if (perf) perf.step(performance.now() - t0, minuteOf(s) - m0);
       if (VIEW_API) {
@@ -518,6 +527,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onSignIn={watch?.onLeave}
+        readClock={VIEW_API ? () => viewClock.read(performance.now()) : undefined}
         onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
         onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
         hospital={
@@ -597,7 +607,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} />
+        <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
