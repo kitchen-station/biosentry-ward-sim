@@ -628,3 +628,100 @@ describe.runIf(API)("rank parity with the real API", () => {
     expect(first.stopped).toBeNull();
   });
 });
+
+describe("sync.acked", () => {
+  const ids = (s: Sim) => s.patients.map((p) => p.id).sort();
+
+  it("holds the registered patients and no minute until a batch is acknowledged", async () => {
+    const { s, src } = start();
+    const { net, sync } = fake();
+    net.batch = 503;
+    await sync.start(s, src);
+    expect(sync.acked.minute).toBeNull();
+    expect([...sync.acked.patients].sort()).toEqual(ids(s));
+    net.batch = 204;
+    run(s, src, 10);
+    await sync.flush();
+    expect(sync.acked.minute).toBe(10);
+  });
+
+  it("adds the patients of an acknowledged admission", async () => {
+    const { s, src } = start();
+    const { sync } = fake();
+    await sync.start(s, src);
+    s.outbox!.admissions.push({ id: "n-0001", minute: 0 } as never); // the sync reads only id
+    expect(sync.acked.patients.has("n-0001")).toBe(false);
+    await sync.flush();
+    expect(sync.acked.patients.has("n-0001")).toBe(true);
+  });
+
+  it("keeps the old minute until a split backlog is drained", async () => {
+    const { s, src } = start();
+    const { net, sync } = fake();
+    await sync.start(s, src);
+    expect(sync.acked.minute).toBe(0);
+    run(s, src, 5);
+    const bin = { patient_id: "p-001", vital: "spo2" as const, minute: 1, value: 97 };
+    s.outbox!.bins.push(...Array.from({ length: 40_000 }, () => bin));
+    // The second batch of the backlog fails: the first one took only part of the queue.
+    let n = 0;
+    const real = net.batch;
+    Object.defineProperty(net, "batch", { get: () => (++n === 2 ? 503 : real) });
+    await sync.flush();
+    expect(sync.acked.minute).toBe(0);
+    await sync.flush();
+    expect(sync.acked.minute).toBe(5);
+  });
+
+  it("on resume holds the run's patients except those whose admission is still queued, and no minute", async () => {
+    const { s, src } = start();
+    const first = fake();
+    await first.sync.start(s, src);
+    run(s, src, 10);
+    const { net, sync } = fake();
+    net.batch = 503;
+    s.outbox!.admissions.push({ id: "n-0002", minute: 10 } as never); // admitted, its batch not yet acknowledged
+    await sync.resume(s, src, first.sync.run);
+    expect(sync.acked.minute).toBeNull();
+    expect([...sync.acked.patients].sort()).toEqual(ids(s));
+    expect(sync.acked.patients.has("n-0002")).toBe(false);
+    net.batch = 204;
+    await sync.flush();
+    expect(sync.acked.patients.has("n-0002")).toBe(true);
+  });
+
+  it("is cleared when the run is registered again", async () => {
+    const { s, src } = start();
+    const { net, sync } = fake();
+    await sync.start(s, src);
+    run(s, src, 5);
+    net.batch = 404;
+    await sync.flush();
+    expect(sync.acked.minute).toBeNull();
+    expect(sync.acked.patients.size).toBe(0);
+    net.batch = 204;
+    await sync.flush();
+    expect(sync.acked.patients.size).toBe(12);
+  });
+});
+
+describe("sync.generation", () => {
+  it("changes on every register and on resume, and not on a plain flush", async () => {
+    const { s, src } = start();
+    const { net, sync } = fake();
+    const g0 = sync.generation;
+    await sync.start(s, src);
+    const g1 = sync.generation;
+    expect(g1).toBeGreaterThan(g0);
+    run(s, src, 5);
+    net.batch = 404;
+    await sync.flush(); // 404: register() again
+    expect(sync.generation).toBeGreaterThan(g1);
+    const g2 = sync.generation;
+    net.batch = 204;
+    await sync.flush();
+    expect(sync.generation).toBe(g2);
+    await sync.resume(s, src, sync.run);
+    expect(sync.generation).toBeGreaterThan(g2);
+  });
+});
