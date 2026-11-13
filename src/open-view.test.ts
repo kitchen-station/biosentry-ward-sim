@@ -309,6 +309,8 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     for (const word of ["1x", "10x", "60x"]) expect(bar).not.toContain(`>${word}</button>`);
     expect(bar).not.toContain('aria-label="Simulation speed"');
     expect(bar).toMatch(/<span class="pill" title="Simulation speed">60x<\/span>/);
+    expect(bar.match(/<button/g)).toHaveLength(1); // the sign-in button only
+    for (const x of ["<select", "<input", 'role="button"', 'role="radio"', 'role="slider"']) expect(bar).not.toContain(x);
     // The pill is not inside a button.
     expect([...bar.matchAll(/<button[\s\S]*?<\/button>/g)].map((m) => m[0]).join("")).not.toMatch(/\d+x|Paused/);
     const panel = renderToStaticMarkup(createElement(Inspector, { s, src: VIEW_SOURCE, selected: null, onSelect: () => {}, onTimeline: () => {}, watching: true }));
@@ -331,6 +333,11 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     expect(g).toBeGreaterThan(-1);
     expect(x).toBeGreaterThan(g);
   };
+
+  it("the viewer clock is fed at two places and frozen at two", () => {
+    expect(app().match(/viewClock\.take\(/g)).toHaveLength(2);
+    expect(app().match(/viewClock\.down\(\)/g)).toHaveLength(2);
+  });
 
   it("the /live effect and the probe effect keep their guards", () => {
     before(app(), "if (!VIEW_API || watch) return;", "/wards/W4/live");

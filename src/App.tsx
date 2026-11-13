@@ -307,12 +307,16 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     let raf = 0;
     let last = performance.now();
     let spare = 0;
+    let wasHidden = false; // set on every visibility change: the first frame after it gives the sim no time
+    const onVisibility = () => void (wasHidden = true);
+    document.addEventListener("visibilitychange", onVisibility);
     let lastDraw = -Infinity;
     let pending = 0; // seconds not yet given to the renderer: it eases and moves trolleys by the time since its last frame
     const loop = (now: number) => {
-      const dt = frameDt(now - last);
+      const dt = frameDt(now - last, wasHidden);
+      wasHidden = false;
       last = now;
-      pending += dt;
+      pending += Math.min(dt, 0.25); // the renderer eases by this: it never gets more than a quarter second at once
       const { s, src } = worldRef.current;
       const [t0, m0] = PERF ? [performance.now(), minuteOf(s)] : [0, 0];
       const [ticks, left] = frameTicks(spare, dt);
@@ -387,6 +391,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     }, 2000);
     return () => {
       cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisibility);
       stopPanels();
       seen.disconnect();
       canvas.removeEventListener("contextrestored", redraw);

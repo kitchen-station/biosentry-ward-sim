@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { Flip, FLIP_GAP_MS, nextFlip } from "./flip";
+import { Flip, FlipView, FLIP_GAP_MS, nextFlip } from "./flip";
 import { createSim } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
 
@@ -33,6 +33,18 @@ describe("Flip", () => {
   });
 });
 
+describe("the ghost", () => {
+  const st = { value: "b", old: "a", n: 1, at: 0 };
+  it("after a flip the old value is a hidden ghost beside the new one", () => {
+    const html = renderToStaticMarkup(<FlipView st={st} />);
+    expect(html).toContain('<span class="flip-old" aria-hidden="true">a</span>');
+    expect(html).toContain('<span class="flip">b</span>');
+  });
+  it("is gone from the DOM once its animation has ended", () => {
+    expect(renderToStaticMarkup(<FlipView st={st} done={1} />)).toBe('<span class="flipbox"><span class="flip">b</span></span>');
+  });
+});
+
 describe("the top bar", () => {
   const src = createSyntheticSource(FIXTURE_SEED, true);
   const s = createSim(src);
@@ -46,6 +58,12 @@ describe("the top bar", () => {
       expect(html).not.toContain('class="flip"');
     });
   }
+  it("the seconds are not inside a flipbox", () => {
+    const html = renderToStaticMarkup(<TopBar s={s} src={src} notice={null} />);
+    const clock = html.replace(/<!-- -->/g, "").match(/<span class="clock">.*?<\/span><span class="pill"/)![0];
+    expect(clock).toContain("</span></span>:00 Manila"); // the minute's flipbox closes, then the seconds are plain text
+    expect(clock.match(/class="flipbox"/g)).toHaveLength(3); // date, hour, minute
+  });
   it("a paused sim reads Paused", () => {
     const html = renderToStaticMarkup(<TopBar s={{ ...s, speed: 0 }} src={src} notice={null} />);
     expect(html).toContain(">Paused</span>");
@@ -71,6 +89,7 @@ describe("app.css", () => {
   });
   it("is off under reduced motion", () => {
     expect(css).toMatch(/prefers-reduced-motion: reduce\) \{ \.flip \{ animation: none; \}/);
+    expect(css).toMatch(/prefers-reduced-motion: reduce\)[^}]*\}[^}]*\.flip-old \{ display: none/);
   });
   it("the gap is longer than the flip", () => {
     expect(FLIP_GAP_MS).toBeGreaterThan(num(css.match(/--flip-ms: (\d+ms)/)![1]));

@@ -92,10 +92,13 @@ The dev-server bridge above stays for now. A physician's list starts as the fixt
 ## How fast 60x is
 
 - 60x means 60 simulated seconds per real second. The top bar shows the speed as text next to the clock, and the clock counts seconds.
-- Measured: 60.00 in the page and 59.995 in the headless runner.
-- The page pauses in a hidden tab. It also gives up any real time beyond a quarter second per frame, so a long hitch loses that time.
-- Staff figures walk and work at 6x at most, so they look the same at 10x and 60x.
-- In viewer mode the clock runs on between reads at the runner's speed. Each read corrects it. It stops when the run has ended or the page says "Not updating".
+- Measured: 59.996 simulated seconds per real second in a browser at 60 frames a second, over 20 s, on a development build.
+- Measured: 60.00 from the page's frame arithmetic with the real `step()` in a test, at 1 to 120 frames a second.
+- Measured: 59.995 from the headless runner over 70 s.
+- Before this change, a page that got about one frame a second ran at about a quarter of its speed (measured 0.24 at 1x). Now a visible page keeps its speed and catches up at most 5 s after a stall.
+- A hidden tab pauses. It does not jump ahead on return.
+- Staff figures walk and work at 6x at most, so they look the same at 10x and 60x. This was kept on purpose.
+- The viewer's clock runs on between reads at the runner's speed, and moves toward each read at no more than twice that speed. It snaps on the first read, a runner restart, a pause, an end, a speed change, or a gap over 10 real seconds. It stops when the run has ended or the page says "Not updating". A read that is older than the last one is ignored. This was modelled in tests, not measured against a real runner.
 
 ## Run the ward without a browser
 

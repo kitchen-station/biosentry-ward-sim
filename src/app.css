@@ -756,7 +756,7 @@ nav a[aria-current="page"] {
 .flipbox { display: inline-block; position: relative; perspective: 400px; }
 .flipbox > span { display: inline-block; }
 .flip { animation: flip-in var(--flip-ms) var(--flip-ease); }
-.flip-old { position: absolute; inset: 0; pointer-events: none; user-select: none; animation: flip-out var(--flip-ms) var(--flip-ease) forwards; }
+.flip-old { position: absolute; inset: 0; text-align: inherit; white-space: nowrap; pointer-events: none; user-select: none; animation: flip-out var(--flip-ms) var(--flip-ease) forwards; }
 @keyframes flip-in { 0%, 50% { transform: rotateX(-90deg); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes flip-out { 0% { transform: none; opacity: 1; } 50%, 100% { transform: rotateX(90deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .flip { animation: none; } .flip-old { display: none; } }
