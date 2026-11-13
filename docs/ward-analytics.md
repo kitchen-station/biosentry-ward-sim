@@ -12,7 +12,7 @@ Hospital (standalone hospital world only)
 - Beds in use: per unit, per hour, census against beds, grouped by floor. The morgue is labelled in places, not beds.
 - In and out: per unit, per day, admitted, discharged, transferred in, transferred out. The ER also shows arrivals. The page draws these counts and prints no sums.
 
-Ward W4 (NEWS2 exists on W4 only)
+Ward W4 (W4's own record: alerts, stays, episodes)
 - NEWS2 levels: patients at each level in the bin read at each whole hour, with "not ranked" kept apart. The levels are the ones in `src/sim/news2.ts`.
 - Alerts per patient per shift: one bar per 12 h shift, shifts start at 07:00 and 19:00. A part shift is faded.
 - Beds in use: patients read in the bin at each whole hour.
