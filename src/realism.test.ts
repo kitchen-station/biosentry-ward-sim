@@ -73,6 +73,7 @@ const PINS: [string, string, string?][] = [
   [mine, "real: String(NEWS5)"],
   [mine, "real: String(NEWS7)"],
   [mine, "process.exitCode = ok ? 0 : 1;"],
+  [mine, "return unexpected === 0 ? 0 : 1;"],
   [mine, "if (isMain(process.argv[1], import.meta.url)) {"],
   [published, "while (s.clockS < start + (BURN_IN_DAYS + MEASURED_DAYS) * 86400) {"],
   [published, "if (slot === lastSlot) continue;"],

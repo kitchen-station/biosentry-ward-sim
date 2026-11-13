@@ -1,5 +1,7 @@
 /// <reference types="node" />
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import fixtureJson from "./export-evaluation.fixture.json";
 import { buildSimulator, checkArgs, compareBlocks, decode, OUTCOME_LABEL, Refusal, writeJson } from "./export-evaluation";
@@ -179,12 +181,28 @@ describe("refusals", () => {
     ];
     for (const [flag, source] of cases) expect(refusal(() => build(JSON.stringify(fixture), source))).toBe(`--source does not match compare.json: ${flag}`);
     expect(refusal(() => build(mutate((c) => delete c.outcome_model)))).toBe("--source does not match compare.json: --outcome-model");
+    // seeds that do not run on from --seed are not what that command line makes
+    expect(refusal(() => build(mutate((c) => (c.seeds[19] = 99))))).toBe("--source does not match compare.json: --seeds");
+  });
+
+  it("the source must be a line compare would accept: its flags, each once", () => {
+    const NOT = "--source is not a compare command line: a flag is unknown, repeated or has no value";
+    for (const extra of [" --seeds 5", " --hospital x", " --ward W5", " --outcome-model", " --days", " stray"]) expect(refusal(() => build(undefined, SOURCE + extra)), extra).toBe(NOT);
+    expect(refusal(() => compareBlocks(JSON.stringify(fixture), "npm run realism", NODE))).toBe("--source is not a compare command line");
   });
 
   it("--out and --compare, on the file system", () => {
     expect(refusal(() => checkOut("--out", "src/realism.ts"))).toBe("--out exists");
     expect(refusal(() => checkOut("--out", "src/nowhere/o.json"))).toBe("--out: parent folder does not exist");
     expect(refusal(() => checkOut("--out", "src/realism.ts/o.json"))).toBe("--out: parent is not a folder");
+    const dir = mkdtempSync(join(tmpdir(), "export-test-"));
+    try {
+      symlinkSync(join(dir, "nowhere"), join(dir, "dangling"));
+      expect(refusal(() => checkOut("--out", join(dir, "dangling")))).toBe("--out exists");
+      expect(() => checkOut("--out", join(dir, "new.json"))).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
     expect(() => checkOut("--out", "src/new-file.json")).not.toThrow();
     expect(refusal(() => readCompare("src/nowhere.json"))).toBe('--compare: cannot read "src/nowhere.json"');
     expect(refusal(() => readCompare(`src/${"x".repeat(60)}.json`))).toBe(`--compare: cannot read "src/${"x".repeat(36)}"`);
@@ -227,11 +245,17 @@ describe("refusals", () => {
     expect(refusal(() => build(mutate((c) => (c.outcome_model.parameter.value = 1.02001))))).toBe("--compare: outcome_model.parameter.value is not a d4 number");
     expect(refusal(() => build(mutate((c) => (c.outcome_model.paired_episodes.change_later = 0.5))))).toBe("--compare: outcome_model.paired_episodes.change_later is not an int");
     expect(refusal(() => build(mutate((c) => (c.seeds[2] = 3.5))))).toBe("--compare: seeds[2] is not an int");
+    // past 2^53 the parsed number is no longer the one in the file; a huge d4 would be written in exponent form
+    expect(refusal(() => build(JSON.stringify(fixture).replace(/("alerts":)\d+/, "$19007199254740993")))).toMatch(/pooled\.alerts is not an int$/);
+    expect(refusal(() => build(mutate((c) => (c.arms.baseline.pooled.alerts = 1e300))))).toBe("--compare: arms.baseline.pooled.alerts is not an int");
+    expect(refusal(() => build(mutate((c) => (c.paired_episodes.mean = 1e300))))).toBe("--compare: paired_episodes.mean is not a d4 number");
     expect(build(mutate((c) => (c.arms.baseline.pooled.lead_median_minutes = null)))).toContain('"baseline": null');
   });
 
   it("compare.json: the label", () => {
-    expect(refusal(() => build(mutate((c) => (c.outcome_model.label = "model assumption"))))).toBe(`--compare: outcome_model.label is not "${OUTCOME_LABEL}"`);
+    for (const label of ["model assumption", OUTCOME_LABEL.slice(0, -1), `${OUTCOME_LABEL} `, OUTCOME_LABEL.toLowerCase()]) {
+      expect(refusal(() => build(mutate((c) => (c.outcome_model.label = label)))), label).toBe(`--compare: outcome_model.label is not "${OUTCOME_LABEL}"`);
+    }
   });
 
   it("caps: at the cap passes, one over refuses", () => {
@@ -281,8 +305,13 @@ describe("refusals", () => {
     expect(() => note("synthetic, not validated")).not.toThrow();
     expect(() => note("Not Validated")).not.toThrow();
     expect(refusal(() => build(undefined, SOURCE, { ...realism, notes: ["self-learning"] }))).toBe('banned phrase "self-learning" in body.realism.notes[0]');
-    for (const p of ["/Users/a", "/private/x", "/home/a", "/tmp/a", "/var/a", "C:\\a"]) expect(refusal(() => note(`see ${p}`))).toBe("an absolute path in body.compare.notes[0]");
-    expect(refusal(() => build(undefined, `${SOURCE} --out /tmp/x`))).toBe("an absolute path in provenance.source[0]");
+    for (const p of ["/Users/a", "/private/x", "/home/a", "/tmp/a", "/var/a", "/opt/x", "/Volumes/x/y", "~/x", "C:\\a"]) expect(refusal(() => note(`see ${p}`)), p).toBe("an absolute path in body.compare.notes[0]");
+    expect(refusal(() => note("/etc/x at the start"))).toBe("an absolute path in body.compare.notes[0]");
+    for (const ok of ["trials/tmp/x", "src/sim/fitted.json", "doi:10.1186/s13054-021-03650-1", "173 / 632", "https://doi.org/10.1186/x"]) expect(() => note(`see ${ok}`), ok).not.toThrow();
+    // the source is scanned with the compare-side checks, before the slow run
+    expect(refusal(() => compareBlocks(JSON.stringify(fixture), SOURCE.replace("trials/compare-outcome", "/opt/c"), NODE))).toBe("an absolute path in --source");
+    expect(refusal(() => compareBlocks(JSON.stringify(fixture), SOURCE.replace("trials/compare-outcome", "~/c"), NODE))).toBe("an absolute path in --source");
+    expect(refusal(() => compareBlocks(JSON.stringify(fixture), SOURCE.replace("trials/compare-outcome", "validated"), NODE))).toBe('banned phrase "validated" in --source');
   });
 
   it("compareBlocks checks before the slow run", () => {

@@ -109,11 +109,12 @@ function exactKeys(v: unknown, path: string, keys: string[]): Json {
   return o;
 }
 
-/** One number. int must be an integer; d4 must survive round-trip at 4 places, so compare's own rounding is copied, never redone. */
+/** One number. int must be an integer; d4 must survive round-trip at 4 places, so compare's own rounding is copied, never redone.
+ *  Both must be exact in a double: past 2^53 JSON.parse has already changed the number, and the file would hold one no input has. */
 function num(v: unknown, path: string, kind: "int" | "d4", nullable: boolean): number | null {
   if (v === undefined) return refuse(`--compare: ${path} is missing`);
   if (v === null && nullable) return null;
-  const fits = typeof v === "number" && Number.isFinite(v) && (kind === "int" ? Number.isInteger(v) : Math.round(v * 1e4) / 1e4 === v);
+  const fits = typeof v === "number" && Number.isFinite(v) && (kind === "int" ? Number.isSafeInteger(v) : Number.isSafeInteger(Math.round(v * 1e4)) && Math.round(v * 1e4) / 1e4 === v);
   return fits ? (v as number) : refuse(`--compare: ${path} is not ${kind === "int" ? "an int" : "a d4 number"}`);
 }
 
@@ -138,7 +139,8 @@ function copy(v: unknown, shape: Shape, path: string): unknown {
 }
 
 const BANNED = ["ai predicts deterioration", "reinforcement learning", "self-learning", "conformal guarantee", "fewer false alarms than news2"];
-const ABSOLUTE = /\/Users\/|\/private\/|\/home\/|\/tmp\/|\/var\/|[A-Za-z]:\\/;
+// A path that starts at the root or the home folder, or a Windows drive. A slash inside a word (src/sim, 10.1186/s13054) is not one.
+const ABSOLUTE = /(^|[\s"'=(:])(\/[^\s/]|~\/)|[A-Za-z]:\\/;
 
 /** Every key and string of x: no banned phrase, no absolute path. "validated" is banned only in a string and only when not "not validated". */
 function scan(x: unknown, path: string): void {
@@ -157,17 +159,25 @@ function scan(x: unknown, path: string): void {
   }
 }
 
-/** The source line must say what compare.json says. Only the flags that change the result are compared. */
+const SOURCE_FLAGS = ["--seed", "--seeds", "--days", "--baseline", "--change", "--out"];
+
+/** The source line must be one compare would accept (its flags, each once) and must say what compare.json says. --out is not compared. */
 function matchSource(source: string, c: { seeds: number[]; days: number; baseline: string; change: string; outcome: boolean }): void {
-  const t = source.split(/\s+/);
-  const value = (flag: string) => t[t.indexOf(flag) + 1];
+  const all = source.startsWith(SOURCE_START) ? source.slice(SOURCE_START.length).trim().split(/\s+/) : refuse("--source is not a compare command line");
+  const t = all.filter((x) => x !== "--outcome-model");
+  const got: Record<string, string> = {};
+  for (let i = 0; i < t.length; i += 2) {
+    if (!SOURCE_FLAGS.includes(t[i]) || t[i] in got || t[i + 1] === undefined) refuse("--source is not a compare command line: a flag is unknown, repeated or has no value");
+    got[t[i]] = t[i + 1];
+  }
+  if (all.length - t.length > 1) refuse("--source is not a compare command line: a flag is unknown, repeated or has no value");
   const wrong = (flag: string) => refuse(`--source does not match compare.json: ${flag}`);
-  if (value("--seed") !== String(c.seeds[0])) wrong("--seed");
-  if (value("--seeds") !== String(c.seeds.length)) wrong("--seeds");
-  if (value("--days") !== String(c.days)) wrong("--days");
-  if (value("--baseline") !== `rule=${c.baseline}`) wrong("--baseline");
-  if (value("--change") !== `rule=${c.change}`) wrong("--change");
-  if (t.includes("--outcome-model") !== c.outcome) wrong("--outcome-model");
+  if (got["--seed"] !== String(c.seeds[0])) wrong("--seed");
+  if (got["--seeds"] !== String(c.seeds.length) || c.seeds.some((s, i) => s !== c.seeds[0] + i)) wrong("--seeds");
+  if (got["--days"] !== String(c.days)) wrong("--days");
+  if (got["--baseline"] !== `rule=${c.baseline}`) wrong("--baseline");
+  if (got["--change"] !== `rule=${c.change}`) wrong("--change");
+  if (all.length - t.length === 1 !== c.outcome) wrong("--outcome-model");
 }
 
 export interface Blocks { nodeMajor: number; seeds: number[]; compare: Json; outcome: Json | null }
@@ -180,6 +190,7 @@ export function compareBlocks(text: string, source: string, nodeMajor: number): 
   } catch {
     return refuse("--compare: not valid UTF-8 JSON");
   }
+  scan(source, "--source");
   if (!isObj(j)) return refuse("--compare: not valid UTF-8 JSON");
   if (j.compare_format !== 1) refuse("--compare: compare_format must be 1");
   if (j.synthetic !== true) refuse("--compare: synthetic must be true");

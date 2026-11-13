@@ -3,7 +3,7 @@
 // Every computation copies a test, with the same seeds, lengths and functions; src/realism.test.ts pins each copied literal
 // against that test file. No new fitting, tolerance or clinical number. It must not import src/trial.ts, src/compare.ts,
 // src/hospital-trial.ts or src/headless.ts: their command line would run inside the bundle.
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSimulator, checkArgs, compareBlocks, decode, Refusal, writeJson } from "./export-evaluation";
@@ -342,7 +342,9 @@ const allRows = () => [...fastRows(), ...wardRows(wardStats())];
 
 /** Why a new file cannot be written at path, as a refusal; nothing is created. */
 export function checkOut(flag: string, path: string) {
-  if (existsSync(path)) throw new Refusal(`${flag} exists`);
+  let there = true; // lstat, not existsSync: a symlink that points nowhere is there too
+  try { lstatSync(path); } catch { there = false; }
+  if (there) throw new Refusal(`${flag} exists`);
   if (!existsSync(dirname(path))) throw new Refusal(`${flag}: parent folder does not exist`);
   if (!statSync(dirname(path)).isDirectory()) throw new Refusal(`${flag}: parent is not a folder`);
 }

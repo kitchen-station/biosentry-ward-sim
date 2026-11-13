@@ -32,7 +32,7 @@ Each flag is given once. The same inputs give the same bytes.
 
 - **Envelope:** `format` (`biosentry-evaluation/3`), `section` (`simulator`), and `provenance`: this repository, the commit, the date, the two commands, `synthetic: true`, `validated: false`, and the compare seeds. The realism checks use more seeds than the contract's list allows, so a note says they are not listed.
 - **`body.realism`:** the rows of `npm run realism`, as text exactly as printed, and its footer lines. An `UNEXPECTED` row is written like any other.
-- **`body.compare`:** the pooled figures, the spread across seeds, the paired figure and the notes of the compare file. Numbers are copied. The export never rounds.
+- **`body.compare`:** the pooled figures, the spread across seeds, the paired figures and the notes of the compare file. Numbers are copied. The export never rounds.
 - **`body.outcome`:** the compare file's `outcome_model` block, key for key, with its label `MODEL ASSUMPTION, not evidence about patients`, plus the seeds. It is `null` when the compare was run without `--outcome-model`.
 
 `body.compare` and `body.outcome` always come from the same compare file.
@@ -41,16 +41,23 @@ Each flag is given once. The same inputs give the same bytes.
 
 One line on stderr, exit 2, and nothing is written, when:
 
-- a flag is missing, repeated or unknown; the date is not a real date; the commit is not 40 hex characters;
-- `--source` is not a compare command, or does not match the compare file (seed, seeds, days, rules, outcome flag);
-- `--out` exists, or its folder does not;
-- the compare file cannot be read, is not a many-seed W4 compare, lacks a key, has an unknown key, or holds a number that does not fit its kind (a whole number, or at most 4 decimals);
+- a flag is missing, repeated or unknown; the date is not a real date; the commit is not 40 lower-case hex characters;
+- `--source` is not a compare command line, has a flag compare does not know or a flag twice, or does not match the compare file (seed, seeds, days, rules, outcome flag);
+- `--out` exists, or its folder does not, or its parent is not a folder;
+- the compare file cannot be read, is not a regular file, or is over 1024 KB;
+- the compare file is not a synthetic many-seed W4 compare of two rules (`compare_format` 1), lacks a key, has an unknown key, or holds a number that does not fit its kind (a whole number, or at most 4 decimals; both small enough to be exact);
 - the outcome block's label is not the exact label;
+- the outcome block's sensitivity rows are not zero, half, central, double, in that order;
 - Node's major version differs from the one that made the compare file;
 - a text or a list is over its cap in the contract (the export never cuts);
-- a banned phrase or an absolute path is in the file.
+- a banned phrase or an absolute path is in the file or in `--source`;
+- the file would be over 256 KB.
 
-The compare-side checks run before the three-minute realism run.
+The checks on the flags, on `--source` and on the compare file run before the three-minute realism run. The realism caps and the 256 KB file cap run after it.
+
+The number check works on the parsed value, not on the text. Compare writes its numbers in their shortest form, so the two are the same for any file compare wrote.
+
+Any other error prints `export: failed: <message>`, exits 1, and writes nothing.
 
 With an `UNEXPECTED` realism row the file is still written and the command exits 1, as `npm run realism` does. Hiding a drift would be worse than showing it.
 
@@ -64,6 +71,6 @@ This prints the table as usual and also writes its rows and footer lines as JSON
 
 ## Hand-over
 
-This repository does not write to the BioSentry-Intelligence repository. The file is handed to the dashboard team with the command line as run, the simulator commit and the file's sha256. They commit it unchanged. The sync script then brings it back here with the other files (`docs/analytics.md`).
+This repository does not write to the BioSentry-Intelligence repository. The file is handed to the dashboard team with the command line as run, the simulator commit and the file's sha256. They commit it unchanged. Once the Analytics page is on `main`, its sync script brings the file back here with the other files.
 
 Make the hand-over file at a commit that is on `main`, so the commit in the file can be found.
