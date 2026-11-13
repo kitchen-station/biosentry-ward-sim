@@ -2,6 +2,7 @@
 // (hospital world) the units' hourly counts. Pure: it only reads the Sim, calls no random stream and writes nothing on the
 // Sim or the source. It lives beside the world, not in Sim, so saves and the golden run are unchanged.
 // Synthetic data only. An alert here is a demo line, not a clinical claim.
+import { BEDS } from "./map";
 import { minuteOf, type Sim } from "./sim";
 import { START_CLOCK_MIN, type VitalsSource } from "./source";
 
@@ -10,10 +11,9 @@ export const ALERT_AT = 5; // the demo line: NEWS2 total 5 or more, as compare's
 export const REARM_BINS = 16; // quiet bins (4 h) before a patient can alert again; also read by src/compare.ts
 export const SHIFT_MIN = 720; // 12 h shifts that start at 07:00 and 19:00
 const SHIFT_START_CLOCK_MIN = 7 * 60;
-// Patient i is sampled i x 5 s after the minute (Patient.offsetS). The ward has 20 beds, so the last offset is 95 s: that
-// is past the next minute, when a patient may already have left. A bin is read in two parts for that reason.
-const FIRST_PART_S = 59; // every patient with an offset under 60 has been sampled
-const LAST_OFFSET_S = 95;
+// A patient's sample for a bin minute lands up to 5 s per bed after it (Patient.offsetS). The window is the trial runner's own
+// (src/sim/trial.ts): a bin is read in the 60 + 5 x beds seconds after its minute, and closed after.
+const WINDOW_S = 60 + 5 * BEDS.length;
 
 export const CAPS = { levels: 672, shifts: 14, stays: 200, hoursPerUnit: 168 } as const; // 7 days of bins, 7 days of shifts, 7 days of hours
 
@@ -41,7 +41,7 @@ export interface WardStats {
   to: number;
   at: number; // the bin in `stage`
   next: number; // the next 15-minute bin that may still be read
-  stage: [id: string, total: number | null, level: "low" | "low_medium" | "medium" | "high" | "not_ranked"][] | null; // the bin being read: first part done
+  stage: [id: string, total: number | null, level: "low" | "low_medium" | "medium" | "high" | "not_ranked"][] | null; // the bin being read, one entry per patient read
   levels: WardSummary["levels"];
   shifts: WardSummary["shifts"];
   stays: WardSummary["stays"];
@@ -56,37 +56,32 @@ export function createWardStats(): WardStats {
 
 const shiftStartOf = (m: number) => m - ((START_CLOCK_MIN + m - SHIFT_START_CLOCK_MIN) % SHIFT_MIN);
 
-/** Reads the Sim after a step(). Cheap unless a 15-minute bin is being read: then O(patients), and O(finished stays + hospital hours) once it closes. */
+/**
+ * Reads the Sim after a step(). The rule is the trial runner's: each patient is read on the first tick after its own
+ * sample for the bin minute (`nextMinute - sampleEveryMin` is that minute), with its total and level at that moment.
+ * A patient placed after the minute is never counted. Cheap except in the window after a bin minute, where it is O(patients).
+ */
 export function feed(st: WardStats, s: Sim, _src?: VitalsSource): void {
   const minute = minuteOf(s);
   st.from ??= minute;
   st.to = minute;
   const c = s.clockS;
+  const bin = Math.floor(c / (BIN_MIN * 60)) * BIN_MIN;
+  const into = c - bin * 60;
+  if (st.stage !== null && st.at !== bin) st.stage = null; // a jump: the bin is not made up
   if (st.stage === null) {
-    // The latest bin whose first part is due. If a jump went past its minute, it stays a gap.
-    const m = Math.floor((c - FIRST_PART_S) / (BIN_MIN * 60)) * BIN_MIN;
-    if (m < st.next) return;
-    st.next = m + BIN_MIN;
-    if (c >= (m + 1) * 60) return;
+    // Begin only in the first minute of the window, so no patient has been passed over. A bin begun late stays a gap.
+    if (bin < Math.max(st.next, BIN_MIN) || into >= 60) return;
     st.stage = [];
-    // Placed this minute: its row is the placing decision, as the trial reads it. Offset 60 or more: sampled later, in the second part.
-    for (const p of s.patients) if (p.offsetS < 60 || p.stay.inMin === m) stage(st, p);
-    st.at = m;
+    st.at = bin;
+    st.next = bin + BIN_MIN;
   }
-  const m = st.at;
-  if (c < m * 60 + LAST_OFFSET_S) return;
-  if (c >= (m + 2) * 60) {
-    st.stage = null; // a jump: the bin is not made up
-    return;
+  if (into > WINDOW_S) return close(st, s, bin);
+  for (const p of s.patients) {
+    if (p.nextMinute - p.rules.sampleEveryMin !== bin || st.stage.some((x) => x[0] === p.id)) continue;
+    const d = p.decision;
+    st.stage.push([p.id, d.kind === "ranked" ? d.news2.total : null, d.kind === "ranked" ? d.news2.risk : "not_ranked"]);
   }
-  const have = new Set(st.stage.map((x) => x[0]));
-  for (const p of s.patients) if (!have.has(p.id)) stage(st, p);
-  close(st, s, m);
-}
-
-function stage(st: WardStats, p: Sim["patients"][number]) {
-  const level = p.decision.kind === "ranked" ? p.decision.news2.risk : "not_ranked";
-  st.stage!.push([p.id, p.totals.at(-1) ?? null, level]);
 }
 
 function close(st: WardStats, s: Sim, m: number) {
