@@ -68,5 +68,16 @@ Only the standalone hospital build makes the engine. A viewer build, a watcher a
 - **Legend.** "ICU: no NEWS2 colour. Waiting room: triage colour."
 - **Entrance panel.** Its "Skip 1 day" button is hidden in a hospital world, because that jump steps with no feed. The top bar's "+1 day" stays and is fed.
 
+## One person across moves
+Code: `src/person-timeline.tsx`. The person panel (outside W4) shows "Whole stay" under the path:
+- A strip of unit bands from the engine's spans, each with the unit's id. Below it, small line charts for heart rate, respiratory rate, SpO2, temperature, systolic pressure and NEWS2 on a 15-minute grid. Each chart scales to its own data. NEWS2 is blank in intensive-care bands: "NEWS2 is a ward score".
+- Where the person was on ward W4 the engine read nothing. The band says "Ward W4: own record." and has a button "Open the W4 stay" that opens W4's own stay panel. The next band says "New values from here: not continued from W4." If that stay has left the record (W4 keeps the last 500 stays), the panel says so.
+- A gap the engine did not read is a band labelled "Not read (skipped)." A band after an intensive-care step-down shows "Simulated recovery, not modelled."
+- At 800 bins the view says "Last 200 h".
+
+Each unit panel (and the ER queue panel) shows "Moves today: N" and the 10 newest rows as `clock · name · text`. For a ward or the ICU, a move is a `place`, `transfer`, `discharge`, `died` or `transfer_out` row at that unit, plus a `transfer` whose detail starts "<unit> to ". A person admitted from the ER is a `place` row at the ward, so the ward counts it once. For the ER, N is every way a person left it today: placed in a unit (every `place` row comes from the ER), sent home (`decide_home`), left unseen (`lwbs`), transferred out, died. One short line under it gives the parts, for example "Placed in a unit 16 · home 12 · left unseen 3". The rows are the hospital's event rows, capped at 5000. The panel says so when older rows may be gone. The ICU panel adds one line with its bed count read from the hospital: "In this model a person leaves the ICU only by stepping down to a ward or by dying." (`step.ts` never discharges an ICU person home.)
+
+Measured moves per day in the design plan's Appendix table 3 (seven-day `hospital-trial` runs, typical, seed 101): 2.6 between units, 5.6 stretcher to bed, 15.9 discharges.
+
 ## Not claimed
 No outcome claim. A NEWS2 colour outside W4 is a display of a synthetic score. It is not a finding about any real ward.

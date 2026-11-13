@@ -13,6 +13,9 @@ import { Flip } from "./flip";
 import { NotRankedRow, RankedRow, RISK_WORDS, VitalCards } from "./vital-cards";
 import { unitRank, vitalsOf, type HospitalVitals, type PersonVitals } from "./sim/hospital/vitals";
 import { SYNTHETIC_RULES } from "./sim/source";
+import { PersonTimeline, RECOVERY_NOTE } from "./person-timeline";
+
+export { RECOVERY_NOTE };
 
 const START = PARAMS.clock.startMinuteOfDay.value;
 const DAY = 1440;
@@ -98,6 +101,24 @@ export function todayCounts(h: Hospital, unit: UnitId): { in: number; out: numbe
   };
 }
 
+/** The ways a person leaves the ER, by event kind. Every `place` row comes from the ER (tryPlace runs only for ER boarders and ER decisions), at the destination unit. */
+const ER_EXITS: [EventKind, string][] = [["place", "Placed in a unit"], ["decide_home", "home"], ["lwbs", "left unseen"], ["transfer_out", "transferred out"], ["died", "died"]];
+
+/** Moves today at one unit, from the event rows (read, never drained). A ward or the ICU: a placement, a move in or out, a discharge, a death or a transfer out here, and a move out "to" another unit. The ER: every way a person left it today. `split` is the ER's parts. `partial` when older rows may have rolled out of the capped buffer. */
+export function movesToday(h: Hospital, unit: UnitId): { count: number; rows: { minute: number; name: string; text: string }[]; split: [string, number][]; partial: boolean } {
+  const today = dayOf(now(h));
+  const er = unit === "ER";
+  const isMove = (e: Hospital["events"][number]) => er
+    ? ER_EXITS.some(([k]) => k === e.kind) && (e.kind === "place" || e.unit === "ER")
+    : (e.unit === unit && (["place", "transfer", "discharge", "died", "transfer_out"] as EventKind[]).includes(e.kind)) || (e.kind === "transfer" && e.detail.startsWith(`${unit} to `));
+  const mine = h.events.filter((e) => dayOf(e.minute) === today && isMove(e));
+  const names = new Map([...h.people, ...h.gone].map((q) => [q.id, q.name]));
+  const rows = mine.slice(-10).reverse().map((e) => ({ minute: e.minute, name: names.get(e.person) ?? e.person, text: EVENT_TEXT[e.kind](h, e.unit, e.detail) }));
+  const split: [string, number][] = er ? ER_EXITS.map(([k, label]): [string, number] => [label, mine.filter((e) => e.kind === k).length]).filter(([, n]) => n > 0) : [];
+  const first = h.events[0];
+  return { count: mine.length, rows, split, partial: h.events.length >= PARAMS.bufferCap.events.value && first !== undefined && first.minute > today * DAY - START };
+}
+
 /** ER doctors on shift now, busy and free. */
 export function doctorsNow(h: Hospital): { onShift: number; busy: number; free: number } {
   const hour = Math.floor(((now(h) + START) % DAY) / 60);
@@ -169,7 +190,6 @@ export const UNIT_LABEL: Partial<Record<UnitId, string>> = {
 export const ICU_NOT_RANKED = "Not ranked: NEWS2 is a ward score.";
 export const DISPLAY_ONLY = "Display only. Care in the model does not read this score.";
 export const FIRST_DAY = "First day: everyone starts as a new admission, so scores run high.";
-export const RECOVERY_NOTE = "Simulated recovery, not modelled.";
 
 /** Where a person is, in the unit's own words. */
 function placeOf(h: Hospital, q: Person): string {
@@ -310,6 +330,7 @@ function PersonPanel({ h, p, onSelect, vitals }: { h: Hospital; p: Person; onSel
       <h3>Complications</h3>
       {comps.length === 0 ? <p className="story">None recorded.</p> : <ul className="plist">{comps.map((c) => <li key={c}>{c}</li>)}</ul>}
       <Path h={h} p={p} />
+      {pv && <PersonTimeline pv={pv} last={pv.bins.at(-1)?.m} nSpans={pv.spans.length} onSelect={onSelect} />}
       {p.w4Id !== null && alive && <p className="story">On ward W4: <button className="linkbtn" onClick={() => onSelect(p.w4Id!)}>open the ward panel</button>.</p>}
     </>
   );
@@ -362,10 +383,26 @@ function UnitPanel({ h, id, floors, vitals, onSelect }: { h: Hospital; id: UnitI
           <p className="mono">now {series.at(-1)} · low {Math.min(...series)} · high {Math.max(...series)}</p>
         </>
       )}
+      <MovesToday h={h} id={id} />
       {rounds && <><p className="story">{rounds}</p><p className="tiny">{ROUNDS_CAPTION}</p></>}
       {sum.bodies > 0 && <p className="story">{sum.bodies} awaiting transfer to the morgue (hold a bed, not counted).</p>}
       <UnitVitals h={h} id={id} vitals={vitals} onSelect={onSelect} />
       <p className="story">Hospital layer: synthetic.{display && " Staffing outside W4 drives observation rounds only; care there is not modelled."}</p>
+    </>
+  );
+}
+
+/** "Moves today: N" and the 10 newest. The ICU line is read from the hospital's own bed count. */
+function MovesToday({ h, id }: { h: Hospital; id: UnitId }) {
+  const m = movesToday(h, id);
+  const beds = h.units.find((x) => x.id === id)?.beds;
+  return (
+    <>
+      <h3>Moves today: {m.count}</h3>
+      {id === "ER" && m.split.length > 0 && <p className="tiny">{m.split.map(([label, n]) => `${label} ${n}`).join(" · ")}</p>}
+      {id === "ICU" && <p className="tiny">The ICU has {beds} beds. In this model a person leaves the ICU only by stepping down to a ward or by dying.</p>}
+      {m.partial && <p className="tiny">Older rows may have rolled out of the event buffer.</p>}
+      {m.rows.length > 0 && <ul className="plist mono">{m.rows.map((r, i) => <li key={i}>{clock(r.minute)} · {r.name} · {r.text}</li>)}</ul>}
     </>
   );
 }
@@ -401,6 +438,7 @@ function QueuePanel({ h, onSelect, vitals }: { h: Hospital; onSelect: (id: strin
           {boarders.map((p) => <li key={p.n}><PersonLink p={p} onSelect={onSelect} /> · for {p.wants ? unitName(h, p.wants) : "?"} · {Math.floor((now(h) - p.sinceMin) / 60)} h</li>)}
         </ul>
       )}
+      <MovesToday h={h} id="ER" />
       <UnitVitals h={h} id="ER" vitals={vitals} onSelect={onSelect} />
     </>
   );
