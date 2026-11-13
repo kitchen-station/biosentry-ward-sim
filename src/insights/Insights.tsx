@@ -81,7 +81,7 @@ function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
       <Fig name="Beds in use" caption="Per unit, per hour. Dashed line: beds. The morgue counts places." note={note}>
         {[...byFloor].sort((a, b) => a[0] - b[0]).map(([floor, units]) => (
           <div key={floor} className="floorrow">
-            <h5>Floor {floor}</h5>
+            <h5>Floor {n(floor)}</h5>
             {units.map((u) => {
               const rows = hours(u.id);
               return (
@@ -159,7 +159,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
       <Fig name="Beds in use" caption={now ? `Last hour: ${n(now.beds)} beds in use.` : NO_DATA} note={empty(rows.length)}>
         <LineChart values={hourly.map((r) => (r === "skip" || r === null ? r : r.beds))} label="Beds in use per hour" />
       </Fig>
-      <Fig name="Length of stay" caption="Finished stays, left shorter, right longer. Coloured by outcome." note={note ?? (stays.length === 0 ? NO_STAY : undefined)}>
+      <Fig name="Length of stay" caption="Finished stays, left shorter, right longer. Coloured by how the stay ended." note={note ?? (stays.length === 0 ? NO_STAY : undefined)}>
         <Legend names={["discharged", "higher care"]} colors={[OUTCOME_COLOR.discharged, OUTCOME_COLOR.higher_care]} />
         <Strip
           dots={stays.map((x, i) => ({ at: lens[i] / longest, row: i, color: OUTCOME_COLOR[x.outcome], title: `${x.outcome === "discharged" ? "discharged" : "higher care"}, in ${n(x.inMin)}, out ${n(x.outMin)}` }))}

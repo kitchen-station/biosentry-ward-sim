@@ -10,7 +10,8 @@ const levelRow = (m: number) => ({ m, low: 5, low_medium: 2, medium: 1, high: 1,
 const summary: WardSummary = {
   version: 1, ward: "W4", synthetic: true, binMin: 15, fromMin: 0, toMin: 600,
   levels: [0, 60, 120, 180, 480, 540, 600].map(levelRow), // a jump between 180 and 480
-  shifts: [{ start: -480, alerts: 3, patientMin: 5400, partial: true }, { start: 240, alerts: 7, patientMin: 8100, partial: false }],
+  // 41 and 47: their sum, 88, is nowhere in this data, so a printed sum fails the no-new-number test
+  shifts: [{ start: -480, alerts: 41, patientMin: 5400, partial: true }, { start: 240, alerts: 47, patientMin: 8100, partial: false }],
   stays: [{ inMin: 10, outMin: 700, outcome: "discharged" }, { inMin: 20, outMin: 3000, outcome: "higher_care" }],
   episodes: null, staff: null,
   hospital: {
