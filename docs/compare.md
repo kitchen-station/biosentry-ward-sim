@@ -21,13 +21,19 @@ npm run compare -- --seed 101 --days 7 --baseline scenarios/hospital/typical.jso
 - The files hold no clock, no path and no file name. The same command on the same Node major version writes the same bytes.
 - Exit 0 on success. Exit 2 with one line on stderr for a refusal; nothing is written then.
 
-One more flag works with rule arms only:
+Two more flags work with rule arms only:
 
 ```bash
 npm run compare -- --seed 1 --seeds 20 --days 30 --baseline rule=news2_total_ge_5 --change rule=news2_chart_trigger --out trials/compare-seeds
 ```
 
 - `--seeds K`: run K seeds, from `--seed` upward. K is 2 to 50. The report pools them and gives the spread across seeds. Each seed is run twice for the pairing check, so the run time grows with K and `--days`; 20 seeds of 30 days take many minutes.
+
+```bash
+npm run compare -- --seed 1 --seeds 20 --days 30 --baseline rule=news2_total_ge_5 --change rule=news2_chart_trigger --outcome-model --out trials/compare-outcome
+```
+
+- `--outcome-model`: add a modelled outcome, printed as a MODEL ASSUMPTION. It is off by default. It needs `--seeds` 20 or more, 20 or more of those seeds with an evaluated episode, and 30 or more evaluated episodes in all. Read "Outcome model" below before quoting any number from it.
 
 There are two modes. The baseline picks the mode.
 
@@ -49,7 +55,7 @@ The NEWS2 bands are the simulator's own (`src/sim/news2.ts`). Compare does not c
 
 The ward is run once with the seed, through the same code as the trial runner (`docs/trial-format.md`). Both rules then read that one run. So both arms have the same patients, the same arrival minutes, the same vitals and the same true episodes. The run is done a second time and the SHA-256 of `cohort.csv` and of `episodes.csv` must match, or the command refuses. The report prints both hashes.
 
-This works because of a deliberate limit of the ward: a staff review does not change a patient's vitals, and the rule under test is never fed back into the run. So a rule can change only when alerts fire and how many there are. **Nothing in the run responds to a warning, and the report gives no outcome figure.** It says what an earlier warning changes in timing and in alarm counts. It does not say that any patient did better. "Why compare shows no outcome", under Limits, gives the reasons.
+This works because of a deliberate limit of the ward: a staff review does not change a patient's vitals, and the rule under test is never fed back into the run. So a rule can change only when alerts fire and how many there are. **Nothing in the run responds to a warning, and by default the report gives no outcome figure.** It says what an earlier warning changes in timing and in alarm counts. It does not say that any patient did better. "Why compare shows no outcome by default", under Limits, gives the reasons. `--outcome-model` adds a modelled figure as a labelled assumption; it still changes nothing in the run.
 
 ### What each number means
 
@@ -213,6 +219,139 @@ How to read it:
 - The medians of lead and delay come from few episodes per seed (0 to 5 with a new alert), and 3 of the 20 seeds have no value on one side or both. Read `seeds_with_value` before the min and max.
 - All of this is the simulator's behaviour. It is not a measurement of either rule on patients.
 
+## Outcome model (`--outcome-model`)
+
+**Read this section before quoting any number from the outcome block. The whole block is labelled MODEL ASSUMPTION, not evidence about patients. Only the modelled excess is an outcome; the rest is timing and counts under the same assumptions.**
+
+The simulator cannot find out what an earlier warning would have changed: nothing in it responds to a warning. What the flag does is this: it takes how much earlier a rule recognises an episode, applies one published association between delay and outcome, and shows how the answer moves when that association is switched off, halved or doubled.
+
+Nothing in the run changes. Nobody dies on W4, no vital sign is altered and no recovery is drawn. The outcome is arithmetic on the run's `cohort.csv` and `episodes.csv` after the run, shown in the report only. Without the flag the reports are unchanged. A test pins three of them (one-seed W4, two-seed W4, hospital) to sha256 hashes taken from the code before the flag. The `compare.json` hash leaves out the `node_major` line.
+
+### How it is computed
+
+1. **Recognition.** For each evaluated episode, each arm gets a recognition minute: the earliest of
+   - the first 15-minute bin in the episode window where the rule is true (a new alert is not needed);
+   - the next scheduled observation round;
+   - the patient leaving, or the run ending.
+2. **Rounds.** Rounds start at the patient's admission. After each round the next one is due after the interval NEWS2 prescribes for the score at that round:
+
+   | Score at the round | Next round | Tag |
+   |---|---|---|
+   | 0 | 12 h | cited: NEWS2 Chart 4 (RCP 2017), "minimum 12 hourly" |
+   | 1 to 4 | 4 h | cited: the same chart, "minimum 4-6 hourly"; 4 h taken |
+   | 5 or more, or a 3 in one parameter | 1 h | cited: the same chart, "minimum 1 hourly" |
+   | 7 or more | 15 min | judgement: "continuous monitoring" read as the next bin |
+   | NOT RANKED, or no reading yet | 4 h | judgement |
+
+   A round is taken to recognise the episode, whatever the score at that round shows. That is a perfect round, a judgement; it shortens delays in both arms.
+3. **Delay.** Recognition minute minus `episode_start`, in hours.
+4. **Relation.** In the central row, the odds of a bad outcome are multiplied by 1.02 for each hour of delay (by 1.02^s in general):
+   `risk(d) = 1 / (1 + exp(-(a + b*d)))`, `b = s * ln(1.02)`, `a = ln(0.274 / 0.726) - b * 6.3`, and `excess(d) = risk(d) - risk(0)`.
+   The reported figure is the mean excess over episodes, times 100: modelled excess bad outcomes per 100 episodes.
+5. **Sensitivity.** `s` is 0, 0.5, 1 and 2 for the rows zero, half, central and double. At zero the odds ratio is 1, so the modelled excess in that row is exactly 0 in both arms. The recognition delays and counts do not depend on the odds ratio.
+
+### The one cited number, and what is judgement
+
+- **Cited:** Whebell SF et al., *Critical Care* 2021;25:226, doi:10.1186/s13054-021-03650-1. In 632 unplanned ward-to-critical-care admissions at one London trust (Guy's and St Thomas', January 2017 to March 2021), the time from a first sustained NEWS of 7 or more to critical care admission had an adjusted odds ratio of 1.02 (95% CI 1.0 to 1.04) for hospital mortality, the paper's secondary outcome (p = 0.026). The primary outcome, critical care mortality, gave the same odds ratio (p = 0.01). Hospital mortality was 27.4%; the median time was 6.3 hours. The paper measures the time in hours; it does not print the words "per hour" beside the odds ratio.
+- **The authors' own limits:** a relatively small, single-centre, retrospective study; it "does not prove causality"; "the effect size is small".
+- **Judgement, ours:** applying that odds ratio to the time from a true onset to recognition (the paper timed a high score to critical care arrival); anchoring the 27.4% at the 6.3-hour median and applying it to every W4 episode; treating a round as recognising the episode whatever the score shows; the 15-minute and NOT RANKED round intervals; the minimums of 20 seeds and 30 evaluated episodes; the half and double rows of the sensitivity table.
+- Every per-100 figure scales with the 27.4%. That is hospital mortality in patients sick enough for critical care. A lower-risk ward would give smaller figures. The sensitivity table varies only the odds ratio.
+- The interval 1.0 to 1.04 runs from the zero row to just under the double row (1.0404) of the sensitivity table.
+
+### Worked example
+
+Real output of the fourth command above: the outcome block, in full.
+
+```
+MODEL ASSUMPTION, not evidence about patients
+parameter: 1.02, the odds ratio the cited paper gives for score-to-door time measured in hours, applied here to each hour of recognition delay (that transfer is judgement) [cited: Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); secondary outcome hospital mortality (adjusted OR 1.02, 95% CI 1.0-1.04, p = 0.026; the primary outcome, critical care mortality, gave the same OR), 27.4% of 632 patients, median time 6.3 h]
+under the assumption that each hour from the true start of an episode to its recognition multiplies the odds of a bad outcome by 1.02, and that an episode recognised after 6.3 h carries the cited cohort's 27.4% hospital mortality (that anchoring is judgement), which sets the size of every per-100 figure; the 1.02 is the association between the time from a high NEWS to critical care and hospital mortality in one London cohort, an association in other patients, not a measured effect of earlier recognition
+recognition = the first 15-minute bin in the episode window where the rule is true, or the next scheduled NEWS2 round, whichever comes first (or the patient leaving, or the run ending); a round is taken to recognise the episode whatever the score at that round shows (a perfect round, judgement), which shortens delays in both arms; modelled excess = the modelled risk at the recognition delay minus the modelled risk at zero delay, per 100 episodes
+
+MODEL ASSUMPTION, not evidence about patients: outcome model: pooled over all seeds
+metric                                                              baseline        change    difference
+episodes_evaluated                                                       100           100             0
+recognised_by_rule                                                        42            51             9
+recognised_by_rule_without_new_alert                                      15            23             8
+recognised_by_round                                                       51            44            -7
+unrecognised_at_leave_or_run_end                                           7             5            -2
+recognition_delay_mean_hours                                          2.1979        1.9438       -0.2541
+recognition_delay_median_hours                                        1.3112        1.0727       -0.2385
+modelled_excess_bad_outcomes_per_100_episodes                         0.8352        0.7382        -0.097
+alerts                                                                  5334          6307           973
+bins_alerting                                                          86955        115012         28057
+
+MODEL ASSUMPTION, not evidence about patients: outcome model: spread of the per-seed difference (change minus baseline)
+metric                                                          seeds_with_value               min            median               max              mean                sd
+modelled_excess_bad_outcomes_per_100_episodes                                 20           -0.4054           -0.0146                 0           -0.0742            0.1163
+recognition_delay_mean_hours                                                  20           -1.0566           -0.0387                 0           -0.1947            0.3037
+
+MODEL ASSUMPTION, not evidence about patients: outcome model: same episode under both rules, delay and modelled excess of the change rule minus the baseline rule's (negative: the change rule recognised earlier)
+episodes_paired                                                          100
+change_earlier                                                            20
+same_minute                                                               80
+change_later                                                               0
+delay_difference_hours.min                                             -5.85
+delay_difference_hours.median                                              0
+delay_difference_hours.max                                                 0
+delay_difference_hours.mean                                          -0.2542
+delay_difference_hours.sd                                             0.8963
+excess_difference_per_100.min                                        -2.2572
+excess_difference_per_100.median                                           0
+excess_difference_per_100.max                                              0
+excess_difference_per_100.mean                                        -0.097
+excess_difference_per_100.sd                                          0.3436
+
+MODEL ASSUMPTION, not evidence about patients: sensitivity to the odds ratio per hour (modelled excess per 100 episodes)
+assumption   odds_ratio_per_hour            baseline              change          difference
+zero                           1                   0                   0                   0
+half                        1.01              0.4253               0.376             -0.0493
+central                     1.02              0.8352              0.7382              -0.097
+double                    1.0404              1.6071              1.4196             -0.1875
+note: in the hospital model W4 counts as monitored and is outside its late-recognition rule (a deterioration on W4 is one of W4's own episodes, with no notice event); this model instead assumes recognition at the next NEWS2 round when no rule bin comes first
+note: no patient changes: nobody dies on W4, no vital sign is altered and no recovery is drawn; each figure is a computed expectation per episode, in this report only
+note: recognition here needs only a bin where the rule is true, not a new alert, and costs nothing. These two rules are nested: the change rule is true in every bin the other is. So the change rule is never recognised later, its modelled excess is never higher, and the spread of the difference cannot cross zero: that is the construction, not a finding. The alerts and bins_alerting, change minus baseline, are 973 and 28057 (the change rule alerts more); this block does not weigh them
+note: only modelled_excess_bad_outcomes_per_100_episodes is the modelled outcome; the recognition delays and the counts by rule, by round and at leaving are timing figures and do not depend on the odds ratio, and alerts and bins_alerting are the same counts as the main table
+note: an episode the patient left, or the run ended, before recognition is scored at that shorter delay, which understates it
+note: W4 episodes are vital-sign offsets fitted from ICU records (eICU), not illnesses with a known risk of a bad outcome
+note: the odds ratio is an observational association in another population (sustained NEWS 7 or more, admitted to critical care, London 2017-2021), timed from a high score to critical care arrival, not from a true onset to recognition
+note: recognised by a round: 51 of 100 episodes (baseline) and 44 of 100 (change); left or run ended first: 7 and 5
+note: round frequency from NEWS2 Chart 4 (RCP 2017): 12 h at 0, 4 h at 1-4 (band start), 1 h at 5 or more or a 3 in one parameter; "continuous" at 7 or more is taken as the next 15-minute bin and NOT RANKED as 4 h (both judgement)
+note: the 27.4% at 6.3 h is the cited cohort's own hospital mortality, in patients admitted to critical care; anchoring it at that median and applying it to every W4 episode are judgement, and every per-100 figure scales with it (about p(1 - p)), so a lower-risk ward would give smaller figures; the sensitivity table varies only the odds ratio
+note: the cited 95% CI 1.0-1.04 runs from the zero row (1) to just under the double row (1.0404) of the sensitivity table; a difference whose spread crosses zero is not a finding, and at an odds ratio of 1 the difference is exactly zero
+note: the minimums of 20 seeds (derived from the lead difference in 30-day runs) and 30 evaluated episodes are judgement; a seed with no evaluated episode has no value in the spread (see seeds_with_value)
+```
+
+How to read it:
+
+- Under the assumption, the chart trigger recognises episodes about a quarter of an hour earlier on average (a mean delay of 1.94 hours against 2.20), and its modelled excess is 0.74 per 100 episodes against 0.84. The difference is about 0.1 modelled bad outcomes per 100 episodes, one in a thousand under the assumption.
+- The same table shows the price: 973 more alerts and 28,057 more alerting bins. The block does not weigh one against the other.
+- For these two rules the difference can only be zero or negative, and its spread cannot cross zero. The chart trigger is true wherever the other rule is, and being true costs nothing in this model. The block says so: that is the construction, not a finding. The same episode was recognised earlier in 20 of 100 and never later, for the same reason.
+- About half of the episodes are recognised by an assumed round rather than by that arm's rule (51 of 100 under the baseline, 44 under the change).
+- At an odds ratio of 1 the difference is exactly 0. At 1.0404 it is about 0.19 per 100. The whole result is the assumption.
+
+### Limits of the outcome model
+
+The first design review of this feature advised against building it. Its reasons are kept here as limits:
+
+1. "The hospital model itself says W4 is monitored and notices at once. Applying its round-delay death rule to W4 contradicts the model's own design, and that design says the two measures are never subtracted."
+2. "W4 has no death, no outcome hook and no course. The only bridge is one judgement number (0.02/h, uncapped, whole delay) whose source was read as a search excerpt only. The README says the demo shows no outcome benefit."
+3. "Half the episodes have no alert in the window, so a fallback would have to be invented. The effect (about 1 per 100 episodes) sits under a per-seed spread of 0 to 4 per 100 with sign flips. A judge would read a precise-looking number that the model cannot support."
+
+(On the first point, a later reading of the hospital model found the wording loose: W4 counts as monitored and is outside the late-recognition rule; it has no notice event at all.)
+
+**What the owner decided.** Build it anyway, off by default, for rule arms over 20 or more seeds, with every limit printed. Two things changed from the review: the uncited judgement number was replaced by a cited one (Whebell 2021, opened and read), and the fallback for an episode with no alert is the NEWS2 round frequency (RCP Chart 4), not an invented delay.
+
+**Why it is still only an assumption.**
+
+- The odds ratio is an observational association in very sick patients, timed from a high score to critical care arrival. It is not a measured effect of earlier recognition, and its authors say it does not prove causality.
+- W4 episodes are vital-sign changes fitted from ICU records. They are not illnesses with a known risk.
+- No one dies on W4 and nothing in the run changes. The figure is a computed expectation.
+- The round fallback assumes perfect rounds, exactly on time, on a ward the hospital model treats as monitored.
+- A wider rule can never look worse here, because alerts cost nothing in the model. Its cost is in the alert rows of the same table.
+- This goes against the reason the README gives for showing no recovery and no response-time figures in the demo: "Either would imply an outcome benefit the product does not claim." A modelled excess per 100 episodes is such a figure. It is here on purpose, by the owner's decision, behind a flag and a label. It still draws no recovery and gives no response-time figure, and the live ward and every default report show no outcome.
+- Every figure is the simulator's. None is evidence about patients, about a real ward, or about BioSentry.
+
 ## Hospital: one group of scenario settings
 
 `--baseline` is a hospital scenario file (`docs/hospital-trial-format.md`). `--change` is `GROUP=FILE`: the change arm is the baseline with only that group's settings taken from the second file. Its other settings are ignored. This is why `typical` against `doh-standard` staffing is one change, although the two files also differ in arrivals and start occupancy.
@@ -290,7 +429,7 @@ How to read it:
 ## Limits
 
 - **Synthetic.** The patients, the vitals, the staff and the hospital are generated. No number here was checked against a real ward.
-- **W4 has no treatment effect.** An earlier alert does not make a simulated patient better. Compare measures warnings, not outcomes.
+- **W4 has no treatment effect.** An earlier alert does not make a simulated patient better. Compare measures warnings. With `--outcome-model` it also prints a modelled outcome, which is an assumption applied to those timings; see "Limits of the outcome model".
 - **An alert delay is not a response time.** It is when a rule first flags an episode. Nobody in the run acts on it.
 - **"Outside an episode window" is not "false alarm".** A simulated patient can score high for a reason that is not a generator episode: a sick baseline, atrial fibrillation, or the scripted worsening of starting patient `p-001`. Those alerts are counted as outside. The 12 starting patients count toward the alert load, and their episodes are not evaluated.
 - **15-minute bins.** An alert minute is a bin minute, so a lead time, a delay or a paired difference is accurate only to within 15 minutes.
@@ -301,9 +440,9 @@ How to read it:
 - **Hospital effects are assumptions.** How staffing drives late rounds, late notice and deaths comes from judgement values in `src/sim/hospital/params.ts`.
 - **Same Node major version.** Byte-identical files are promised for the same Node major only, because the generator uses `Math.exp`, `log` and `cos`. `compare.json` records it as `node_major`. The header of `compare.txt` does not carry the Node version.
 
-### Why compare shows no outcome
+### Why compare shows no outcome by default
 
-The project pitch (not in this repository) says "you never know what an earlier warning would have changed. Here we can find out." Compare can find out only part of that: how early and how often each rule warns, over many seeds, with the spread. The report stops there and gives no modelled deaths or transfers, for these reasons:
+The project pitch (not in this repository) says "you never know what an earlier warning would have changed. Here we can find out." Compare can find out only part of that: how early and how often each rule warns, over many seeds, with the spread. By default the report stops there and gives no modelled deaths or transfers, for these reasons:
 
 1. **The hospital model treats W4 as monitored.** Its late-recognition rule is for wards without monitors, where a deterioration is noticed at the next observation round. W4 is outside that rule.
 2. **There is nothing on W4 for an outcome to attach to.** No one dies on W4: a stay ends as a discharge or a move to higher care. W4 episodes are changes in vital signs fitted from ICU records, not illnesses with a known risk. `src/sim/hospital/params.ts` holds two unused judgement values for a later W4 death slice (`w4FatalGivenEpisode`, `w4DeathAfterFullH`); nothing reads them yet.
@@ -311,7 +450,7 @@ The project pitch (not in this repository) says "you never know what an earlier 
 4. **About half of the episodes get no new alert in their window.** A delay for them would have to be assumed.
 5. **The README rules it out for the demo:** "The demo deliberately shows no recovery after review and no response-time figures. Either would imply an outcome benefit the product does not claim."
 
-Any outcome figure built on these timings would be an assumption, not a result. If one is added later, it should be labelled as such, be off by default, use many seeds, and show how the answer moves with the assumption.
+Any outcome figure built on these timings is an assumption, not a result. The outcome model above is built that way: it is labelled as such, off by default, needs many seeds, and shows how the answer moves with the assumption.
 
 ## Refusals
 
@@ -322,6 +461,7 @@ Each is one line on stderr, exit 2, and nothing is written.
 - A rule baseline with a group change, or a scenario baseline with a rule change.
 - An unknown rule; the same rule in both arms.
 - `--seeds` outside 2 to 50, with a hospital baseline, or `--seed` plus `--seeds` running past 2147483647.
+- `--outcome-model` with a hospital baseline, without `--seeds`, or with fewer than 20 seeds. After the runs, checked in this order: two seeds that gave the same cohort, fewer than 20 seeds with an evaluated episode, fewer than 30 evaluated episodes.
 - An unknown group; a group that is not paired (`beds`, `startOccupancy`, `arrivals`); a group with the same values in both files.
 - A scenario file that cannot be read or is refused by the scenario parser.
 - An `--out` that exists, or whose parent is missing or not a folder.
@@ -338,7 +478,10 @@ Each is one line on stderr, exit 2, and nothing is written.
   "difference": {...},
   "spread": {...} (with --seeds only),
   "paired_episodes": {...} (W4 modes only),
+  "outcome_model": { "label", "parameter", "assumption", "recognition_rule", "arms", "difference", "spread", "paired_episodes", "sensitivity", "notes" } (with --outcome-model only),
   "notes": [string] }
 ```
+
+Every outcome number lives inside `outcome_model`, whose first key is the label. No other key of the report holds one.
 
 `same_person_at_each_arrival` means only that: the same person at each arrival minute. It does not mean the two runs are the same. `status` and `lines` say how far the pairing goes.
