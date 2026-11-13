@@ -14,6 +14,7 @@ import { MAX_BYTES, parseScenario, ScenarioError, type Scenario } from "./sim/ho
 import { LIMITS, runHospitalTrial } from "./sim/hospital/trial";
 import { scoreNews2 } from "./sim/news2";
 import { runTrial, SCENARIO_V1 } from "./sim/trial";
+import { REARM_BINS } from "./sim/ward-stats";
 
 export class Refusal extends Error {}
 const refuse = (message: string): never => { throw new Refusal(message); };
@@ -21,7 +22,7 @@ const refuse = (message: string): never => { throw new Refusal(message); };
 const clean = (text: string) => [...text].slice(0, 40).map((ch) => (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u.test(ch) ? "?" : ch)).join("");
 
 // Both follow BioSentry-Intelligence research/alerts.py and research/events.py. They are a judgement, not a clinical figure.
-const REARM_BINS = 16; // quiet bins (4 h) before a patient can alert again
+// REARM_BINS (quiet bins, 4 h, before a patient can alert again) lives in src/sim/ward-stats.ts, which the Analytics page shares.
 const WINDOW_AFTER_FULL_MIN = 120; // the episode window ends this long after the offset is fully in
 const BIN_MIN = 15;
 
