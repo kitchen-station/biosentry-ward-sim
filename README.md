@@ -131,6 +131,25 @@ It reads a second feed the same way, `GET /sim/runs/{run_id}/commands`: what a c
 
 While it runs, it also publishes the ward as it would be drawn (`src/sim/view.ts`) to `POST /sim/runs/{run_id}/view` every 2 seconds.
 
+## Compare two runs of the same patients
+
+A real ward cannot run the same night twice. The simulator can. `npm run compare` runs two arms with the same seed and days, changes exactly one named thing, and writes what differs.
+
+```bash
+npm run compare -- --seed 4 --days 30 --baseline rule=news2_total_ge_5 --change rule=news2_chart_trigger --out trials/compare-w4
+```
+
+```bash
+npm run compare -- --seed 101 --days 7 --baseline scenarios/hospital/typical.json --change staffing=scenarios/hospital/doh-standard.json --out trials/compare-staffing
+```
+
+- **Ward W4, two warning rules.** Both rules read the same vitals from one run. The simulator knows the minute each patient started to get worse, so the report gives alerts per patient per 12-hour shift, the share of true episodes with an alert, alerts outside any episode window, and the lead time from the first alert to the episode being fully in.
+- **Hospital, one group of settings.** For example the staffing of `doh-standard` on the `typical` hospital. The report shows the trial's hourly and summary figures for both arms, and their difference.
+- **The pairing is checked and printed.** On W4 both arms are the same cohort, proved by a second run with the same hashes. On the hospital the people and arrival minutes are the same, and the report names the minute of the first event that differs. A change that breaks the pairing, or more than one change, is refused with exit 2.
+- **What it does not show.** On W4 a staff review does not change vitals, so the outcome of a warning is not modelled: the report covers alert timing and alarm counts only. Everything is synthetic and not validated.
+
+The numbers, the limits and a worked example with real output are in [docs/compare.md](docs/compare.md).
+
 ## Watch the runner's ward in the browser
 
 A build with `VITE_VIEW_API_URL` set is a viewer. It never makes a ward: a clinician signs in, and the page draws what the headless runner publishes, read from `GET /wards/W4/live` every 2 seconds.

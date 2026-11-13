@@ -180,7 +180,7 @@ const GROUPS: Record<string, RegExp> = {
 };
 const UNPAIRED = ["beds", "startOccupancy", "arrivals"];
 function groupTest(group: string): RegExp {
-  if (UNPAIRED.includes(group)) refuse(`change: group ${group} is not paired (it changes who is in the hospital from minute 0)`);
+  if (UNPAIRED.includes(group)) refuse(`change: group ${group} is not paired (it changes the minute-0 residents or the arrival clock)`);
   return GROUPS[Object.hasOwn(GROUPS, group) ? group : ""] ?? refuse(`change: unknown group "${clean(group)}"; use staffing, nurses, doctors or transferOutAfterH`);
 }
 
