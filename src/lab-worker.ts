@@ -22,19 +22,22 @@ export const CHANGE = new Map(["doh-standard", "typical"].flatMap((o) => groups(
 
 const LIMIT_MS = 900_000;
 const CALL_MS = 20_000;
+const CLAIM_CAP = 65_536; // judgement: a job is under 300 bytes
 export const reportWaits = [30_000, 60_000, 120_000, 240_000];
 const PROXY_VARS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "NODE_USE_ENV_PROXY"];
 
 /** The line to refuse to start with, or null. Names only, never a value: a proxy would see the ingest key. */
 export function proxyRefusal(env: Record<string, string | undefined>, execArgv: string[]): string | null {
-  // NODE_OPTIONS can carry the flag too, so it counts.
-  const name = PROXY_VARS.find((n) => env[n]) ?? (execArgv.includes("--use-env-proxy") || env.NODE_OPTIONS?.includes("--use-env-proxy") ? "--use-env-proxy" : null);
+  // NODE_OPTIONS can carry the flag too, and node reads `_` as `-` in an option name.
+  const flag = [...execArgv, ...(env.NODE_OPTIONS?.split(/\s+/) ?? [])].some((a) => /^--use-env-proxy(=|$)/.test(a.replaceAll("_", "-")));
+  const name = PROXY_VARS.find((n) => env[n]) ?? (flag ? "--use-env-proxy" : null);
   return name && `lab: a proxy variable is set (${name}); the worker does not send the ingest key through a proxy`;
 }
 
 /** The one base address, or null. No credentials, query or fragment, so a request can only go where the operator pointed it. */
 export function parseBase(raw: string | undefined): URL | null {
   let url: URL;
+  if (/[?#]/.test(raw ?? "")) return null; // an empty `?` or `#` is dropped by URL, so the raw text is checked
   try {
     url = new URL(raw ?? "");
   } catch {
@@ -88,6 +91,9 @@ export function stderrReason(stderr: string): string | null {
   return line === undefined ? null : [...line.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu, "")].slice(0, 300).join("");
 }
 
+/** True when the key can go in a header value as it is. Never prints the key. */
+export const keyRefusal = (key: string): string | null => (/[^\x21-\x7e]/.test(key) ? "lab: BIOSENTRY_INGEST_KEY holds a character that cannot go in a header" : null);
+
 export type Outcome = "idle" | "denied" | "error";
 export function claimDelay(outcome: Outcome, streak: number): number {
   if (outcome === "idle") return 30_000;
@@ -122,15 +128,44 @@ const call = (deps: Deps, url: string, extra: RequestInit) =>
   // A redirect must not carry the key elsewhere, and a hung API must not stall the worker.
   deps.fetch(url, { method: "POST", ...extra, headers: { ...(extra.headers as object), "X-Ingest-Key": deps.key }, redirect: "error", signal: AbortSignal.timeout(CALL_MS) });
 
+/** The kept stderr: once over the bound, a chunk is dropped, so it ends at most one chunk past it. */
+export const keepStderr = (kept: string, chunk: unknown) => (kept.length < 65_536 ? kept + String(chunk) : kept);
+
+// Only a claim 200 is read, and capped. Every other answer is dropped unread.
+const drop = (res: Response) => {
+  try {
+    void res.body?.cancel().catch(() => {});
+  } catch {
+    // nothing to free
+  }
+};
+
+async function readCapped(res: Response): Promise<string | null> {
+  if (Number(res.headers.get("content-length")) > CLAIM_CAP) return drop(res), null;
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return Buffer.concat(chunks).toString("utf8");
+    size += value.length;
+    if (size > CLAIM_CAP) return void reader.cancel().catch(() => {}), null;
+    chunks.push(value);
+  }
+}
+
 type Claim = { out: "job"; body: unknown } | { out: "idle" | "denied" | "error"; status?: number; note?: string };
 
 async function claim(deps: Deps): Promise<Claim> {
   try {
     const res = await call(deps, routeUrl(deps.base, "claim"), {});
-    const text = await res.text();
+    if (res.status !== 200) drop(res);
     if (res.status === 204) return { out: "idle" };
     if (res.status === 403 || res.status === 503) return { out: "denied", status: res.status };
     if (res.status !== 200) return { out: "error", status: res.status };
+    const text = await readCapped(res);
+    if (text === null) return { out: "error", note: "the claim answer was not a job" };
     try {
       return { out: "job", body: JSON.parse(text) };
     } catch {
@@ -162,7 +197,7 @@ async function runCompare(deps: Deps, args: string[], out: string, cur: Current)
     try {
       const child = deps.spawn(process.execPath, buildArgv(args, out), { cwd: deps.root, shell: false, stdio: ["ignore", "ignore", "pipe"], env: { PATH: process.env.PATH ?? "" } });
       cur.child = child;
-      child.stderr?.on("data", (d) => void (stderr.length < 65_536 && (stderr += String(d))));
+      child.stderr?.on("data", (d) => void (stderr = keepStderr(stderr, d)));
       child.on("error", () => {
         fault = "spawn";
         end(null, null);
@@ -206,7 +241,7 @@ async function report(deps: Deps, id: number, body: Body, cur: Current): Promise
     tries++;
     try {
       const res = await call(deps, routeUrl(deps.base, "report", id), { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      await res.text();
+      drop(res);
       if ([204, 404, 409, 422].includes(res.status)) return deps.log(`lab: report for job ${id} answered ${res.status}`);
     } catch {
       // a failed try, whatever the cause
@@ -304,6 +339,11 @@ if (isMain(process.argv[1], import.meta.url)) {
   const key = process.env.BIOSENTRY_INGEST_KEY;
   if (!base || !key) {
     console.error("Set BIOSENTRY_API_URL and BIOSENTRY_INGEST_KEY.");
+    process.exit(2);
+  }
+  const keyLine = keyRefusal(key);
+  if (keyLine) {
+    console.error(keyLine);
     process.exit(2);
   }
   // The bundle is <root>/dist/lab/lab-worker.js, never the cwd.

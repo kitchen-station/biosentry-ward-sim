@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { BASE, buildArgv, capCheck, CHANGE, claimDelay, type Deps, PAIRS, parseBase, proxyRefusal, reportWaits, routeUrl, runWorker, stderrReason, validateJob, W4_RULES } from "./lab-worker";
+import { BASE, buildArgv, capCheck, CHANGE, claimDelay, type Deps, keepStderr, keyRefusal, PAIRS, parseBase, proxyRefusal, reportWaits, routeUrl, runWorker, stderrReason, validateJob, W4_RULES } from "./lab-worker";
 
 const KEY = "k-SECRET-9f3a";
 const W4 = { id: 12, kind: "compare", mode: "w4", seed: 4, days: 30, baseline: "news2_total_ge_5", change: "news2_chart_trigger" };
@@ -13,7 +13,7 @@ const HOSP = { id: 3, kind: "compare", mode: "hospital", seed: 1, days: 2, basel
 const BASE_URL = new URL("http://api:8000/");
 const OK_JSON = '{"mode":"w4"}';
 
-type Answer = number | Error | object | string; // a status, a throw, a job, or raw 200 text
+type Answer = number | Error | Response | object | string; // a status, a throw, a ready answer, a job, or raw 200 text
 interface Rig {
   logs: string[];
   calls: { url: string; init: RequestInit }[];
@@ -23,11 +23,12 @@ interface Rig {
   sleeps: number[];
   reports: { id: string; body: any }[]; // eslint-disable-line @typescript-eslint/no-explicit-any
   clock: { t: number };
+  timerMs: number[];
 }
 
 /** Runs the whole loop on fakes until the claims are used up, then stops it. Every case goes through the key check. */
-async function drive(o: { claims: Answer[]; reports?: Answer[]; exit?: (c: any, fire: () => void, stop: () => void, r: Rig) => void; reportMs?: number; files?: Record<string, string>; mkdtemp?: boolean }): Promise<Rig> {
-  const r: Rig = { logs: [], calls: [], spawns: [], children: [], removed: [], sleeps: [], reports: [], clock: { t: 0 } };
+async function drive(o: { claims: Answer[]; reports?: Answer[]; spawnThrows?: boolean; exit?: (c: any, fire: () => void, stop: () => void, r: Rig) => void; reportMs?: number; files?: Record<string, string>; mkdtemp?: boolean }): Promise<Rig> {
+  const r: Rig = { logs: [], calls: [], spawns: [], children: [], removed: [], sleeps: [], reports: [], clock: { t: 0 }, timerMs: [] };
   const stops: Array<() => Promise<void> | void> = [];
   const stop = () => Promise.all(stops.map((f) => f()));
   const timers: Array<() => void> = [];
@@ -37,6 +38,7 @@ async function drive(o: { claims: Answer[]; reports?: Answer[]; exit?: (c: any, 
   const answer = (a: Answer | undefined, fallback: number) => {
     if (a instanceof Error) throw a;
     if (typeof a === "number") return new Response(null, { status: a === 204 ? 204 : a });
+    if (a instanceof Response) return a;
     if (a === undefined) return new Response(null, { status: fallback });
     return new Response(typeof a === "string" ? a : JSON.stringify(a), { status: 200 });
   };
@@ -60,6 +62,7 @@ async function drive(o: { claims: Answer[]; reports?: Answer[]; exit?: (c: any, 
     root: "/root",
     fetch: fetchFake,
     spawn: ((cmd: string, args: string[], opts: unknown) => {
+      if (o.spawnThrows) throw new Error("EAGAIN");
       r.spawns.push({ cmd, args, opts });
       const c: any = new EventEmitter(); // eslint-disable-line @typescript-eslint/no-explicit-any
       c.stderr = new EventEmitter();
@@ -87,7 +90,8 @@ async function drive(o: { claims: Answer[]; reports?: Answer[]; exit?: (c: any, 
       r.sleeps.push(ms);
       r.clock.t += ms;
     },
-    timer: (_ms, fn) => {
+    timer: (ms, fn) => {
+      r.timerMs.push(ms);
       timers.push(fn);
       return () => {};
     },
@@ -121,13 +125,19 @@ describe("proxyRefusal", () => {
     expect(proxyRefusal({}, ["--use-env-proxy"])).toBe(line("--use-env-proxy"));
     expect(proxyRefusal({ NODE_OPTIONS: "--use-env-proxy" }, [])).toBe(line("--use-env-proxy"));
   });
+  it("also refuses the underscore spelling and the `=` form, but not the `no-` form", () => {
+    expect(proxyRefusal({}, ["--use_env_proxy"])).toBe(line("--use-env-proxy"));
+    expect(proxyRefusal({ NODE_OPTIONS: "--max-old-space-size=64 --use_env_proxy" }, [])).toBe(line("--use-env-proxy"));
+    expect(proxyRefusal({}, ["--use-env-proxy=1"])).toBe(line("--use-env-proxy"));
+    expect(proxyRefusal({ NODE_OPTIONS: "--no-use-env-proxy" }, ["--no-use-env-proxy", "--no-use_env_proxy"])).toBeNull();
+  });
 });
 
 describe("base address and routes", () => {
   it("takes only http(s) addresses with no credentials, query or fragment", () => {
     expect(parseBase("http://api:8000")!.href).toBe("http://api:8000/");
     expect(parseBase("https://x.example/p")!.href).toBe("https://x.example/p/");
-    for (const bad of [undefined, "", "api:8000", "ftp://x", "file:///etc", "http://u@x", "http://u:p@x", "http://x?a=1", "http://x#f", "javascript:1"]) expect(parseBase(bad), String(bad)).toBeNull();
+    for (const bad of [undefined, "", "api:8000", "ftp://x", "file:///etc", "http://u@x", "http://u:p@x", "http://x?a=1", "http://x#f", "http://h/?", "http://h/#", "javascript:1"]) expect(parseBase(bad), String(bad)).toBeNull();
   });
   it("keeps the origin of the base for any id or base", () => {
     const base = parseBase("http://api:8000")!;
@@ -135,6 +145,7 @@ describe("base address and routes", () => {
     expect(routeUrl(base, "report", 12)).toBe("http://api:8000/sim/lab/runs/12/report");
     const hostile = ["//evil.com/x", "http://evil.com", "..\\..", "../../x", "1@evil.com", "\\\\evil.com", "%2f%2fevil.com", "?x#y", NaN, -1, 1e300, "a b"];
     for (const id of hostile) expect(new URL(routeUrl(base, "report", id as number)).origin).toBe(base.origin);
+    expect(new URL(routeUrl(base, "report", "1/../x" as never)).pathname).toMatch(/\/sim\/lab\/runs\/1%2F\.\.%2Fx\/report$/);
     for (const raw of ["http://a.com@evil.com", "http://api:8000//evil.com", "http://api:8000/..//evil.com", "http://[::1]:1", "http://api:8000/%2f%2fevil.com", "HTTP://API:8000"]) {
       const b = parseBase(raw);
       if (b) for (const id of hostile) expect(new URL(routeUrl(b, "report", id as number)).origin).toBe(b.origin);
@@ -212,6 +223,18 @@ describe("small pure parts", () => {
     expect(stderrReason("")).toBeNull();
     expect(stderrReason("something else\n")).toBeNull();
   });
+  it("keeps stderr to the bound plus one chunk", () => {
+    let kept = "";
+    for (let i = 0; i < 200; i++) kept = keepStderr(kept, "b".repeat(1000));
+    expect(kept.length).toBeLessThanOrEqual(65_536 + 1000);
+    expect(keepStderr("a".repeat(65_536), "zzz")).toBe("a".repeat(65_536));
+  });
+  it("refuses a key that cannot go in a header, without printing it", () => {
+    expect(keyRefusal("k-SECRET-9f3a~!")).toBeNull();
+    for (const bad of ["a\nb", "a b", "caf\u00e9", "\u4e2d", "a\r", "\x7f"]) {
+      expect(keyRefusal(bad), JSON.stringify(bad)).toBe("lab: BIOSENTRY_INGEST_KEY holds a character that cannot go in a header");
+    }
+  });
   it("backs off 30, 60, 120, 240, 300, 300 s", () => {
     expect([1, 2, 3, 4, 5, 6].map((n) => claimDelay("error", n))).toEqual([30_000, 60_000, 120_000, 240_000, 300_000, 300_000]);
     expect(claimDelay("idle", 0)).toBe(30_000);
@@ -287,12 +310,58 @@ describe("the loop, on fakes", () => {
     expect(await body(exit(255, null))).toEqual({ state: "failed", reason: "compare exited with code 255" });
     expect(await body(exit(null, "SIGKILL"))).toEqual({ state: "failed", reason: "compare exited with code 137" });
   });
-  it("fails with `did not start` on a spawn error, a spawn throw, or no temp folder", async () => {
+  it("fails with `did not start` on a spawn error event or no temp folder", async () => {
     const start = { state: "failed", reason: "compare did not start" };
     expect((await drive({ claims: [W4], exit: (c) => { c.emit("error", new Error("ENOENT")); c.emit("close", 0, null); } })).reports[0].body).toEqual(start);
     const none = await drive({ claims: [W4], mkdtemp: false });
     expect(none.reports[0].body).toEqual(start);
     expect(none.spawns).toHaveLength(0);
+  });
+  it("fails with `did not start` when spawn throws at once, and removes the folder", async () => {
+    const r = await drive({ claims: [W4], spawnThrows: true });
+    expect(r.reports[0].body).toEqual({ state: "failed", reason: "compare did not start" });
+    expect(r.removed).toEqual(["/tmp/lab-1"]);
+  });
+  it("keeps the first 1000 characters of a long stderr, so compare's line is still found", async () => {
+    const exit = (c: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      c.stderr.emit("data", `compare: x\n${"a".repeat(989)}`);
+      for (let i = 0; i < 199; i++) c.stderr.emit("data", "b".repeat(1000));
+      c.emit("close", 2, null);
+    };
+    expect((await drive({ claims: [W4], exit })).reports[0].body).toEqual({ state: "refused", reason: "compare: x" });
+  });
+  it("runs compare under a 15 minute timer, and every call under 20 s", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    try {
+      const r = await drive({ claims: [W4] });
+      expect(r.timerMs).toEqual([900_000]);
+      expect(spy.mock.calls.length).toBe(3);
+      for (const args of spy.mock.calls) expect(args).toEqual([20_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+  it("reads only a claim 200, and caps it", async () => {
+    const big = await drive({ claims: [JSON.stringify(W4) + " ".repeat(100_000)] }) // a real job, padded past the cap;
+    expect(big.sleeps).toEqual([30_000]);
+    expect(big.logs.filter((l) => l.includes("not a job"))).toHaveLength(1);
+    expect(big.spawns).toHaveLength(0);
+    let pulled = false;
+    let cancelled = false;
+    const body = new ReadableStream({ pull: (c) => { pulled = true; c.enqueue(new TextEncoder().encode("x")); }, cancel: () => { cancelled = true; } }, { highWaterMark: 0 });
+    const long = await drive({ claims: [new Response(body, { status: 200, headers: { "content-length": "70000" } })] });
+    expect(long.sleeps).toEqual([30_000]);
+    expect(long.logs.filter((l) => l.includes("not a job"))).toHaveLength(1);
+    expect(long.spawns).toHaveLength(0);
+    expect(pulled).toBe(false);
+    expect(cancelled).toBe(true);
+  });
+  it("treats a report answer by its status alone, never reading its body", async () => {
+    const res = new Response("x", { status: 409 });
+    res.text = () => { throw new Error("read"); };
+    const r = await drive({ claims: [W4], reports: [res] });
+    expect(r.logs).toContain("lab: report for job 12 answered 409");
+    expect(r.reports).toHaveLength(1);
   });
   it("kills at the limit and reports it, whatever exit follows", async () => {
     const r = await drive({ claims: [W4], exit: (c, fire) => { fire(); c.stderr.emit("data", "compare: x"); } });
@@ -391,6 +460,14 @@ describe("the built worker", () => {
 
       const none = spawnSync(process.execPath, [worker], { env: env({}), encoding: "utf8", timeout: 30_000 });
       expect([none.status, none.stderr]).toEqual([2, "Set BIOSENTRY_API_URL and BIOSENTRY_INGEST_KEY.\n"]);
+      const bareRoot = mkdtempSync(join(tmpdir(), "lab-e2e-bare-"));
+      try {
+        cpSync(join(root, "dist/lab"), join(bareRoot, "dist/lab"), { recursive: true });
+        const bare = spawnSync(process.execPath, [join(bareRoot, "dist/lab/lab-worker.js")], { env: env({ BIOSENTRY_API_URL: "http://127.0.0.1:1", BIOSENTRY_INGEST_KEY: KEY }), encoding: "utf8", timeout: 30_000 });
+        expect([bare.status, bare.stderr]).toEqual([2, "lab: dist/compare/compare.js is missing; run npm run lab-worker\n"]);
+      } finally {
+        rmSync(bareRoot, { recursive: true, force: true });
+      }
       const proxied = spawnSync(process.execPath, [worker], { env: env({ BIOSENTRY_API_URL: "http://127.0.0.1:1", BIOSENTRY_INGEST_KEY: KEY, HTTPS_PROXY: "http://secret-proxy:3" }), encoding: "utf8", timeout: 30_000 });
       expect([proxied.status, proxied.stderr]).toEqual([2, "lab: a proxy variable is set (HTTPS_PROXY); the worker does not send the ingest key through a proxy\n"]);
 
