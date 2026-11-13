@@ -6,6 +6,7 @@ import type { Acvpu } from "./news2";
 import fixture from "./synthetic.json";
 import calibration from "./calibration.json";
 import fit from "./fitted.json";
+import { streamSeed } from "./hospital/rng";
 
 export const VITALS = ["heart_rate", "respiratory_rate", "spo2", "temperature"] as const;
 export type Vital = (typeof VITALS)[number];
@@ -332,6 +333,12 @@ const GIVEN: Record<string, string[]> = {
   M: ["Ramon", "Antonio", "Danilo", "Ernesto", "Rogelio", "Alfredo"],
 };
 
+/** A surname then a given name, in that order of draws. */
+function nameOf(sex: string, rng: () => number) {
+  const pick = <T,>(xs: T[]) => xs[Math.floor(rng() * xs.length)];
+  return `${pick(SURNAMES)}, ${pick(GIVEN[sex])}`;
+}
+
 /** The real clock hour of a discharge: about 15% before noon, median near 15:00. */
 function dueAt(minute: number, stayMin: number, rng: () => number) {
   const hour = rng() < 0.15 ? 8 + rng() * 4 : 12 + rng() * 7;
@@ -346,7 +353,10 @@ function drawStayMin(rng: () => number) {
   return { condition: c, stayMin: Math.min(MAX_STAY_DAYS, Math.exp(c.mu + c.sigma * gaussian(rng))) * DAY_MIN };
 }
 
-export function createSyntheticSource(seed: number, flow = false, saved?: SavedSource): VitalsSource {
+/** Who is on the ward at minute 0: the 12 fixture patients, or 12 drawn from the seed (never both). */
+export type Cohort = "fixture" | "drawn";
+
+export function createSyntheticSource(seed: number, flow = false, saved?: SavedSource, cohort: Cohort = "fixture"): VitalsSource {
   const afPatients = new Set(AF_PATIENTS);
   const anchors = anchorsFromFixture();
   const fixtureAnchors = new Set(Object.keys(anchors));
@@ -384,7 +394,10 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
   const flowRng = mulberry32(saved?.flowRng ?? seed ^ 0x51ed270b);
   let admitted = saved?.admitted ?? 0;
 
-  function admit(minute: number, occupied: { bed: string; rn: string; md: string }[], given?: GivenSeed, person?: Person): PatientSeed | null {
+  /** Where a drawn patient's id and the seeds of their two streams come from. */
+  type Named = { id: string; vitalsSeed: number; bpSeed: number };
+  /** The one place a patient is drawn: admit and the drawn cohort both call it, so they cannot drift apart. */
+  function draw(flowRng: () => number, minute: number, occupied: { bed: string; rn: string; md: string }[], given: GivenSeed | undefined, person: Person | undefined, name: () => Named): PatientSeed | null {
     const taken = new Set(occupied.map((o) => o.bed));
     const drawnSex = flowRng() < 0.5 ? "F" : "M";
     const sex = person?.sex ?? drawnSex; // a hospital person keeps their sex, which picks the bay; every draw is still made, in order
@@ -395,8 +408,7 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
       : [...(onOxygen ? free("H") : []), ...free(sex === "F" ? "A" : "B"), ...free("S"), ...free("H")][0];
     if (!bed) return null;
 
-    admitted += 1;
-    const id = given?.id ?? `n-${String(admitted).padStart(4, "0")}`; // a given patient still uses up a number: it seeds their stream
+    const { id, vitalsSeed, bpSeed } = name();
     const { condition, stayMin } = drawStayMin(flowRng);
     const systolic = drawFrom(fit.baseline.systolic, flowRng);
     const vitals: Record<Vital, number> = {
@@ -408,7 +420,7 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
     const cuff = { systolic: Math.round(systolic), diastolic: diastolicWithin(systolic, systolic - drawFrom(fit.baseline.pulsePressure, flowRng)) };
     anchors[id] = { vitals, cuff };
     const stream: Stream = {
-      rng: mulberry32(seed + (ROWS.length + admitted) * 0x9e3779b1),
+      rng: mulberry32(vitalsSeed),
       spread: 1,
       latent: 0,
       wander: { heart_rate: 0, respiratory_rate: 0, spo2: 0, temperature: 0 },
@@ -416,7 +428,7 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
       injectAt: null,
       episode: null,
       rampMin: 1,
-      bpRng: mulberry32(seed ^ ((ROWS.length + admitted) * 0x85ebca6b)),
+      bpRng: mulberry32(bpSeed),
       bpDrift: 0,
       bpAt: null,
       afFrom: null,
@@ -439,11 +451,10 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
 
     const count = (key: "rn" | "md", who: string) => occupied.filter((o) => o[key] === who).length;
     const fewer = (key: "rn" | "md", a: string, b: string) => (count(key, a) <= count(key, b) ? a : b);
-    const pick = <T,>(xs: T[]) => xs[Math.floor(flowRng() * xs.length)];
     const md = fewer("md", "md-santos", "md-aquino");
     const drawn: PatientSeed = {
       id,
-      name: `${pick(SURNAMES)}, ${pick(GIVEN[sex])}`,
+      name: nameOf(sex, flowRng),
       age: 45 + Math.floor(flowRng() * 40), // shortcut: no ward age data fitted, a plain adult cardiology range
       sex,
       bed: bed.label,
@@ -473,6 +484,33 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
     return { ...(given ? { ...drawn, ...given } : drawn), ...person };
   }
 
+  function admit(minute: number, occupied: { bed: string; rn: string; md: string }[], given?: GivenSeed, person?: Person): PatientSeed | null {
+    return draw(flowRng, minute, occupied, given, person, () => {
+      admitted += 1; // a given patient still uses up a number: it seeds their stream
+      const n = ROWS.length + admitted;
+      return { id: given?.id ?? `n-${String(admitted).padStart(4, "0")}`, vitalsSeed: seed + n * 0x9e3779b1, bpSeed: seed ^ (n * 0x85ebca6b) };
+    });
+  }
+
+  // The drawn cohort: the same draw as an admission, from 36 new named streams. It never reads flowRng or admitted.
+  const cohortSeeds: PatientSeed[] = [];
+  if (cohort === "drawn" && !saved) {
+    for (let i = 1; i <= ROWS.length; i += 1) {
+      const id = `c-${String(i).padStart(3, "0")}`;
+      const p = draw(mulberry32(streamSeed(seed, `cohort:${i}`)), 0, cohortSeeds, undefined, undefined, () => ({
+        id,
+        vitalsSeed: streamSeed(seed, `cohort:${i}:vitals`),
+        bpSeed: streamSeed(seed, `cohort:${i}:bp`),
+      }))!;
+      // About 4 in 10 groups of 12 would hold two people with one full name, and the log matches lines to patients by name.
+      // So a repeated name is drawn again from its own stream. Nothing clinical is redrawn.
+      const nameRng = mulberry32(streamSeed(seed, `cohort:${i}:name`));
+      while (cohortSeeds.some((o) => o.name === p.name)) p.name = nameOf(p.sex, nameRng);
+      const why = CASE_MIX.find((c) => c.context === p.context)!.story;
+      cohortSeeds.push({ ...p, story: `At 15:00: on the ward, ${why} (synthetic patient, drawn for this run)`, dueMin: undefined }); // dueMin: seat draws it, as for the fixture 12
+    }
+  }
+
   const flowParts: Partial<VitalsSource> = flow
     ? {
         admit,
@@ -497,7 +535,11 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
     ...flowParts,
     synthetic: true,
     rules: SYNTHETIC_RULES,
-    seeds: fixtureSeeds,
+    seeds: () => {
+      // A restore never redraws, and the sim never seats a restored source: say so rather than return the wrong people.
+      if (cohort === "drawn" && saved) throw new Error("a restored drawn cohort has no seeds: restore the saved Sim");
+      return cohort === "drawn" ? cohortSeeds.map((p) => ({ ...p, history: structuredClone(p.history) })) : fixtureSeeds();
+    },
 
     read(id, minute) {
       const anchor = anchors[id].vitals;

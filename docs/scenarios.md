@@ -19,22 +19,28 @@ The top bar's scenario select lists these. Each sets a scenario file, a hospital
 
 ## The seed pill
 
-The pill next to the select shows the seed. A named scenario with its own seeds shows the hospital seed and, when it differs, the vitals seed, for example `Seed 101 / 20260903`. After Shuffle, or with `seed` in the address, it shows that one number, which is used for both seeds. It is text, not an input.
+The pill next to the select shows the seed. A named scenario with its own seeds shows the hospital seed and, when it differs, the vitals seed, for example `Seed 101 / 20260903`. After Shuffle, or with `seed` in the address, it shows that one number, which is used for both seeds and draws ward W4's 12 starting patients. It is text, not an input.
 
 ## Shuffle
 
 Shuffle draws a whole number from 1 to 2147483647 with `crypto.getRandomValues`, and restarts the world with the current scenario file and that number as both the hospital seed and the vitals seed. The simulation's own random streams are not touched.
 
-Limit: ward W4's first 12 patients are the same people under every seed. A shuffle changes their noise, how long they stay and who arrives later. It does not draw new W4 patients.
+A shuffled seed draws 12 new ward W4 patients. The same seed gives the same 12 people, so a copied address repeats them. The named scenarios with no seed show the same 12 fixture patients as before.
+
+How the 12 are drawn: each one is drawn by the same code that draws an arriving patient (sex, bed, case, stay, baseline vitals, rhythm, name and age), from random streams of their own named `cohort:1` to `cohort:12`. They never use the arrival stream, so with one seed the arrivals after minute 0 are the same whether the 12 are drawn or fixture. Their ids are `c-001` to `c-012`. They are seated at minute 0 part-way through a stay, like the fixture 12. Their story line says they are synthetic patients drawn for this run. They have no invented history.
+
+Limits. A drawn group can hold two patients with the same full name; the log matches lines to patients by name. The numbers are in the test `src/sim/source.cohort.test.ts`. The runner, the trial runners, the compare runner and the viewer always use the fixture 12; only the standalone page draws.
 
 ## Repeat a run by URL
 
 The page reads `?scenario=<id>&seed=<n>` on load.
 
 - A known `scenario` id selects that scenario. Anything else gives `pitch`.
-- `seed` must be digits only, from 1 to 2147483647. It then replaces both seeds. Anything else is ignored (`12abc`, `1e3`, `-5`, a leading space, an empty value, a number that is too large).
+- `seed` must be digits only, from 1 to 2147483647. It then replaces both seeds and draws ward W4's 12 starting patients from it. Anything else is ignored (`12abc`, `1e3`, `-5`, a leading space, an empty value, a number that is too large).
 - Choosing a scenario or pressing Shuffle updates the address with `history.replaceState`. The page does not reload. The hash (`#analytics`) and other parameters (`?perf`) are kept.
 
-To repeat a run, copy the address bar. The same scenario and seed give the same run in the same build. A choice of scenario keeps the seed. With `more-nurses` against `pitch` the people and the arrivals are the same and only the ward nurse counts differ. Calm and surge change who is in the hospital at the start or who arrives. After a Shuffle, the way back to a scenario's own seeds is to remove `seed` from the address.
+`?scenario=pitch&seed=777` now means a drawn group of 12 for seed 777. This is a change from the previous build of this branch, where it kept the 12 fixture patients with seed 777. That address form has never been on main.
+
+To repeat a run, copy the address bar. The same scenario and seed give the same run in the same build. A choice of scenario keeps the seed. With `more-nurses` against `pitch` and one seed, the people and the arrivals are the same and only the ward nurse counts differ. Calm and surge change who is in the hospital at the start or who arrives. After a Shuffle, the way back to a scenario's own seeds is to remove `seed` from the address.
 
 The Analytics page restarts with the world on every scenario change, Shuffle and start.

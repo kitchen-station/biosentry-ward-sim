@@ -50,6 +50,25 @@ describe("pitch", () => {
   });
 });
 
+describe("seed draws ward W4's 12", () => {
+  const w4 = (id: string, seed: number | null) => buildWorld(id, seed).s.patients.map((p) => `${p.id}|${p.name}`);
+  it("no seed keeps the fixture 12 in every named scenario; any seed draws c-001 to c-012", () => {
+    for (const n of NAMED) {
+      expect(w4(n.id, null)).toEqual(createSyntheticSource(FIXTURE_SEED, true).seeds().map((p) => `${p.id}|${p.name}`));
+      expect(w4(n.id, null).every((x) => x.startsWith("p-"))).toBe(true);
+      expect(w4(n.id, 777).map((x) => x.split("|")[0])).toEqual(Array.from({ length: 12 }, (_, i) => `c-${String(i + 1).padStart(3, "0")}`));
+    }
+  });
+
+  it("the same seed gives the same people, another seed other people, and the hospital keeps their names", () => {
+    expect(w4("pitch", 777)).toEqual(w4("pitch", 777));
+    expect(w4("pitch", 777)).not.toEqual(w4("pitch", 778));
+    expect(w4("pitch", 777)).toEqual(w4("more-nurses", 777));
+    const w = buildWorld("pitch", 777);
+    expect(w.s.hospital!.people.filter((p) => p.unit === "W4" && p.w4Id).map((p) => p.name)).toEqual(w.s.patients.map((p) => p.name));
+  });
+});
+
 describe("more-nurses.json", () => {
   const flat = (o: unknown, path = ""): Record<string, unknown> =>
     typeof o === "object" && o !== null ? Object.assign({}, ...Object.entries(o).map(([k, v]) => flat(v, path ? `${path}.${k}` : k))) : { [path]: o };

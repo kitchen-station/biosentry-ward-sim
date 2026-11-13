@@ -159,9 +159,9 @@ export function TopBar({
             {hospital.scenarios.map((n) => <option key={n.id} value={n.id} title={n.sentence}>{n.label}</option>)}
           </select>
           {hospital.onShuffle && (
-            <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4's first 12 patients are the same people; their noise, how long they stay and who arrives later change." onClick={hospital.onShuffle}>Shuffle</button>
+            <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4 starts with 12 newly drawn synthetic patients; arrivals and the hospital change too." onClick={hospital.onShuffle}>Shuffle</button>
           )}
-          <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address">{hospital.seedText}</span>
+          <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address. With a seed, ward W4's 12 starting patients are drawn from it. Without one, they are the 12 fixture patients.">{hospital.seedText}</span>
           <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
         </>
       )}

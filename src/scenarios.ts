@@ -60,9 +60,9 @@ export function seedText(id: string, seed: number | null): string {
   return seed !== null ? `Seed ${seed}` : n.seed === n.vitalsSeed ? `Seed ${n.seed}` : `Seed ${n.seed} / ${n.vitalsSeed}`;
 }
 
-/** The standalone hospital world. A seed override sets both the hospital seed and the vitals seed. */
+/** The standalone hospital world. A seed override sets both seeds and draws ward W4's 12 starting patients from it. No seed keeps the 12 fixture patients. */
 export function buildWorld(id: string, seed: number | null): { s: Sim; src: VitalsSource } {
   const n = byId(id);
-  const src = createSyntheticSource(seed ?? n.vitalsSeed, true);
+  const src = createSyntheticSource(seed ?? n.vitalsSeed, true, undefined, seed === null ? "fixture" : "drawn");
   return { s: createHospitalSim(src, parseScenario(FILES[n.file]), seed ?? n.seed), src };
 }
