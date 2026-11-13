@@ -150,6 +150,18 @@ describe("fetchOpenWard and the request (rules 1, 3, 5)", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(await p).toEqual({ ok: false, kind: "down" });
   });
+
+  it("the timeout aborts the request, so a hung one does not stay open", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const f = (_u: string, init: RequestInit) => ((signal = init.signal ?? undefined), new Promise<Response>(() => {}));
+    const p = fetchOpenWard({ fetch: f as unknown as typeof fetch, base: BASE });
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await p).toEqual({ ok: false, kind: "down" });
+    expect(signal?.aborted).toBe(true);
+  });
 });
 
 describe("the poll (rules 5, 8)", () => {
@@ -327,6 +339,18 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     before(move, "if (watch) return", "targetAt(e)");
     expect(a).toContain("{!watch && selectList}");
     expect(a.match(/\{selectList\}/g)).toBeNull();
+  });
+
+  it("the watch effect only reads the open route: no other request, no command, no token", () => {
+    const a = app();
+    const start = a.indexOf("if (!watch) return;");
+    const watchEffect = a.slice(start, a.indexOf("}, []);", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(watchEffect).toContain("startOpenPoll(");
+    expect(watchEffect).not.toMatch(/fetch\(|XMLHttpRequest|sendBeacon|sendCommand|\/live|\/stays|\/session|Authorization|token/);
+    before(watchEffect, "watch.onBody(w)", "apply(w)"); // App keeps the latest body for a return from Analytics
+    expect(a.match(/\bsendCommand\(/g)).toHaveLength(1); // the one call that needs a token
+    expect(a).not.toMatch(/XMLHttpRequest|sendBeacon/);
   });
 
   // shortcut: pinned. main's App.tsx has 4 fetch( calls: /session, /stays, /live, /api/snapshot. Update only for a call that needs a token or is not for the open route.
