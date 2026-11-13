@@ -16,6 +16,7 @@ import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
 import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
+import { AnalyticsBoundary } from "./insights/Boundary";
 import { createWardStats, feed, summary } from "./sim/ward-stats";
 import { createReader, ease, finishedStays, type LiveView, type StayRow } from "./sim/view";
 import { createViewClock, frameDt, frameTicks } from "./clock";
@@ -39,7 +40,8 @@ const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
 // Once per page load: a restart replaces its own run.
 let CLIENT_ID: string | null = null;
 // The Analytics page loads when it is first opened. ward-stats.ts stays in this chunk: its history starts with the run.
-const Insights = lazy(() => import("./insights/Insights"));
+const loadInsights = () => import("./insights/Insights");
+let Insights = lazy(loadInsights);
 const pageOf = () => (window.location.hash === "#analytics" ? ("analytics" as const) : ("simulation" as const));
 const PERF = new URLSearchParams(window.location.search).has("perf"); // the timing readout (perf.ts); off, none of it runs
 
@@ -553,6 +555,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
           {watch ? (
             <p className="insights">Sign in to see ward analytics</p>
           ) : (
+            <AnalyticsBoundary onError={() => (Insights = lazy(loadInsights))}>
             <Suspense fallback={<p className="tag">loading</p>}>
               <Insights
                 mode={VIEW_API ? "viewer" : HOSPITAL ? "hospital" : "ward"}
@@ -561,6 +564,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
                 label={(m) => stamp(world.src, m)}
               />
             </Suspense>
+            </AnalyticsBoundary>
           )}
         </main>
       )}

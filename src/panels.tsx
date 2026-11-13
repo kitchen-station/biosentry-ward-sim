@@ -65,6 +65,14 @@ const stayLength = (stay: Stay, minute: number) =>
 
 const OUTCOME: Record<StayOutcome, string> = { discharged: "Discharged", higher_care: "Moved to higher care" };
 
+/** How the vital cards name and print each vital; the Analytics page prints them the same way. */
+export const VITAL_CARD = {
+  heart_rate: { label: "Heart rate", unit: "/min", digits: 0 },
+  respiratory_rate: { label: "Resp. rate", unit: "/min", digits: 0 },
+  spo2: { label: "SpO2", unit: "%", digits: 0 },
+  temperature: { label: "Temperature", unit: "°C", digits: 1 },
+} as const;
+
 function vitalText(p: Patient, v: Vital, minute: number, digits = 0) {
   const held = p.held[v];
   return held === null || vitalQuality(p, v, minute) === "missing" ? "--" : held.toFixed(digits);
@@ -468,10 +476,10 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
       <p className="story">{p.context}. {p.story}.</p>
       <StayScores stay={p.stay} />
       <div className="vitals">
-        {device("heart_rate", "Heart rate", "/min")}
-        {device("respiratory_rate", "Resp. rate", "/min")}
-        {device("spo2", "SpO2", "%")}
-        {device("temperature", "Temperature", "°C", 1)}
+        {device("heart_rate", VITAL_CARD.heart_rate.label, VITAL_CARD.heart_rate.unit, VITAL_CARD.heart_rate.digits)}
+        {device("respiratory_rate", VITAL_CARD.respiratory_rate.label, VITAL_CARD.respiratory_rate.unit, VITAL_CARD.respiratory_rate.digits)}
+        {device("spo2", VITAL_CARD.spo2.label, VITAL_CARD.spo2.unit, VITAL_CARD.spo2.digits)}
+        {device("temperature", VITAL_CARD.temperature.label, VITAL_CARD.temperature.unit, VITAL_CARD.temperature.digits)}
         <VitalCard
           label="Blood pressure"
           value={bpText(p)}

@@ -3,7 +3,7 @@ import { parseRule, rescore, w4Arm } from "../compare";
 import typical from "../../scenarios/hospital/typical.json?raw";
 import { createHospitalSim } from "./hospital/attach";
 import { parseScenario } from "./hospital/scenario";
-import { BEDS } from "./map";
+import { scoreNews2 } from "./news2";
 import { createSim, minuteOf, setSpeed, step, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./source";
 import { runTrial, SCENARIO_V1 } from "./trial";
@@ -40,7 +40,7 @@ describe("ward stats", () => {
     expect(sm.staff).toBeNull();
     expect(sm.hospital).toBeNull();
     expect(sm.levels.every((r) => r.low + r.low_medium + r.medium + r.high + r.not_ranked === r.beds)).toBe(true);
-    expect(sm.shifts.length).toBe(5); // 15:00 start: a part shift, then 19:00, 07:00, 19:00, 07:00
+    expect(sm.shifts.map((x) => x.start)).toEqual([-480, 240, 960, 1680, 2400]); // 15:00 start: a part shift, then 19:00, 07:00, 19:00, 07:00
     expect(sm.shifts.map((x) => x.partial)).toEqual([true, false, false, false, true]); // the 07:00 shift began before minute 0; the last has not ended
   });
 
@@ -49,10 +49,6 @@ describe("ward stats", () => {
     expect(a.s.flow).toEqual(plain.s.flow);
     expect(a.s.counts).toEqual(plain.s.counts);
   }, 120_000);
-
-  it("closes a bin after the last offset in the ward", () => {
-    expect(BEDS.length * 5 - 5).toBe(95); // the last offset in the ward, as LAST_OFFSET_S assumes
-  });
 
   it("returns a copy", () => {
     const first = summary(a.stats);
@@ -116,26 +112,60 @@ describe("hospital world", () => {
 });
 
 describe("alerts", () => {
-  it("equal the compare runner's count for news2_total_ge_5 on the same seeded run", () => {
-    const days = 3;
-    const trial = runTrial({ scenario: { ...SCENARIO_V1, format_version: 1, name: "default" }, seed: 4, days, scenarioSha256: "0".repeat(64), simCommit: "unknown", nodeMajor: 0 });
-    const byPatient = new Map<string, ReturnType<typeof rescore>>();
-    for (const r of rescore(trial["cohort.csv"])) byPatient.set(r.id, [...(byPatient.get(r.id) ?? []), r]);
-    const episodes = trial["episodes.csv"].trimEnd().split("\n").slice(1).map((l) => l.split(","));
-    const patientDays = (JSON.parse(trial["summary.json"]) as { patient_days: number }).patient_days;
-    const expected = w4Arm(byPatient, parseRule("news2_total_ge_5"), episodes, patientDays, days);
+  // One recount per seed from the trial runner's own cohort rows, scored again with scoreNews2, set against the page's stats.
+  const shiftOf = (m: number) => m - ((900 + m - 420) % 720); // 15:00 start, shifts at 07:00 and 19:00 (written out: not taken from ward-stats)
+  for (const [seed, days] of [[7, 3], [23, 5], [11, 3]] as const) {
+    it(`matches an independent recount of the trial's cohort rows, seed ${seed}, ${days} days`, () => {
+      const trial = runTrial({ scenario: { ...SCENARIO_V1, format_version: 1, name: "default" }, seed, days, scenarioSha256: "0".repeat(64), simCommit: "unknown", nodeMajor: 0 });
+      const csv = trial["cohort.csv"].trimEnd().split("\n").slice(1).map((l) => l.split(","));
+      const n = (v: string) => (v === "" ? null : Number(v));
+      const bins = new Map<number, Record<string, number>>();
+      const patientMin = new Map<number, number>();
+      for (const c of csv) {
+        const r = scoreNews2({ respiratory_rate: n(c[3]), spo2: n(c[4]), spo2_scale: Number(c[11]) as 1 | 2, supplemental_o2: c[10] === "1", systolic_bp: n(c[6]), heart_rate: n(c[2]), consciousness: c[9] as "A", temperature: n(c[5]) });
+        const level = r.kind === "score" && c[13] === "1" ? r.risk : "not_ranked";
+        const m = Number(c[1]);
+        const row = bins.get(m) ?? { low: 0, low_medium: 0, medium: 0, high: 0, not_ranked: 0, beds: 0 };
+        row[level] += 1;
+        row.beds += 1;
+        bins.set(m, row);
+        patientMin.set(shiftOf(m), (patientMin.get(shiftOf(m)) ?? 0) + 15);
+      }
+      const { stats } = run(seed, days, true);
+      const sm = summary(stats);
+      const mine = new Map(sm.levels.map(({ m, ...r }) => [m, r]));
+      expect(mine.size).toBe(bins.size);
+      expect([...mine].filter(([m, r]) => JSON.stringify(Object.entries(r).sort()) !== JSON.stringify(Object.entries(bins.get(m) ?? {}).sort())).map(([m]) => m)).toEqual([]);
+      expect(Object.fromEntries(sm.shifts.map((x) => [x.start, x.patientMin]))).toEqual(Object.fromEntries(patientMin));
+      // The alerts, as the compare runner counts them for news2_total_ge_5.
+      const byPatient = new Map<string, ReturnType<typeof rescore>>();
+      for (const r of rescore(trial["cohort.csv"])) byPatient.set(r.id, [...(byPatient.get(r.id) ?? []), r]);
+      const episodes = trial["episodes.csv"].trimEnd().split("\n").slice(1).map((l) => l.split(","));
+      const patientDays = (JSON.parse(trial["summary.json"]) as { patient_days: number }).patient_days;
+      const expected = w4Arm(byPatient, parseRule("news2_total_ge_5"), episodes, patientDays, days).alerts;
+      expect(expected).toBeGreaterThan(0);
+      expect(sm.shifts.reduce((k, x) => k + x.alerts, 0)).toBe(expected);
+    }, 300_000);
+  }
 
-    const { stats } = run(4, days, true);
-    const fed = summary(stats).shifts.reduce((n, x) => n + x.alerts, 0);
-    expect(expected.alerts).toBeGreaterThan(0);
-    expect(fed).toBe(expected.alerts);
-  }, 240_000);
+  it("keeps at most 168 hours per unit and 200 finished stays", () => {
+    const units = ["ER", "ICU", "MED3A", "MED3B", "W4", "SURG5A", "MORGUE"].map((id, i) => ({ id, name: id, floor: i, beds: 4 }));
+    const hourly = Array.from({ length: 200 }, (_, hour) => units.map((u) => ({ hour, unit: u.id, census: 1, arrivals: 0, admitted_in: 0, discharged: 0, transferred_in: 0, transferred_out: 0 }))).flat();
+    const stays = Array.from({ length: 300 }, (_, i) => ({ inMin: 1 + i, outMin: 10 + (i % 50), outcome: "discharged" }));
+    const st = createWardStats();
+    for (const c of [3600, 3600 + 200]) feed(st, { clockS: c, patients: [], stays, hospital: { units, hourly } } as unknown as Sim); // bin 60 opens, then closes after its window
+    const sm = summary(st);
+    expect(sm.levels).toHaveLength(1);
+    expect(sm.hospital!.hours).toHaveLength(168 * 7);
+    expect(sm.stays).toHaveLength(200);
+  });
 
   it("fires once, waits for 16 quiet bins, and counts a missing bin as quiet", () => {
     const st = createWardStats();
     const at = (bin: number, total: number | null) => {
-      for (const c of [59, 95]) {
-        const s = { clockS: bin * 900 + c, patients: [{ id: "p", offsetS: 0, stay: { inMin: 0 }, totals: [total], decision: { kind: "not_ranked" } }], stays: [] } as unknown as Sim;
+      for (const c of [0, 200]) {
+        const decision = total === null ? { kind: "not_ranked" } : { kind: "ranked", news2: { total, risk: "low" } };
+        const s = { clockS: bin * 900 + c, patients: [{ id: "p", nextMinute: bin * 15 + 1, rules: { sampleEveryMin: 1 }, decision }], stays: [] } as unknown as Sim;
         feed(st, s);
       }
     };
