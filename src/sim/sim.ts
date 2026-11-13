@@ -292,7 +292,7 @@ export function record(s: Sim, p: Patient, minute: number) {
   put("spo2_scale", "nurse", "ok", p.spo2Scale, { num: p.spo2Scale });
 }
 
-function gate(p: Patient, reading: Record<Vital, number | null> | null, minute: number) {
+export function gate(p: Patient, reading: Record<Vital, number | null> | null, minute: number) {
   const { sampleEveryMin, minValid, charted } = p.rules;
   let usable = reading !== null;
   for (const v of VITALS) {
@@ -324,7 +324,7 @@ function applyCharted(src: VitalsSource, p: Patient, minute: number) {
   if (chart) Object.assign(p, chart);
 }
 
-function decide(p: Patient, minute: number) {
+export function decide(p: Patient, minute: number) {
   const device = (v: Vital) => (vitalQuality(p, v, minute) === "missing" ? null : p.held[v]);
   p.decision = arbitrate(
     p.id,
@@ -796,7 +796,7 @@ export function staffStatus(s: Sim, m: Staff): { chip: Chip; text: string } {
   }
 }
 
-function seat(src: VitalsSource, seed: PatientSeed, i: number, startMinute = 0): Patient {
+export function seat(src: VitalsSource, seed: PatientSeed, i: number, startMinute = 0): Patient {
   const { rules } = src;
   const p: Patient = {
     id: seed.id,
