@@ -49,7 +49,7 @@ export function clockText(src: VitalsSource, minute: number) {
 const dateText = (minute: number) =>
   new Date(Date.UTC(2026, 8, 3, 15, minute)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
-const stamp = (src: VitalsSource, minute: number) =>
+export const stamp = (src: VitalsSource, minute: number) =>
   src.synthetic ? `${dateText(minute)}, ${clockText(src, minute)}` : clockText(src, minute);
 
 /** Exported for the test: 5d 3h, 3h 5m or 12m. */
@@ -64,6 +64,14 @@ const stayLength = (stay: Stay, minute: number) =>
   `${stay.inMin === 0 ? "at least " : ""}${duration((stay.outMin ?? minute) - stay.inMin)}`;
 
 const OUTCOME: Record<StayOutcome, string> = { discharged: "Discharged", higher_care: "Moved to higher care" };
+
+/** How the vital cards name and print each vital; the Analytics page prints them the same way. */
+export const VITAL_CARD = {
+  heart_rate: { label: "Heart rate", unit: "/min", digits: 0 },
+  respiratory_rate: { label: "Resp. rate", unit: "/min", digits: 0 },
+  spo2: { label: "SpO2", unit: "%", digits: 0 },
+  temperature: { label: "Temperature", unit: "°C", digits: 1 },
+} as const;
 
 function vitalText(p: Patient, v: Vital, minute: number, digits = 0) {
   const held = p.held[v];
@@ -112,6 +120,7 @@ export function TopBar({
   onSpeed,
   hospital,
   readClock,
+  page,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -126,11 +135,19 @@ export function TopBar({
   onSpeed?: (speed: Speed) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: string[]; onScenario: (name: string) => void };
+  /** The page shown. Left out, there is no switch. The links change the URL hash and nothing else. */
+  page?: "simulation" | "analytics";
 }) {
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
+      {page && (
+        <nav aria-label="View">
+          <a href="#simulation" aria-current={page === "simulation" ? "page" : undefined}>Simulation</a>
+          <a href="#analytics" aria-current={page === "analytics" ? "page" : undefined}>Analytics</a>
+        </nav>
+      )}
       <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
       <span className="pill" title="Simulation speed">
         {s.speed === 0 ? "Paused" : `${s.speed}x`}
@@ -459,10 +476,10 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
       <p className="story">{p.context}. {p.story}.</p>
       <StayScores stay={p.stay} />
       <div className="vitals">
-        {device("heart_rate", "Heart rate", "/min")}
-        {device("respiratory_rate", "Resp. rate", "/min")}
-        {device("spo2", "SpO2", "%")}
-        {device("temperature", "Temperature", "°C", 1)}
+        {device("heart_rate", VITAL_CARD.heart_rate.label, VITAL_CARD.heart_rate.unit, VITAL_CARD.heart_rate.digits)}
+        {device("respiratory_rate", VITAL_CARD.respiratory_rate.label, VITAL_CARD.respiratory_rate.unit, VITAL_CARD.respiratory_rate.digits)}
+        {device("spo2", VITAL_CARD.spo2.label, VITAL_CARD.spo2.unit, VITAL_CARD.spo2.digits)}
+        {device("temperature", VITAL_CARD.temperature.label, VITAL_CARD.temperature.unit, VITAL_CARD.temperature.digits)}
         <VitalCard
           label="Blood pressure"
           value={bpText(p)}

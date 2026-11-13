@@ -710,3 +710,25 @@ nav a[aria-current="page"] {
 @keyframes flip-out { 0% { transform: none; opacity: 1; } 50%, 100% { transform: rotateX(90deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .flip { animation: none; } .flip-old { display: none; } }
 .clock { font-variant-numeric: tabular-nums; }
+
+/* The Analytics page: inside the ward component, in place of the canvas and panels. The ward is hidden, not unmounted, so it keeps stepping. */
+.main[hidden] { display: none; }
+.insightsmain { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+.insights { display: grid; gap: 8px; align-content: start; padding: 8px 12px; background: var(--cream-100); border: 2px solid var(--ink-900); color: var(--ink-900); }
+.insights h2, .insights h3 { font: 600 20px var(--title); }
+.insights h4 { font: 600 16px var(--title); }
+.insights h5 { font-size: 16px; color: var(--ink-700); }
+.insights .fig { margin: 0; display: grid; gap: 4px; padding: 6px 0; border-top: 2px solid var(--cream-300); }
+.insights figcaption { color: var(--ink-700); }
+.insights .chart { width: 100%; max-width: 640px; height: auto; background: var(--cream-50); border: 1px solid var(--ink-300); }
+.insights .chart text { font-family: var(--mono); }
+.insights .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.insights .floorrow, .insights .unit { display: grid; gap: 2px; }
+.insights .floorrow { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.insights .floorrow > h5 { grid-column: 1 / -1; }
+.insights .figs { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
+.insights .figs > p { grid-column: 1 / -1; }
+.insights .fig { min-width: 0; }
+.insights .chart { max-width: 100%; }
+.insights .scroll { max-height: 220px; overflow: auto; }
+.insights select { max-width: 100%; }
