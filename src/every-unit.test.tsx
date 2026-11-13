@@ -1,13 +1,15 @@
 // Slice B: every unit shows vitals and a NEWS2 colour. No DOM: renderToStaticMarkup over a fed 2-hour seeded run, and source scans.
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import { floorSummary } from "./building";
-import { DISPLAY_ONLY, HospitalPanel, ICU_NOT_RANKED, RECOVERY_NOTE, UNIT_LABEL } from "./hospital-panels";
+import { DISPLAY_ONLY, FIRST_DAY, HospitalPanel, ICU_NOT_RANKED, RECOVERY_NOTE, UNIT_LABEL } from "./hospital-panels";
 import { parseScenario } from "./sim/hospital/scenario";
 import { createHospitalSim } from "./sim/hospital/attach";
 import { createVitals, feedVitals, unitRank, type HospitalVitals } from "./sim/hospital/vitals";
-import { setSpeed, step, type Sim } from "./sim/sim";
+import { createSim, setSpeed, step, type Sim } from "./sim/sim";
+import { Inspector } from "./panels";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
 
 const noop = () => {};
@@ -53,6 +55,7 @@ describe("the unit panels", () => {
     expect(text(html)).toContain("Not ranked: NEWS2 is a ward score.");
     expect(ICU_NOT_RANKED).toBe("Not ranked: NEWS2 is a ward score.");
     expect(html).not.toContain('<ol class="list">');
+    expect(html).not.toContain('class="score"'); // no NEWS2 total in an intensive care row
     const n = s.hospital!.people.filter((p) => p.unit === "ICU" && v.live.has(p.id)).length;
     expect(html.match(/class="mini"/g)?.length ?? 0).toBe(n);
   });
@@ -101,7 +104,7 @@ describe("a person outside W4", () => {
     const t = text(panel(`h:${q.n}`));
     expect(t).toContain(UNIT_LABEL.ICU!);
     expect(t).toContain(ICU_NOT_RANKED);
-    expect(t).not.toMatch(/NEWS2 \d+ ·/);
+    expect(t).not.toMatch(/NEWS2 \d/);
     expect(t).toContain("Heart rate");
   });
 
@@ -112,6 +115,34 @@ describe("a person outside W4", () => {
     pv.spans.push({ unit: pv.unit, where: pv.where, fromMin: 0, w4Id: null, recovery: "not_modelled" });
     expect(text(panel(`h:${q.n}`))).toContain("Simulated recovery, not modelled.");
     pv.spans.pop();
+  });
+});
+
+describe("the first-day line", () => {
+  it("shows in the unit and person panels under 1440 minutes, and not from 1440", () => {
+    const h = s.hospital!;
+    const q = h.people.find((p) => p.unit === "MED3A" && v.live.has(p.id))!;
+    const ids = ["unit:MED3A", "unit:ICU", "queue:ER", `h:${q.n}`];
+    const saved = h.lastMinute;
+    try {
+      for (const [minute, shown] of [[120, true], [1439, true], [1440, false]] as const) {
+        h.lastMinute = minute;
+        for (const id of ids) expect(text(panel(id)).includes(FIRST_DAY)).toBe(shown);
+      }
+    } finally { h.lastMinute = saved; }
+    expect(FIRST_DAY).toBe("First day: everyone starts as a new admission, so scores run high.");
+  });
+});
+
+describe("W4's own patient panel", () => {
+  it("keeps the markup of its vital cards (pinned before the cards moved to vital-cards.tsx)", () => {
+    const src = createSyntheticSource(FIXTURE_SEED, true);
+    const w = createSim(src);
+    const p = w.patients.find((x) => x.bp !== null)!; // a patient with a cuff reading: the BP form, which draws from the source in render, is not rendered
+    const html = renderToStaticMarkup(<Inspector s={w} src={src} selected={p.id} onSelect={noop} onTimeline={noop} />);
+    const cards = html.slice(html.indexOf('<div class="vitals">'), html.indexOf('<div class="actions">'));
+    expect(cards.match(/class="vital"/g)).toHaveLength(5);
+    expect(createHash("sha256").update(cards).digest("hex").slice(0, 16)).toBe("517e492f32d0ce62");
   });
 });
 

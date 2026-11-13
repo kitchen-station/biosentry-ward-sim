@@ -1,4 +1,4 @@
-// One vital-sign stream per hospital person, kept beside the hospital. The engine only. Nothing on the page uses it yet.
+// One vital-sign stream per hospital person, kept beside the hospital.
 //
 // Read-only: it reads `h.seed`, `h.lastMinute` and `h.people`, and writes only its own objects. It draws from no existing
 // random stream: each person gets a new source of their own, seeded by `vitals:${id}:v${visit}`.

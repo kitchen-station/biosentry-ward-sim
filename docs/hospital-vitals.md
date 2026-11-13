@@ -50,6 +50,17 @@ The contract's prototype measured 0.43 s without and 2.38 s with the engine on a
 
 ## On the page
 Only the standalone hospital build makes the engine. A viewer build, a watcher and the ward-only build never do, and no request is added. It is made with the world and replaced on every restart (scenario change, Shuffle, Reset). It is fed with `feedVitals` right after each `step` in the frame loop and in the chunked day skip, next to the ward-stats feed. It is display only.
+- **First day.** Everyone present at minute 0 opens as a new admission. For about the first simulated day roughly 4 in 10 are on oxygen (W4's admitted patients run near 15%) and NEWS2 5 or more is about twice W4's share. It settles after about a day. Measured in a review run, seed 101, `typical`:
+
+| Simulated time | Share at NEWS2 5 or more |
+|---|---|
+| 6 h | 32% |
+| 12 h | 27% |
+| 24 h | 15% |
+| after 24 h | 10 to 20% |
+| W4, admitted patients | 11 to 12% |
+
+  The unit and person panels say so while the hospital clock is under 24 hours from the run's start: "First day: everyone starts as a new admission, so scores run high."
 - **Canvas.** Beds and tags outside W4 take the NEWS2 risk colour of their person, from `riskBySel`. Grey means not ranked. Ward W4's drawing is unchanged. Intensive care keeps its group colours: no NEWS2 colour. The ER waiting room keeps its triage colours.
 - **Unit panels** (MED3A, MED3B, SURG5A, the ER queue panel, ICU). The unit's label, then the ranked list in the ward's own order (rank, name, bed or stretcher, NEWS2 total, the mini vitals line), then the people not ranked and why. The ER list includes the waiting room. Intensive care lists its people with their vitals and the line "Not ranked: NEWS2 is a ward score." Every one of them also says "Display only. Care in the model does not read this score."
 - **Person panel** for someone outside W4. The unit label, the NEWS2 total and risk word (in intensive care, the ward-score line), the same five vital cards as W4's patient panel, and one line of inputs: consciousness alert (not modelled), oxygen the generator's draw, blood pressure at arrival and each round (arrival only in intensive care). A person whose episode was cleared at an intensive care step-down shows "Simulated recovery, not modelled."

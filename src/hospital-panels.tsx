@@ -168,6 +168,7 @@ export const UNIT_LABEL: Partial<Record<UnitId, string>> = {
 };
 export const ICU_NOT_RANKED = "Not ranked: NEWS2 is a ward score.";
 export const DISPLAY_ONLY = "Display only. Care in the model does not read this score.";
+export const FIRST_DAY = "First day: everyone starts as a new admission, so scores run high.";
 export const RECOVERY_NOTE = "Simulated recovery, not modelled.";
 
 /** Where a person is, in the unit's own words. */
@@ -195,6 +196,7 @@ function UnitVitals({ h, id, vitals, onSelect }: { h: Hospital; id: UnitId; vita
         <p className="story">{label}</p>
         <p className="story">{ICU_NOT_RANKED}</p>
         <p className="tiny">{DISPLAY_ONLY}</p>
+        {minute < DAY && <p className="tiny">{FIRST_DAY}</p>}
         {here.length === 0 ? <p className="story">Nobody here.</p> : (
           <ul className="list">{rows(here).map((r) => <NotRankedRow key={r.key} p={r.p} sel={r.sel} name={r.name} place={r.place} minute={minute} onSelect={onSelect} selected={false} />)}</ul>
         )}
@@ -208,6 +210,7 @@ function UnitVitals({ h, id, vitals, onSelect }: { h: Hospital; id: UnitId; vita
       <h3>Vital signs</h3>
       <p className="story">{label}</p>
       <p className="tiny">{DISPLAY_ONLY}</p>
+      {minute < DAY && <p className="tiny">{FIRST_DAY}</p>}
       {ur.ranked.length === 0 ? <p className="story">Nobody ranked.</p> : (
         <ol className="list">
           {rows(ur.ranked).map((r, i) => <RankedRow key={r.key} p={r.p} rank={i + 1} sel={r.sel} name={r.name} place={r.place} minute={minute} onSelect={onSelect} selected={false} />)}
@@ -233,6 +236,7 @@ function PersonVitalsView({ h, p, pv }: { h: Hospital; p: Person; pv: PersonVita
       <VitalCards p={pv.p} minute={now(h)} charted={SYNTHETIC_RULES.charted} origin="synthetic" when={(at) => (at === null ? "no reading" : clock(at))} />
       <p className="tiny">Consciousness: alert (not modelled). Oxygen: generator&apos;s draw. BP: {icu ? "at arrival only, no rounds here" : "at arrival and each round"}.</p>
       <p className="tiny">{DISPLAY_ONLY}</p>
+      {now(h) < DAY && <p className="tiny">{FIRST_DAY}</p>}
       {pv.spans.some((x) => x.recovery === "not_modelled") && <p className="tiny">{RECOVERY_NOTE}</p>}
     </>
   );
