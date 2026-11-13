@@ -9,6 +9,7 @@ import { parseScenario } from "./sim/hospital/scenario";
 import { setSpeed, step, type Sim } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
 import * as rngModule from "./sim/hospital/rng";
+import { createWardStats, feed, summary } from "./sim/ward-stats";
 
 // FNV-1a 32-bit, as in golden.test.ts (not imported: that file stays untouched).
 const hash = (text: string) => {
@@ -202,15 +203,19 @@ describe("critical group", () => {
     expect(seedText("critical", 777)).toBe("Seed 777 · chosen group");
   });
 
-  it("reaches NEWS2 5 or more for some picked patients in 12 hours (seed 20261114)", () => {
+  it("reaches NEWS2 5 or more for some picked patients in 12 hours, and the episode table lists each chosen start (seed 20261114)", () => {
     const w = buildWorld("critical", null);
     const ids = picked(null).map(([id]) => id);
     const reached = new Set<string>();
+    const stats = createWardStats();
     setSpeed(w.s, 60);
     while (w.s.clockS < 12 * 3600) {
       step(w.s, w.src);
+      feed(stats, w.s, w.src);
       for (const p of w.s.patients) if (ids.includes(p.id) && p.decision.kind === "ranked" && p.decision.news2.total >= 5) reached.add(p.id);
     }
+    const starts = summary(stats).episodes!.map((e) => e.start);
+    for (const [, at] of picked(null)) expect(starts).toContain(at);
     expect(reached.size).toBeGreaterThanOrEqual(2);
   });
 });

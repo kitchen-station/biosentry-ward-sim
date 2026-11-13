@@ -96,13 +96,14 @@ function close(st: WardStats, s: Sim, m: number, src?: VitalsSource) {
   st.stage = null;
   const row = { m, low: 0, low_medium: 0, medium: 0, high: 0, not_ranked: 0, beds: rows.length };
   // The truth, read once per bin. A start is recorded only once the bin minute has reached it, never before.
-  // Compare's evaluated set: a stay that began after minute 0, an episode that starts inside it.
+  // An episode that starts inside the stay. Compare leaves out patients on the ward at minute 0; the page lists them too
+  // (a chosen group, or a click on "Start deterioration"). The hand-written 12 have none unless clicked.
   if (typeof src?.save === "function") {
     st.ep ??= [];
     const saved = src.save(s.patients.map((p) => p.id));
     for (const p of s.patients) {
       const t = saved.streams[p.id] as { episode: { kind: string } | null; injectAt: number | null; rampMin: number } | undefined;
-      if (!t || t.episode === null || t.injectAt === null || t.injectAt > m || p.stay.inMin <= 0 || t.injectAt < p.stay.inMin || st.epSeen.includes(p.id)) continue;
+      if (!t || t.episode === null || t.injectAt === null || t.injectAt > m || t.injectAt < p.stay.inMin || st.epSeen.includes(p.id)) continue;
       st.epSeen.push(p.id);
       st.ep.push({ id: p.id, start: t.injectAt, rampMin: t.rampMin, kind: t.episode.kind, alertMin: null, done: false });
     }

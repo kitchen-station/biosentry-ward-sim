@@ -24,6 +24,7 @@ The top bar's scenario select lists these. Each sets a scenario file, a hospital
 - It always draws the 12 (also with no seed in the address). The pick uses its own stream, `critical`, so with one seed the 12 people are the same as under "Pitch ward" with that seed. Only patients due to leave after minute 360 can be picked.
 - Each picked patient gets `inject` at a minute from 0 to 359, the same call the page's "Start deterioration" button makes. That button can still move a picked patient's start earlier.
 - Limit: if fewer than 4 of the 12 are due after 6 hours, fewer are picked. The simulation log's first line holds the real count; the page does not show that line (it shows log lines only in a machine's panel). The scenario's hover sentence always says 4. In seeds 1 to 20000 the count was never under 4. A drawn patient may also have a deterioration of its own scheduled (see below), and that is not counted.
+- The Analytics page's episode table lists each of the chosen patients after its start.
 - The seed pill reads `Seed 101 / 20261114 · chosen group`, or `Seed 777 · chosen group` with a seed.
 
 ## The seed pill
@@ -41,7 +42,7 @@ How the 12 are drawn: each one is drawn by the same code that draws an arriving 
 Limits.
 
 - A drawn group never repeats a full name: a repeat gets a new name (only the name) from its own stream `cohort:i:name`. An arriving patient can still share a name with one of the 12.
-- A drawn patient is drawn exactly as an arriving patient is, so about 6 in 100 have a simulated deterioration scheduled (the arrivals' rate), never before minute 0; about half of those start before the patient leaves. The Analytics page's episode table does not list them, because it leaves out stays that were already on the ward at the start, as the compare runner does.
+- A drawn patient is drawn exactly as an arriving patient is, so about 6 in 100 have a simulated deterioration scheduled (the arrivals' rate), never before minute 0; about half of those start before the patient leaves. The Analytics page's episode table lists each one after its start. The compare runner leaves out patients who were on the ward at the start.
 - A drawn patient's oxygen and discharge time are not linked: oxygen is drawn at the arrivals' rate and comes off at 32% of the patient's own drawn stay, counted from minute 0. The due time comes from the ward's rule for patients already present, as for the hand-written 12 (whose oxygen is fixed from the fixture and never comes off).
 - A restored source whose saved state holds no fixture id refuses `seeds()` (it throws). That covers a drawn world, and also a fixture ward saved after its 12 have all left. Nothing calls `seeds()` on a restored source.
 - The runner, the trial runners, the compare runner and the viewer always use the fixture 12; only the standalone page draws.
