@@ -1,6 +1,6 @@
-# Export for the Analytics page: `simulator.json`
+# Export for the developer page: `simulator.json`
 
-The Analytics page has a Simulator section. Its data is one file, `simulator.json`. This command makes it.
+The developer page (a separate build, see `docs/analytics.md`) has a Simulator section. Its data is one file, `simulator.json`. This command makes it.
 
 The file holds three things: the realism table, one many-seed compare, and the outcome model's block when the compare was run with `--outcome-model`. Everything in it is synthetic. Its shape is set by the data contract the two teams keep (`contract-evaluation`, Section 4).
 

@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:view": "vite --config vite.dev.config.ts",
     "build": "tsc --noEmit && vite build",
+    "build:dev": "tsc --noEmit && vite build --config vite.dev.config.ts",
     "test": "vitest run",
     "sync:evaluation": "node scripts/sync-evaluation.mjs",
     "fit": "node scripts/fit-generator.mjs",

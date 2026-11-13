@@ -1,9 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { floorOf } from "./hospital-panels";
 import { fetchOpenWard, nextGate, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
-import { PageBoundary, PageNav, onHashChange, pageFromHash } from "./nav";
 import { BedTimeline, Inspector, SelectList, selectTargets, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
@@ -36,9 +35,7 @@ const DAY_STEPS = 1440 * 60; // sim.ts skipDay: MINUTES_PER_DAY (1440, not expor
 const SKIP_CHUNK_MS = 12; // the page paints between chunks of this long
 // A hospital world needs no API and is never a viewer. Nothing is saved by the page, so a reload starts fresh.
 const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
-// Its own chunk: the ward never loads the analytics page or its data.
-const Analytics = lazy(() => import("./analytics/Analytics"));
-// Once per page load: a restart, or a visit to Analytics and back, replaces its own run.
+// Once per page load: a restart replaces its own run.
 let CLIENT_ID: string | null = null;
 const PERF = new URLSearchParams(window.location.search).has("perf"); // the timing readout (perf.ts); off, none of it runs
 
@@ -84,7 +81,6 @@ function SignIn({ onToken }: { onToken: (token: string) => void }) {
       <header className="topbar">
         <h1>BioSentry ward sim</h1>
         <span className="pill">W4</span>
-        <PageNav page="simulation" />
       </header>
       <form className="panel bp signin" onSubmit={submit}>
         <label>
@@ -115,9 +111,7 @@ function SignIn({ onToken }: { onToken: (token: string) => void }) {
 export function App() {
   // In memory only: a reload signs out.
   const [token, setToken] = useState<string | null>(null);
-  const [page, setPage] = useState(() => pageFromHash(window.location.hash));
-  useEffect(() => onHashChange(window, () => setPage(pageFromHash(window.location.hash))), []);
-  // No token in a viewer build: ask the open route once. Held here so a visit to Analytics keeps the answer.
+  // No token in a viewer build: ask the open route once.
   const [gate, setGate] = useState<Gate>("trying");
   const [first, setFirst] = useState<OpenWard | null>(null);
   useEffect(() => {
@@ -130,15 +124,6 @@ export function App() {
     });
     return () => void (off = true);
   }, [token, gate]);
-  // Before the sign-in gate: Analytics shows only committed synthetic files. The ward unmounts and its effects clean up.
-  if (page === "analytics")
-    return (
-      <PageBoundary>
-        <Suspense fallback={<p className="tag">loading</p>}>
-          <Analytics />
-        </Suspense>
-      </PageBoundary>
-    );
   const shown = screen(VIEW_API, token, gate, first);
   if (shown === "loading") return <p className="tag">loading</p>;
   if (shown === "signin") return <SignIn onToken={setToken} />;
@@ -217,7 +202,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
       setWorld({ s: sim, src: VIEW_SOURCE });
       setViewNotice(w.sim ? null : "No live ward yet");
     };
-    // Each valid answer also replaces `first` in App, so a return from Analytics shows the latest picture.
+    // Each valid answer also replaces `first` in App.
     apply(watch.first);
     return startOpenPoll({
       fetch: window.fetch.bind(window),

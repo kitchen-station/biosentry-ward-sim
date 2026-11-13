@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Connect, type Plugin } from "vite";
+import { buildGuard } from "./build-guard.ts";
 import { createApiState, handle } from "./src/bridge/api.ts";
 
 const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
@@ -54,4 +55,4 @@ function wardApi(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [react(), wardApi()] });
+export default defineConfig({ plugins: [buildGuard(), react(), wardApi()] });

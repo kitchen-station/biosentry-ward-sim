@@ -1,4 +1,3 @@
-import { PageNav } from "../nav";
 import { FILES, read } from "./data";
 import { Evaluations, Models, Pipeline, Registry, ResearchAgent, SectionBoundary, Simulator } from "./sections";
 
@@ -8,9 +7,10 @@ export function AnalyticsPage({ files }: { files: Record<string, string | undefi
   return (
     <div className="analytics">
       <header className="topbar">
-        <h1>Analytics</h1>
-        <PageNav page="analytics" />
+        <h1>Developer page</h1>
       </header>
+      <p className="tag">Build records of the project. Synthetic, not validated.</p>
+      {/* The dashboard's Pipeline and Research pages will move here later. */}
       <SectionBoundary title="Pipeline"><Pipeline d={d} /></SectionBoundary>
       <SectionBoundary title="Models"><Models d={d} /></SectionBoundary>
       <SectionBoundary title="Evaluations"><Evaluations d={d} /></SectionBoundary>
