@@ -37,7 +37,7 @@ const MAX_DEPTH = 10;
 const POINTS = 200;
 
 type Obj = Record<string, unknown>;
-type Ctx = { tokens: WeakMap<object, Map<string, string>>; direct: boolean };
+export type Ctx = { tokens: WeakMap<object, Map<string, string>>; direct: boolean };
 export type Cell = string | { code: string } | string[];
 export type Table = { caption: string; head: string[]; rows: Cell[][]; lead?: string };
 export type Curve = { label: string; ys: (number | null)[]; last: string; thinned: boolean };
@@ -49,19 +49,29 @@ const bad = (why: string): never => {
 const own = (o: Obj, k: string): unknown => (Object.hasOwn(o, k) ? o[k] : undefined);
 const obj = (v: unknown): Obj => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : bad("not an object"));
 const arr = (v: unknown, cap: number): unknown[] => (Array.isArray(v) && v.length <= cap ? v : bad("not an array within its cap"));
-const str = (v: unknown, max = MAX_STR): string => (typeof v === "string" && v.length <= max ? v : bad("not a string within its cap"));
+// No string the page reads may hold a control, a line or direction control, or a lone surrogate (no contract field is multi-line).
+const UNSAFE = /[\p{Cc}\p{Cs}\u2028\u2029\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/u;
+const str = (v: unknown, max = MAX_STR): string => (typeof v === "string" && v.length <= max && !UNSAFE.test(v) ? v : bad("not a string within its cap, or it holds a control character"));
 const oneOf = <T extends string>(v: unknown, words: readonly T[]): T => (words.includes(v as T) ? (v as T) : bad("not an allowed word"));
 
-/** The text of a number. A direct file keeps its token (1e-05, 4.0); an exported file is already rounded, so String(n). */
+/**
+ * The text of a number: its token as the file writes it (1e-05, 4.0 in a direct file). An exported file must hold its
+ * printed numbers in plain form: String(value) equals the token, no exponent, no unsafe integer.
+ * An engine whose JSON.parse gives no source text (context.source) has no token, so it prints String(value): "4" for 4.0.
+ */
 function show(c: Ctx, h: object, k: string): string {
   const v = Object.hasOwn(h, k) ? (h as Obj)[k] : undefined;
   if (typeof v !== "number" || !Number.isFinite(v)) bad(`${k} is not a number`);
-  const text = c.direct ? (c.tokens.get(h)?.get(k) ?? String(v)) : String(v); // no source text in an older browser: String(v)
-  if (!c.direct && /e/i.test(text)) bad(`${k} would print in exponent form`);
+  const token = c.tokens.get(h)?.get(k);
+  const text = token ?? String(v);
+  if (!c.direct) {
+    if (/e/i.test(text) || String(v) !== text) bad(`${k} would not print as the file writes it`);
+    if (token !== undefined && !token.includes(".") && !Number.isSafeInteger(v)) bad(`${k} is not a safe integer`);
+  }
   return text;
 }
 
-function rd(c: Ctx, h: unknown) {
+export function rd(c: Ctx, h: unknown) {
   const o = obj(h);
   const get = (k: string) => own(o, k);
   return {
@@ -86,8 +96,9 @@ const T = (caption: string, head: string[], rows: Cell[][], lead?: string): Tabl
 
 /** y values for a Sparkline from (holder, key) pairs, thinned to 200 points. */
 function curve(c: Ctx, label: string, pts: [object, string][]): Curve {
-  const k = Math.ceil(pts.length / POINTS);
-  const kept = k > 1 ? pts.filter((_, i) => i % k === 0 || i === pts.length - 1) : pts; // the step is never shown
+  const last = pts.length - 1;
+  const k = Math.max(1, Math.ceil(last / (POINTS - 1))); // at most POINTS - 1 points before the last
+  const kept = pts.length > POINTS ? pts.filter((_, i) => i % k === 0 || i === last) : pts; // the step is never shown
   const ys = kept.map(([h, key]) => {
     const v = (h as Obj)[key];
     if (v === null) return null;
@@ -95,7 +106,7 @@ function curve(c: Ctx, label: string, pts: [object, string][]): Curve {
     return v as number;
   });
   const at = ys.findLastIndex((y) => y !== null);
-  return { label, ys, last: at < 0 ? "none" : show(c, kept[at][0], kept[at][1]), thinned: k > 1 };
+  return { label, ys, last: at < 0 ? "none" : show(c, kept[at][0], kept[at][1]), thinned: pts.length > POINTS };
 }
 const listCurve = (c: Ctx, label: string, a: unknown[]) => curve(c, label, a.map((_, i) => [a, String(i)]));
 
@@ -135,12 +146,13 @@ function walk(v: unknown, depth: number): void {
 
 const FORMATS = {
   pipeline: "biosentry-evaluation/3",
-  evaluations: "biosentry-evaluation/2",
+  evaluations: "biosentry-evaluation/4",
   simulator: "biosentry-evaluation/3",
   registry: "biosentry-evaluation/2",
   "research-agent": "biosentry-evaluation/1",
 } as const;
-const REPOS = ["kitchen-station/BioSentry-Intelligence", "kitchen-station/biosentry-ward-sim"];
+const REPO = "kitchen-station/BioSentry-Intelligence";
+const REPOS = [REPO, "kitchen-station/biosentry-ward-sim"];
 
 function envelope(root: Obj, c: Ctx, name: keyof typeof FORMATS) {
   const r = rd(c, root);
@@ -197,6 +209,46 @@ const frac = (q: Rd) => `${q.n("n")} of ${q.n("d")}`;
 const fracCi = (q: Rd) => `${frac(q)}, ${q.nn("rate")} [${q.nn("lo")}, ${q.nn("hi")}]`;
 const ci = (q: Rd) => `${q.nn("value")} [${q.nn("lo")}, ${q.nn("hi")}]`;
 
+const CONF_SOURCE = "models/tier_c/confidence_check/heldout.json";
+const d4 = (q: Rd, k: string) => (/\.\d{5}/.test(q.n(k)) ? bad(`${k} has more than 4 decimals`) : q.n(k)); // the exporter rounds to at most 4 decimals
+const mean = (q: Rd) => `${d4(q, "mean")} [${d4(q, "lo")}, ${d4(q, "hi")}]`;
+
+/** The rounded copy of the held-out confidence result (v3.6). Every key of ConfidenceVariant is read, so a missing or wrong one makes the file invalid. */
+function confidence(x: Rd) {
+  const src = x.r("source");
+  const path = src.s("path", 100);
+  const sha256 = src.s("sha256", 64);
+  if (path !== CONF_SOURCE || !/^[0-9a-f]{64}$/.test(sha256)) bad("confidence source");
+  const rows = VARIANTS.map((name) => {
+    const q = x.r("variants").r(name);
+    for (const k of ["alpha", "calibration_sha256", "onnx_sha256"]) q.s(k, 100);
+    for (const k of ["q", "t", "spread"]) d4(q, k);
+    for (const k of ["j", "k", "n_calibration", "n_stays"]) q.n(k);
+    for (const k of ["binding", "conservative"]) q.yn(k);
+    for (const k of ["checked_share", "student_share"]) mean(q.r(k));
+    const pooled = q.r("pooled");
+    const notSure = q.r("not_sure");
+    const alerting = q.r("alerting_bins");
+    const alerts = q.r("new_alerts");
+    const lost = q.r("lost");
+    const both = (a: Rd) => `student ${a.n("student")}, checked ${a.n("checked")}`;
+    const lostOf = (k: string) => `${k.replace(/_/g, " ")}: any ${lost.r(k).n("any")}, early ${lost.r(k).n("early")}`;
+    return [
+      name,
+      mean(q.r("achieved_error")),
+      d4(q, "bound"),
+      q.w("verdict", ["MET", "NOT MET"]),
+      `bins ${notSure.n("bins")}, of scored bins ${notSure.n("of_scored_bins")}, of student alerting bins ${notSure.n("of_student_alerting_bins")}`,
+      both(alerting),
+      both(alerts),
+      `${lostOf("all")}; ${lostOf("not_cut_short")}`,
+      `negative bins ${pooled.n("negative_bins")}, scored bins ${pooled.n("scored_bins")}, above q ${pooled.n("above_q")}, checked ${pooled.n("checked")}, student ${pooled.n("student")}`,
+    ];
+  });
+  const head = ["Variant", "Achieved error [low, high]", "Bound", "Verdict", "Not sure", "Alerting bins", "New alerts", "Lost episodes", "Pooled, context only"];
+  return { path, sha256, table: T("Confidence check", head, rows) };
+}
+
 const evaluations = exported("evaluations", (body) => {
   const context =
     body.get("context") === null
@@ -226,10 +278,14 @@ const evaluations = exported("evaluations", (body) => {
             `${x.r("lead").nn("median_minutes")} (n ${x.r("lead").n("n")})`,
           ]),
         );
-  if (body.get("confidence") !== null) bad("confidence is null since v3.4"); // the confidence check is the direct file heldout.json
-  return { context, rules };
+  const conf = body.get("confidence") === null ? null : confidence(body.r("confidence"));
+  return { context, rules, confidence: conf };
 });
 
+// The metric names compare.json really writes (src/compare.ts); any other name makes the file invalid.
+const POOLED = ["alerts", "alerts_per_patient_per_12h_shift", "episodes_evaluated", "episodes_with_new_alert", "episodes_with_new_alert_share", "episodes_no_new_alert", "episodes_alerting_any_bin", "alerts_outside_episode_windows", "lead_median_minutes", "delay_median_minutes", "bins", "bins_alerting"] as const;
+const SPREAD = ["lead_median_minutes", "delay_median_minutes", "alerts_per_patient_per_12h_shift", "episodes_with_new_alert_share"] as const;
+const PAIRED = ["episodes_with_new_alert_under_both", "change_earlier", "same_bin", "change_later", "min", "median", "max", "mean", "sd"] as const;
 const VERDICTS = ["pass", "known miss", "fitted target", "no real comparison", "UNEXPECTED"] as const;
 const ARM_KEYS = [
   "episodes_evaluated",
@@ -243,6 +299,9 @@ const ARM_KEYS = [
   "alerts",
   "bins_alerting",
 ];
+const ASSUMED = ["zero", "half", "central", "double"] as const;
+const COUNTS = ["alerts", "bins_alerting"]; // integers in the contract, never null: they are the alert cost
+const arm = (a: Rd, k: string) => (COUNTS.includes(k) ? a.n(k) : a.nn(k));
 const STAT_KEYS = ["min", "median", "max", "mean", "sd"];
 const SPREAD_HEAD = ["Metric", "Seeds with value", "Min", "Median", "Max", "Mean", "SD"];
 const notes = (x: Rd, cap: number) => x.a("notes", cap).map((n) => str(n, 1200));
@@ -253,6 +312,7 @@ function outcome(o: Rd) {
   if (label !== LABEL) bad("outcome label");
   const p = o.r("parameter");
   const interval = p.a("interval_95", 2);
+  if (interval.length !== 2) bad("interval_95 is two numbers");
   const assumption = o.s("assumption", 1000);
   const rule = o.s("recognition_rule", 1000);
   const seeds = o.a("seeds", 100);
@@ -260,8 +320,8 @@ function outcome(o: Rd) {
   const [base, change, diff] = [arms.r("baseline"), arms.r("change"), o.r("difference")];
   const spread = o.r("spread");
   const paired = o.r("paired_episodes");
-  const sens = o.ra("sensitivity", 10);
-  if (sens.length === 0) bad("no sensitivity rows");
+  const sens = o.ra("sensitivity", 4);
+  if (sens.length !== 4 || sens.some((s, i) => s.get("assumption") !== ASSUMED[i])) bad("sensitivity is zero, half, central, double");
   return {
     label,
     lines: [
@@ -274,7 +334,7 @@ function outcome(o: Rd) {
       `seeds ${nums(c, seeds).join(", ")}`,
     ],
     tables: [
-      T("Pooled", ["Metric", "Baseline", "Change", "Difference"], ARM_KEYS.map((k) => [k, base.nn(k), change.nn(k), diff.nn(k)]), label),
+      T("Pooled", ["Metric", "Baseline", "Change", "Difference"], ARM_KEYS.map((k) => [k, arm(base, k), arm(change, k), arm(diff, k)]), label),
       T(
         "Spread over seeds",
         SPREAD_HEAD,
@@ -299,7 +359,7 @@ function outcome(o: Rd) {
       T(
         "Sensitivity",
         ["Assumed", "Odds ratio per hour", "Metric", "Baseline", "Change", "Difference"],
-        sens.map((s) => [s.w("assumption", ["zero", "half", "central", "double"]), s.n("odds_ratio_per_hour"), "modelled_excess_bad_outcomes_per_100_episodes", s.nn("baseline"), s.nn("change"), s.nn("difference")]),
+        sens.map((s) => [s.w("assumption", ASSUMED), s.n("odds_ratio_per_hour"), "modelled_excess_bad_outcomes_per_100_episodes", s.nn("baseline"), s.nn("change"), s.nn("difference")]),
         label,
       ),
     ],
@@ -330,9 +390,9 @@ const simulator = exported("simulator", (body, c) => {
           x.w("mode", ["w4_seeds"]);
           const seeds = x.a("seeds", 100);
           const kinds = ["int", "d4"] as const;
-          const pooled = x.ra("pooled", 30).map((q) => (q.w("kind", kinds), [q.s("metric"), q.nn("baseline"), q.nn("change"), q.nn("difference")]));
-          const spread = x.ra("spread", 10).map((q) => [q.s("metric"), q.n("seeds_with_value"), ...STAT_KEYS.map((k) => q.nn(k))]);
-          const paired = x.ra("paired", 15).map((q) => (q.w("kind", kinds), [q.s("metric"), q.nn("value")]));
+          const pooled = x.ra("pooled", 30).map((q) => (q.w("kind", kinds), [q.w("metric", POOLED), q.nn("baseline"), q.nn("change"), q.nn("difference")]));
+          const spread = x.ra("spread", 10).map((q) => [q.w("metric", SPREAD), q.n("seeds_with_value"), ...STAT_KEYS.map((k) => q.nn(k))]);
+          const paired = x.ra("paired", 15).map((q) => (q.w("kind", kinds), [q.w("metric", PAIRED), q.nn("value")]));
           return {
             line: `${x.s("baseline")} vs ${x.s("change")}, ${x.n("days")} days, seeds ${nums(c, seeds).join(", ")}, pairing: ${x.s("pairing_status")}`,
             tables: [T("Pooled", ["Metric", "Baseline", "Change", "Difference"], pooled), T("Spread over seeds", SPREAD_HEAD, spread), T("Paired episodes", ["Metric", "Value"], paired)],
@@ -410,7 +470,8 @@ const sync = (root: Obj, c: Ctx) => {
   const date = r.s("commit_date", 10);
   if (!/^[0-9a-f]{40}$/.test(commit) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) bad("sync commit or date");
   for (const f of r.ra("files", 100)) (f.s("path", 300), f.n("bytes"), HEX64.test(f.s("sha256", 64)) || bad("sha256"));
-  return { repo: r.s("repo", 100), commit, date };
+  if (r.get("repo") !== REPO) bad("sync repo");
+  return { repo: REPO, commit, date };
 };
 
 const manifest = (root: Obj, c: Ctx) => {
@@ -510,19 +571,6 @@ const confidenceRun = (root: Obj, c: Ctx, expect: string) => {
   return new Map<string, string>(VARIANTS.map((v) => [v, r.r("variants").r(v).yn("binding")]));
 };
 
-// D8: only the format string and the verdict word are read, until the contract names the keys.
-const heldOut = (root: Obj, c: Ctx) => {
-  const r = rd(c, root);
-  if (r.get("format") !== "biosentry-held-out/1") bad("held-out format");
-  const conf = r.get("confidence") === undefined ? null : r.r("confidence");
-  const verdicts = new Map<string, string>();
-  for (const v of VARIANTS) {
-    const x = conf && conf.get(v) !== undefined ? conf.r(v).get("verdict") : undefined;
-    if (x !== undefined) verdicts.set(v, oneOf(x, ["MET", "NOT MET"]));
-  }
-  return { verdicts };
-};
-
 const agentRun = (root: Obj, c: Ctx) => {
   const r = rd(c, root);
   if (r.get("format_version") !== 1 || r.get("synthetic") !== true) bad("agent run log");
@@ -558,7 +606,7 @@ const agentScores = (root: Obj, c: Ctx) => {
   return {};
 };
 
-const VIEWS = { pipeline, evaluations, simulator, registry, agent, sync, manifest, baseline, studentRun, studentMeta, policy, heldOut, rewardRun, calibration, confidenceRun, agentRun, agentScores };
+const VIEWS = { pipeline, evaluations, simulator, registry, agent, sync, manifest, baseline, studentRun, studentMeta, policy, rewardRun, calibration, confidenceRun, agentRun, agentScores };
 export type Kind = keyof typeof VIEWS;
 type ViewOf<K extends Kind> = ReturnType<(typeof VIEWS)[K]>;
 const EXPORTED = new Set<Kind>(["pipeline", "evaluations", "simulator", "registry", "agent"]);
@@ -579,7 +627,7 @@ export function load<K extends Kind>(kind: K, raw: string | undefined, expect = 
 
 // ---- what the page reads ----
 
-export type Src<V> = { v: V; line: { prefix: string } & Prov };
+export type Src<V> = { v: V; line: { path: string } & Prov };
 const D = "repo/";
 const P = {
   manifest: `${D}models/manifest.json`,
@@ -588,7 +636,6 @@ const P = {
   rewardNo: `${D}models/tier_b/reward_policy/no_temperature/policy.json`,
   calibAll: `${D}models/tier_c/confidence_check/calibration.json`,
   calibNo: `${D}models/tier_c/confidence_check/calibration_no_temp.json`,
-  heldOut: `${D}models/tier_c/confidence_check/heldout.json`,
   studentMeta: `${D}models/tier_c/student_vitals/metadata.json`,
   agentRun: `${D}training/agent/runs/run1.json`,
 };
@@ -599,11 +646,11 @@ export function read(files: Record<string, string | undefined>) {
   const s = rec.state === "ok" ? rec.view : null;
   const ex = <K extends Kind>(kind: K, name: string): Src<ViewOf<K>> | null => {
     const r = load(kind, files[`${name}.json`]);
-    return r.state === "ok" ? { v: r.view, line: { prefix: "", ...(r.view as unknown as { prov: Prov }).prov } } : null;
+    return r.state === "ok" ? { v: r.view, line: { path: `${name}.json`, ...(r.view as unknown as { prov: Prov }).prov } } : null;
   };
   const dr = <K extends Kind>(kind: K, path: string, expect?: string): Src<ViewOf<K>> | null => {
     const r = s ? load(kind, files[path], expect) : null;
-    return r?.state === "ok" ? { v: r.view, line: { prefix: `${path.replace(D, "")}: `, repo: s!.repo, commit: s!.commit, date: s!.date } } : null;
+    return r?.state === "ok" ? { v: r.view, line: { path: path.replace(D, ""), repo: s!.repo, commit: s!.commit, date: s!.date } } : null;
   };
   const man = dr("manifest", P.manifest);
   const run = (model: string, folder: string) => {
@@ -621,7 +668,6 @@ export function read(files: Record<string, string | undefined>) {
     baseline: dr("baseline", P.baseline),
     rewardAll: dr("policy", P.rewardAll, "tier_b/reward_policy"),
     rewardNo: dr("policy", P.rewardNo, "tier_b/reward_policy/no_temperature"),
-    heldOut: dr("heldOut", P.heldOut),
     rewardRun: dr("rewardRun", run("tier_b/reward_policy", "reward_policy"), id("tier_b/reward_policy")),
     calibAll: dr("calibration", P.calibAll, "all"),
     calibNo: dr("calibration", P.calibNo, "no_temp"),

@@ -5,6 +5,12 @@ export type Page = "simulation" | "analytics";
 /** Only exactly #analytics opens Analytics. */
 export const pageFromHash = (hash: string): Page => (hash === "#analytics" ? "analytics" : "simulation");
 
+/** Adds the hashchange listener and returns the function that removes it. */
+export const onHashChange = (target: Pick<Window, "addEventListener" | "removeEventListener">, handler: () => void): (() => void) => {
+  target.addEventListener("hashchange", handler);
+  return () => target.removeEventListener("hashchange", handler);
+};
+
 export function PageNav({ page }: { page: Page }) {
   return (
     <nav aria-label="Pages">

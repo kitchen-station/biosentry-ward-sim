@@ -1,7 +1,12 @@
 {
- "commit": "d5dde654f24ed84cc904f31e5e666591303ee324",
+ "commit": "a39659fa77c8ade43a7234d6168a737be5adf854",
  "commit_date": "2026-11-13",
  "files": [
+  {
+   "bytes": 2793,
+   "path": "frontend/src/data/evaluation/pipeline.json",
+   "sha256": "519ebc5cd3e574e3760e63e28b46002da53ab71654c600a05ab1b3f864d2bce2"
+  },
   {
    "bytes": 5966,
    "path": "frontend/src/data/evaluation/research-agent.json",

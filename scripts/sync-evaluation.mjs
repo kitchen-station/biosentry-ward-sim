@@ -10,11 +10,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = "kitchen-station/BioSentry-Intelligence";
+// https, ssh and plain path forms of the one repository, with or without .git
+export const ORIGIN = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)?kitchen-station\/BioSentry-Intelligence(?:\.git)?$/;
 const MAX_BYTES = 262144;
 const EXPORTED_DIR = "frontend/src/data/evaluation/";
 const FORMATS = {
   pipeline: "biosentry-evaluation/3",
-  evaluations: "biosentry-evaluation/2",
+  evaluations: "biosentry-evaluation/4",
   simulator: "biosentry-evaluation/3",
   registry: "biosentry-evaluation/2",
   "research-agent": "biosentry-evaluation/1",
@@ -27,6 +29,8 @@ const DIRECT = [
   "models/tier_b/reward_policy/no_temperature/policy.json",
   "models/tier_c/confidence_check/calibration.json",
   "models/tier_c/confidence_check/calibration_no_temp.json",
+  "models/tier_c/confidence_check/heldout.json", // D8: copied by name, the page prints nothing from it
+  "models/tier_c/student_vitals/held_out.json", // D9
   "models/tier_c/confidence_check/heldout.json",
   "models/tier_c/student_vitals/metadata.json",
   "training/agent/runs/run1.json",
@@ -52,7 +56,7 @@ export function sync(checkout, outDir, warn = (line) => console.error(line)) {
   const text = (buf) => buf.toString("utf8").trim();
   if (!git("rev-parse", "--git-dir")) refuse("not a git checkout");
   const remote = git("remote", "get-url", "origin");
-  if (!remote || !/(^|[/:])BioSentry-Intelligence(\.git)?$/.test(text(remote))) refuse("origin is not BioSentry-Intelligence");
+  if (!remote || !ORIGIN.test(text(remote))) refuse("origin is not BioSentry-Intelligence");
   const commitBuf = git("rev-parse", "--verify", "origin/main^{commit}");
   if (!commitBuf) refuse("no origin/main");
   const commit = text(commitBuf);

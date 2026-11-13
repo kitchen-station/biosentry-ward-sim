@@ -1,9 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { pageFromHash } from "../nav";
+import { onHashChange, pageFromHash } from "../nav";
 import { AnalyticsPage } from "./Analytics";
-import { BANNED, FILES, LABEL, load, read, type Kind } from "./data";
+import { BANNED, FILES, LABEL, load, rd, read, type Kind } from "./data";
 import { SectionBoundary } from "./sections";
 
 
@@ -28,13 +28,27 @@ const outcome = () => ({
   assumption: "ASSUMPTION text",
   recognition_rule: "RULE text",
   seeds: [1, 2, 3],
-  arms: { baseline: arm, change: { ...arm, alerts: 222 } },
+  arms: { baseline: { ...arm }, change: { ...arm, alerts: 222 } },
   difference: { ...arm, alerts: 77, bins_alerting: 33 },
   spread: { modelled_excess_bad_outcomes_per_100_episodes: { seeds_with_value: 20, ...stats }, recognition_delay_mean_hours: { seeds_with_value: 19, ...stats } },
   paired_episodes: { episodes_paired: 20, change_earlier: 10, same_minute: 5, change_later: 5, delay_difference_hours: stats, excess_difference_per_100: stats },
   sensitivity: ["zero", "half", "central", "double"].map((a, i) => ({ assumption: a, odds_ratio_per_hour: 1 + i / 100, baseline: 0.5, change: 0.6, difference: 0.1 })),
   notes: ["outcome note"],
 });
+
+const CONF_PATH = "models/tier_c/confidence_check/heldout.json";
+const est = { mean: 0.0125, lo: 0.005, hi: 0.02 };
+const confVariant = (verdict: string) => ({
+  alpha: "0.01", q: 0.0198, t: 0.006, binding: true, j: 32, k: 3207, n_calibration: 3238, n_stays: 400,
+  achieved_error: est, bound: 0.01, spread: 0.002, verdict, conservative: true, checked_share: est, student_share: est,
+  pooled: { negative_bins: 1000, scored_bins: 900, above_q: 11, checked: 12, student: 13 },
+  not_sure: { bins: 21, of_scored_bins: 900, of_student_alerting_bins: 55 },
+  alerting_bins: { student: 71, checked: 62 },
+  new_alerts: { student: 14, checked: 9 },
+  lost: { all: { any: 3, early: 2 }, not_cut_short: { any: 1, early: 0 } },
+  calibration_sha256: "ef".repeat(32), onnx_sha256: "cd".repeat(32),
+});
+const confBlock = (verdict = "NOT MET") => ({ source: { path: CONF_PATH, sha256: "12".repeat(32) }, variants: { all: confVariant(verdict), no_temp: confVariant("MET") } });
 
 const VERDICTS = ["pass", "known miss", "fitted target", "no real comparison", "UNEXPECTED"];
 const exportedFixtures = () => ({
@@ -49,10 +63,10 @@ const exportedFixtures = () => ({
       ["quality", "Quality", "planned", null],
     ].map(([id, name, state, links_to]) => ({ id, name, state, in: "vitals", out: "score", links_to })),
   }),
-  evaluations: env("evaluations", 2, {
+  evaluations: env("evaluations", 4, {
     context: { shift_hours: 12, bin_minutes: 15, ci: { level_percent: 95, resamples: 1000, generator_seed: 7, method: "percentile bootstrap" }, trials: 10, patients: 100, patient_days: 300.5, episodes_evaluated: 5, episodes_not_cut_short: 4, control_windows: 3, tuning: "tuned on some seeds" },
     rules: [{ id: "student_x", name: "Rule one", adds_to: "news2", per_shift: { value: 0.348, lo: 0.3, hi: 0.4 }, time_in_alert: frac, new_alert: { ...frac, lo: 0.2, hi: 0.9 }, any_bin: { ...frac, lo: 0.1, hi: 0.8 }, any_bin_not_cut_short: frac, chance_new: { n: 5, d: 6, rate: 0.8 }, chance_any: { n: 7, d: 8, rate: 0.9 }, excess_any_not_cut_short: null, lead: { n: 7, median_minutes: 30.5, q1_minutes: 1, q3_minutes: 2 } }],
-    confidence: null,
+    confidence: confBlock(),
   }),
   simulator: env(
     "simulator",
@@ -69,7 +83,7 @@ const exportedFixtures = () => ({
         pairing_status: "paired",
         pooled: [{ metric: "alerts_per_patient_per_12h_shift", baseline: 0.3483, change: 0.4119, difference: 0.0636, kind: "d4" }],
         spread: [{ metric: "alerts_per_patient_per_12h_shift", seeds_with_value: 20, ...stats }],
-        paired: [{ metric: "episodes_paired", value: 20, kind: "int" }],
+        paired: [{ metric: "episodes_with_new_alert_under_both", value: 20, kind: "int" }],
         notes: ["compare note"],
       },
       outcome: outcome(),
@@ -116,7 +130,6 @@ const directFixtures = (): Record<string, unknown> => ({
   [`${P}models/tier_b/reward_policy/no_temperature/policy.json`]: policy("tier_b/reward_policy/no_temperature"),
   [`${P}models/tier_c/confidence_check/calibration.json`]: { ...cal("all"), q: "@@0.019854247570037842" },
   [`${P}models/tier_c/confidence_check/calibration_no_temp.json`]: cal("no_temp"),
-  [`${P}models/tier_c/confidence_check/heldout.json`]: { format: "biosentry-held-out/1", confidence: { all: { verdict: "NOT MET" } } },
   [`${P}models/tier_c/student_vitals/metadata.json`]: { name: "tier_c/student_vitals", synthetic: true, validated: false, variants: { all: sv, no_temp: sv } },
   [`${P}training/runs/student_vitals/m1-run.json`]: { model: "tier_c/student_vitals", run_id: "m1-run", framework: "MindSpore", framework_version: "2.11.0", commit: "3d634f3", variants: { all: variant, no_temp: variant } },
   [`${P}training/runs/reward_policy/m2-run.json`]: {
@@ -210,9 +223,28 @@ describe("pageFromHash", () => {
 
 describe("the Simulation page stays light", () => {
   const src = (f: string) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  // any static import or export-from of a path under ./analytics or ../analytics: import x from, import {x} from, import "..", export .. from
+  const STATIC = /\b(?:import|export)\b[^;"']*?["']\.{1,2}\/analytics(?:\/[^"']*)?["']/;
+  it("the scanner sees every static form", () => {
+    for (const t of ['import x from "./analytics/Analytics";', 'import { x } from "../analytics/data";', 'import "./analytics/Analytics";', 'export * from "./analytics/data";', 'export { x } from "./analytics";', 'import type { T } from "./analytics/data";', 'import {\n a,\n b } from "./analytics/data";'])
+      expect(STATIC.test(t), t).toBe(true);
+    for (const t of ['import x from "./nav";', 'const a = "./analytics/x";']) expect(STATIC.test(t), t).toBe(false);
+  });
   it("does not import analytics statically", () => {
-    for (const f of ["App.tsx", "main.tsx", "panels.tsx", "nav.tsx"]) expect(src(f).replace(/import\("\.\/analytics\/Analytics"\)/g, "")).not.toMatch(/from "\.\/analytics|from "\.\.\/analytics/);
+    for (const f of ["App.tsx", "main.tsx", "panels.tsx", "nav.tsx"]) expect(src(f).replace(/import\("\.\/analytics\/Analytics"\)/g, "")).not.toMatch(STATIC);
     expect(src("App.tsx").match(/import\("\.\/analytics\/Analytics"\)/g)).toHaveLength(1);
+  });
+  it("App's effect uses onHashChange and returns its remover", () => {
+    expect(src("App.tsx")).toMatch(/useEffect\(\(\) => onHashChange\(window, /);
+  });
+  it("onHashChange adds the listener and the remover removes the same handler", () => {
+    const calls: [string, string, unknown][] = [];
+    const target = { addEventListener: (t: string, h: unknown) => calls.push(["add", t, h]), removeEventListener: (t: string, h: unknown) => calls.push(["remove", t, h]) };
+    const handler = () => {};
+    const off = onHashChange(target as never, handler);
+    expect(calls).toEqual([["add", "hashchange", handler]]);
+    off();
+    expect(calls).toEqual([["add", "hashchange", handler], ["remove", "hashchange", handler]]);
   });
 });
 
@@ -233,7 +265,8 @@ describe("states", () => {
 
   it("today's copies: some sections have data, some say not on main yet", () => {
     const secs = Object.fromEntries(sections(html(TODAY)).map((s) => [/<h2>([^<]*)</.exec(s)![1], text(s)]));
-    expect(secs.Pipeline).toMatch(/not on main yet\s*$/);
+    expect(secs.Pipeline).toContain("Stages");
+    expect(count(sections(html(TODAY))[0], "<tr>")).toBe(1 + 8); // the real pipeline.json: eight stages
     expect(secs.Simulator).toMatch(/not on main yet\s*$/);
     expect(secs.Evaluations).toContain("Context: not on main yet");
     expect(secs.Evaluations).toContain("Generations");
@@ -275,9 +308,11 @@ describe("states", () => {
     e.simulator.body.compare = null as never;
     e["research-agent"].body.scores = null as never;
     const files = { ...all(), "simulator.json": JSON.stringify(e.simulator), "research-agent.json": JSON.stringify(e["research-agent"]) };
-    delete (files as Record<string, string | undefined>)["repo/models/tier_c/confidence_check/heldout.json"];
+    const ev = exp().evaluations;
+    ev.body.confidence = null as never;
+    (files as Record<string, string>)["evaluations.json"] = JSON.stringify(ev);
     const t = text(html(files));
-    for (const w of ["Outcome: not on main yet", "Realism: not on main yet", "Compare: not on main yet", "Scores: not on main yet", "held-out: not on main yet"]) expect(t).toContain(w);
+    for (const w of ["Outcome: not on main yet", "Realism: not on main yet", "Compare: not on main yet", "Scores: not on main yet", "Confidence: not on main yet"]) expect(t).toContain(w);
   });
 
   it("a bad file shows not on main yet and the other sections still render", () => {
@@ -302,16 +337,23 @@ describe("states", () => {
     expect(t).toContain("2026-11-13"); // provenance.date, for an exported file
   });
 
-  it("thins a long curve and caps long tables", () => {
-    const e = exp();
-    e.simulator.body.realism!.rows = Array.from({ length: 200 }, (_, i) => ({ ...e.simulator.body.realism!.rows[0], check: `c${i}` }));
+  it("thins a long curve", () => {
     const run = dir()["repo/training/agent/runs/run1.json"] as { steps: unknown[][] };
     run.steps = Array.from({ length: 500 }, (_, i) => [i, "t", 1, 0.5, 1, 0.5]);
-    const h = html({ ...all(), "simulator.json": JSON.stringify(e.simulator), "repo/training/agent/runs/run1.json": JSON.stringify(run) });
-    const realism = /<caption>Realism<\/caption>.*?<\/table>/s.exec(h)![0];
-    expect(count(realism, "<tr>")).toBe(1 + 50 + 1);
-    expect(realism).toContain("more rows not shown");
-    expect(h).toContain("curve thinned");
+    expect(html({ ...all(), "repo/training/agent/runs/run1.json": JSON.stringify(run) })).toContain("curve thinned");
+  });
+
+  it("shows the Realism table whole: an UNEXPECTED last row of 56 is there, and 200 rows give 200", () => {
+    const rows = (n: number, lastVerdict: string) => Array.from({ length: n }, (_, i) => ({ ...exp().simulator.body.realism!.rows[0], check: `row-${i}`, verdict: i === n - 1 ? lastVerdict : "pass" }));
+    for (const [n, verdict] of [[56, "UNEXPECTED"], [200, "pass"]] as const) {
+      const e = exp();
+      e.simulator.body.realism!.rows = rows(n, verdict);
+      const realism = /<caption>Realism<\/caption>.*?<\/table>/s.exec(html({ ...all(), "simulator.json": JSON.stringify(e.simulator) }))![0];
+      expect(count(realism, "<tr>"), String(n)).toBe(1 + n);
+      expect(realism).toContain(`row-${n - 1}`);
+      expect(realism).not.toContain("more rows");
+      if (n === 56) expect(realism).toContain(">UNEXPECTED<");
+    }
   });
 });
 
@@ -332,7 +374,7 @@ describe("data contract v3.4", () => {
     expect(read(all()).rewardRun?.v.table.rows[1].slice(5)).toEqual(["0.6", "0.4", "0.1", "0.2", "0.05", "better"]);
     expect(read(all()).rewardRun?.v.table.rows[0].slice(5, 10)).toEqual(Array(5).fill("none")); // generation 0
   });
-  it("rules: open ids, at most 30, and confidence is null", () => {
+  it("rules: open ids, at most 30", () => {
     const e = exp();
     const rule = e.evaluations.body.rules![0];
     e.evaluations.body.rules = Array.from({ length: 30 }, () => rule);
@@ -343,11 +385,43 @@ describe("data contract v3.4", () => {
     (e.evaluations.body as { confidence: unknown }).confidence = { method: "x", target_percent: 99, rows: [] };
     expect(load("evaluations", JSON.stringify(e.evaluations)).state).toBe("invalid");
   });
-  it("D8: absent shows not on main yet; present shows the verdict as written; a wrong format is missing", () => {
-    expect(text(html(all()))).toContain("held-out all: NOT MET");
-    expect(load("heldOut", JSON.stringify({ format: "biosentry-held-out/2" })).state).toBe("invalid");
-    expect(load("heldOut", JSON.stringify({ format: "biosentry-held-out/1", confidence: { all: { verdict: "GUARANTEED" } } })).state).toBe("invalid");
-    expect(text(html(TODAY))).toContain("held-out: not on main yet");
+  it("evaluations v3.6: a confidence block shows the verdict, bound, achieved error and cost together", () => {
+    const secs = sections(html(all()));
+    const ev = secs[2];
+    const conf = /<caption>Confidence check<\/caption>.*?<\/table>/s.exec(ev)![0];
+    expect(text(conf)).toMatch(/all\s+0\.0125 \[0\.005, 0\.02\]\s+0\.01\s+NOT MET\s+bins 21, of scored bins 900, of student alerting bins 55\s+student 71, checked 62\s+student 14, checked 9\s+all: any 3, early 2; not cut short: any 1, early 0\s+negative bins 1000/);
+    expect(text(conf)).toMatch(/no_temp\s.*\sMET\s/);
+    expect(conf).toContain("Pooled, context only");
+    expect(text(ev).replace(/\s+/g, " ")).toContain(`confidence source ${CONF_PATH}, sha256 ${"12".repeat(32)}`);
+    expect(text(ev)).not.toContain("Confidence: not on main yet");
+  });
+  it("evaluations v3.6: a null confidence says Confidence: not on main yet", () => {
+    const e = exp();
+    e.evaluations.body.confidence = null as never;
+    const ev = sections(html({ ...all(), "evaluations.json": JSON.stringify(e.evaluations) }))[2];
+    expect(text(ev)).toContain("Confidence: not on main yet");
+    expect(ev).not.toContain("Confidence check");
+  });
+  it("evaluations v3.6: a verdict other than MET or NOT MET, a wrong source, a missing key, and format /2 are invalid", () => {
+    const withConf = (f: (c: ReturnType<typeof confBlock>) => void) => {
+      const e = exp();
+      const c = confBlock();
+      f(c);
+      e.evaluations.body.confidence = c as never;
+      return JSON.stringify(e.evaluations);
+    };
+    expect(load("evaluations", withConf(() => {})).state).toBe("ok");
+    for (const [name, f] of [
+      ["verdict GUARANTEED", (c: ReturnType<typeof confBlock>) => (c.variants.all.verdict = "GUARANTEED")],
+      ["verdict met", (c: ReturnType<typeof confBlock>) => (c.variants.all.verdict = "met")],
+      ["source path", (c: ReturnType<typeof confBlock>) => (c.source.path = "other.json")],
+      ["source sha256", (c: ReturnType<typeof confBlock>) => (c.source.sha256 = "zz")],
+      ["missing lost", (c: ReturnType<typeof confBlock>) => delete (c.variants.no_temp as { lost?: unknown }).lost],
+      ["a 17-digit float", (c: ReturnType<typeof confBlock>) => (c.variants.all.bound = 0.01234567890123456)],
+    ] as const) expect(load("evaluations", withConf(f)).state, name).toBe("invalid");
+    const old = JSON.parse(withConf(() => {}));
+    old.format = "biosentry-evaluation/2";
+    expect(load("evaluations", JSON.stringify(old)).state).toBe("invalid");
   });
   it("registry: the licence may be not stated", () => {
     expect(text(html(all()))).toContain("not stated");
@@ -378,7 +452,6 @@ describe("hostile files", () => {
     add(`${name}: a 10 MB string`, kind, JSON.stringify({ ...E(name), x: "a".repeat(10_000_000) }));
     add(`${name}: depth 11`, kind, { ...E(name), x: JSON.parse("[".repeat(11) + "]".repeat(11)) });
     add(`${name}: 1e999`, kind, JSON.stringify({ ...E(name), x: "@@" }).replace('"@@"', "1e999"));
-    add(`${name}: __proto__ holds the envelope`, kind, `{"__proto__": ${JSON.stringify(E(name))}}`);
     add(`${name}: a string over the cap`, kind, { ...E(name), x: "a".repeat(2001) });
   }
   const sim = (f: (b: Record<string, any>) => void) => {
@@ -387,9 +460,11 @@ describe("hostile files", () => {
     return e;
   };
   add("rate as a string", "evaluations", (() => { const e = exp().evaluations; (e.body.rules![0].new_alert as { rate: unknown }).rate = "0.5"; return e; })());
-  add("100000 rows", "simulator", sim((b) => (b.realism.rows = new Array(100000).fill(0))));
+  add("201 valid realism rows (cap 200)", "simulator", sim((b) => (b.realism.rows = Array.from({ length: 201 }, () => b.realism.rows[0]))));
   add("a printed field 1e-7", "simulator", JSON.stringify(sim((b) => (b.compare.pooled[0].baseline = 1e-7))));
   add("verdict FAIL", "simulator", sim((b) => (b.realism.rows[0].verdict = "FAIL")));
+  add("outcome label with a trailing space", "simulator", sim((b) => (b.outcome.label = LABEL + " ")));
+  add("outcome label that starts as the label", "simulator", sim((b) => (b.outcome.label = "MODEL ASSUMPTION, x")));
   add("outcome label in lower case", "simulator", sim((b) => (b.outcome.label = "model assumption")));
   add("empty sensitivity", "simulator", sim((b) => (b.outcome.sensitivity = [])));
   add("outcome assumption over 1000", "simulator", sim((b) => (b.outcome.assumption = "a".repeat(1001))));
@@ -397,7 +472,36 @@ describe("hostile files", () => {
   add("13 stages", "pipeline", (() => { const e = exp().pipeline; e.body.stages = Array.from({ length: 13 }, () => e.body.stages[0]); return e; })());
   add("registry path not null", "registry", (() => { const e = exp().registry; (e.body.datasets[0] as { path: unknown }).path = "x"; return e; })());
   add("three scores.runs", "agent", (() => { const e = exp()["research-agent"]; const s = e.body.scores!; s.runs = [s.runs[0], s.runs[1], s.runs[1]] as never; return e; })());
+  add("scores.runs with the labels swapped", "agent", (() => { const e = exp()["research-agent"]; const s = e.body.scores!; s.runs = [s.runs[1], s.runs[0]]; return e; })());
+  add("scores.runs with one run", "agent", (() => { const e = exp()["research-agent"]; const s = e.body.scores!; s.runs = [s.runs[0]]; return e; })());
   add("agent answer of 21 lines", "agent", (() => { const e = exp()["research-agent"]; e.body.questions[0].answer = Array(21).fill("x"); return e; })());
+  add("compare.pooled 31 rows (cap 30)", "simulator", sim((b) => (b.compare.pooled = Array.from({ length: 31 }, () => b.compare.pooled[0]))));
+  add("outcome.seeds 101 (cap 100)", "simulator", sim((b) => (b.outcome.seeds = Array.from({ length: 101 }, (_, i) => i))));
+  add("manifest 51 models (cap 50)", "manifest", (() => { const m = dir()["repo/models/manifest.json"] as { models: unknown[] }; m.models = Array.from({ length: 51 }, () => m.models[0]); return m; })());
+  // finding 1: a metric name outside the fixed lists
+  add("compare.pooled carries an outcome figure with no label", "simulator", sim((b) => { b.compare.pooled[0].metric = "modelled_excess_bad_outcomes_per_100_episodes"; b.outcome = null; }));
+  add("compare.pooled with an unknown metric", "simulator", sim((b) => (b.compare.pooled[0].metric = "bogus")));
+  add("compare.spread with an unknown metric", "simulator", sim((b) => (b.compare.spread[0].metric = "bogus")));
+  add("compare.paired with an unknown metric", "simulator", sim((b) => (b.compare.paired[0].metric = "bogus")));
+  // finding 3: the alert cost is a number in both arms and in the difference
+  for (const [where, key] of [["arms.baseline", "alerts"], ["arms.change", "bins_alerting"], ["difference", "alerts"], ["difference", "bins_alerting"]])
+    add(`outcome ${where}.${key} is null`, "simulator", sim((b) => { const o = where === "difference" ? b.outcome.difference : b.outcome.arms[where.slice(5)]; o[key] = null; }));
+  // finding 4: control and direction characters, lone surrogates
+  add("RLO in parameter.name", "simulator", sim((b) => (b.outcome.parameter.name = "odds\u202Eratio")));
+  add("RLO in compare.baseline", "simulator", sim((b) => (b.compare.baseline = "rule\u202E")));
+  add("NUL in a realism check", "simulator", sim((b) => (b.realism.rows[0].check = "a\u0000b")));
+  add("a newline in a realism check", "simulator", sim((b) => (b.realism.rows[0].check = "a\nb")));
+  add("a lone surrogate in compare.change", "simulator", sim((b) => (b.compare.change = "a\ud800b")));
+  add("U+2028 in a realism signal", "simulator", sim((b) => (b.realism.rows[0].signal = "a\u2028b")));
+  // finding 5: an exported printed number must print as the file writes it
+  for (const token of ["1.5e3", "12345678901234567890", "9007199254740992", "1.50", "-0"])
+    add(`exported printed number ${token}`, "simulator", JSON.stringify(sim((b) => (b.compare.pooled[0].baseline = "@@"))).replace('"@@"', token));
+  // finding 12
+  add("sensitivity with 3 rows", "simulator", sim((b) => b.outcome.sensitivity.pop()));
+  add("sensitivity out of order", "simulator", sim((b) => b.outcome.sensitivity.reverse()));
+  add("sensitivity with 5 rows", "simulator", sim((b) => b.outcome.sensitivity.push(b.outcome.sensitivity[0])));
+  add("interval_95 of 3 numbers", "simulator", sim((b) => (b.outcome.parameter.interval_95 = [1, 2, 3])));
+  add("interval_95 of 1 number", "simulator", sim((b) => (b.outcome.parameter.interval_95 = [1])));
   add("outcome not paired with its cost: a missing alerts", "simulator", sim((b) => delete b.outcome.difference.alerts));
   add("policy wrong name", "policy", { ...(dir()["repo/models/tier_b/reward_policy/policy.json"] as object), name: "other" });
   add("manifest bad run_id", "manifest", (() => { const m = dir()["repo/models/manifest.json"] as { models: { run_id: unknown }[] }; m.models[1].run_id = "../x"; return m; })());
@@ -466,8 +570,96 @@ describe("the page's source", () => {
   });
 });
 
+describe("round 2", () => {
+  const simOf = (f: (b: Record<string, any>) => void) => {
+    const e = exp().simulator;
+    f(e.body as Record<string, any>);
+    return JSON.stringify(e);
+  };
+  it("a compare file holding every listed metric name is ok", () => {
+    const POOLED = ["alerts", "alerts_per_patient_per_12h_shift", "episodes_evaluated", "episodes_with_new_alert", "episodes_with_new_alert_share", "episodes_no_new_alert", "episodes_alerting_any_bin", "alerts_outside_episode_windows", "lead_median_minutes", "delay_median_minutes", "bins", "bins_alerting"];
+    const SPREAD = ["lead_median_minutes", "delay_median_minutes", "alerts_per_patient_per_12h_shift", "episodes_with_new_alert_share"];
+    const PAIRED = ["episodes_with_new_alert_under_both", "change_earlier", "same_bin", "change_later", "min", "median", "max", "mean", "sd"];
+    const raw = simOf((b) => {
+      b.compare.pooled = POOLED.map((metric) => ({ metric, baseline: 1, change: 0.47, difference: -45, kind: "d4" }));
+      b.compare.spread = SPREAD.map((metric) => ({ metric, seeds_with_value: 20, ...stats }));
+      b.compare.paired = PAIRED.map((metric) => ({ metric, value: 0, kind: "int" }));
+    });
+    expect(load("simulator", raw).state).toBe("ok");
+    expect(text(html({ ...all(), "simulator.json": raw }))).toContain("episodes_alerting_any_bin");
+  });
+  it("exported numbers print as the file writes them: 0.47, 0, -45", () => {
+    const r = load("simulator", simOf((b) => (b.compare.pooled[0] = { metric: "alerts", baseline: 0.47, change: 0, difference: -45, kind: "d4" })));
+    expect(r.state === "ok" && r.view.compare!.tables[0].rows[0]).toEqual(["alerts", "0.47", "0", "-45"]);
+  });
+  it("thins a curve to at most 200 points and keeps the last", () => {
+    for (const n of [200, 201, 400, 401, 1000]) {
+      const run = dir()["repo/training/agent/runs/run1.json"] as { steps: unknown[][] };
+      run.steps = Array.from({ length: n }, (_, i) => [i, "t", 1, (i + 1) / 10000, 1, 0.5]);
+      const r = load("agentRun", JSON.stringify(run));
+      const c = r.state === "ok" ? r.view.curves[0] : null;
+      expect(c, String(n)).not.toBeNull();
+      expect(c!.ys.length, String(n)).toBeLessThanOrEqual(200);
+      expect(c!.ys.at(-1), String(n)).toBe(n / 10000);
+      expect(c!.last, String(n)).toBe(String(n / 10000));
+      expect(c!.thinned, String(n)).toBe(n > 200);
+    }
+  });
+  it("the reader takes a key only from the object itself, not from its prototype", () => {
+    const ctx = { tokens: new WeakMap(), direct: true };
+    const o = Object.create({ format: "x", n: 1, name: "x" });
+    expect(rd(ctx, o).get("format")).toBeUndefined();
+    expect(() => rd(ctx, o).n("n")).toThrow();
+    expect(() => rd(ctx, o).s("name")).toThrow();
+    expect(rd(ctx, { format: "x" }).get("format")).toBe("x");
+  });
+  it("sync.json is accepted only for the dashboard repository", () => {
+    const rec = (repo: string) => JSON.stringify({ repo, commit: COMMIT, commit_date: "2026-11-14", files: [] });
+    expect(load("sync", rec(DASH)).state).toBe("ok");
+    for (const repo of ["kitchen-station/biosentry-ward-sim", "someone/BioSentry-Intelligence", `${DASH}-fork`, ""]) expect(load("sync", rec(repo)).state, repo).toBe("invalid");
+  });
+  it("a provenance line is printed once per (repo, commit, date) with its files on one line", () => {
+    const secs = Object.fromEntries(sections(html(all())).map((s) => [/<h2>([^<]*)</.exec(s)![1], text(s)]));
+    expect(count(secs.Models, "from kitchen-station/BioSentry-Intelligence at")).toBe(2); // pipeline.json (11-13), the direct files (11-14)
+    expect(secs.Models).toMatch(/2026-11-14: models\/manifest\.json, models\/tier_b\/baseline\/params\.json/);
+    expect(count(secs.Evaluations, "from kitchen-station/BioSentry-Intelligence at")).toBe(2);
+    expect(count(secs.Pipeline, "from kitchen-station/BioSentry-Intelligence at")).toBe(1);
+  });
+  it("no state line while pipeline.json is missing; the stage's state when present", () => {
+    const files = all();
+    delete (files as Record<string, string | undefined>)["pipeline.json"];
+    expect(text(sections(html(files))[1])).not.toContain("state:");
+    expect(text(sections(html(all()))[1])).toContain("state: shown, does not change the ranking");
+  });
+  it("the Pipeline table shows name, state, in, out and where it is shown", () => {
+    const t = text(sections(html(all()))[0]);
+    for (const w of ["Stage", "State", "In", "Out", "Shown in"]) expect(t).toContain(w);
+    expect(t).toMatch(/NEWS2 ranking\s+live in the ranking\s+vitals\s+score\s+Models/);
+    expect(t).toMatch(/Agent\s+research only, offline\s+vitals\s+score\s+Research agent/);
+    expect(t).toMatch(/Quality\s+planned\s+vitals\s+score\s+none/);
+  });
+  it("Models shows no held-out line", () => {
+    expect(text(sections(html(all()))[1])).not.toContain("held-out");
+  });
+});
+
 describe("words a page must not hold", () => {
   it("rendered text, from fixtures and today's copies, has no banned claim", () => {
     for (const files of [all(), TODAY]) expect(BANNED.test(text(html(files)))).toBe(false);
+  });
+  it("the scanner flags a rendered banned phrase and not 'not validated'", () => {
+    const withNote = (note: string) => {
+      const e = exp();
+      e.simulator.body.compare!.notes = [note];
+      return text(html({ ...all(), "simulator.json": JSON.stringify(e.simulator) }));
+    };
+    for (const phrase of ["we use reinforcement learning here", "AI predicts deterioration"]) {
+      const t = withNote(phrase);
+      expect(t).toContain(phrase);
+      expect(BANNED.test(t), phrase).toBe(true);
+    }
+    const ok = withNote("not validated");
+    expect(ok).toContain("not validated");
+    expect(BANNED.test(ok)).toBe(false);
   });
 });

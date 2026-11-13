@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } 
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { floorOf } from "./hospital-panels";
-import { PageBoundary, PageNav, pageFromHash } from "./nav";
+import { PageBoundary, PageNav, onHashChange, pageFromHash } from "./nav";
 import { BedTimeline, Inspector, SelectList, selectTargets, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
@@ -115,11 +115,7 @@ export function App() {
   // In memory only: a reload signs out.
   const [token, setToken] = useState<string | null>(null);
   const [page, setPage] = useState(() => pageFromHash(window.location.hash));
-  useEffect(() => {
-    const onHash = () => setPage(pageFromHash(window.location.hash));
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  useEffect(() => onHashChange(window, () => setPage(pageFromHash(window.location.hash))), []);
   // Before the sign-in gate: Analytics shows only committed synthetic files. The ward unmounts and its effects clean up.
   if (page === "analytics")
     return (

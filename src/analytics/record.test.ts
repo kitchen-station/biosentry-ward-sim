@@ -43,7 +43,6 @@ describe("sync.json", () => {
         [/no_temperature\/policy\.json$/, "policy", "tier_b/reward_policy/no_temperature"],
         [/calibration\.json$/, "calibration", "all"],
         [/calibration_no_temp\.json$/, "calibration", "no_temp"],
-        [/heldout\.json$/, "heldOut"],
         [/student_vitals\/metadata\.json$/, "studentMeta"],
         [/runs\/student_vitals\//, "studentRun", path.split("/").pop()!.replace(/\.json$/, "")],
         [/runs\/reward_policy\//, "rewardRun", path.split("/").pop()!.replace(/\.json$/, "")],
@@ -51,6 +50,11 @@ describe("sync.json", () => {
         [/agent\/runs\/run1\.json$/, "agentRun"],
         [/agent\/runs\/run1\.scores\.json$/, "agentScores"],
       ];
+      if (/(heldout|held_out)\.json$/.test(path)) {
+        // D8 and D9: copied by name, the page prints nothing from them, so only their format is checked
+        expect(JSON.parse(text(path)).format, path).toBe("biosentry-held-out/1");
+        continue;
+      }
       const hit = by.find(([re]) => re.test(path));
       expect(hit, `no loader for ${path}`).toBeTruthy();
       const r = load(hit![1], text(path), hit![2]);

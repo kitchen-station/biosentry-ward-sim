@@ -1,16 +1,17 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { sync } from "./sync-evaluation.mjs";
+import { ORIGIN, sync } from "./sync-evaluation.mjs";
 
 const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { stdio: "pipe", env: { ...process.env, GIT_COMMITTER_DATE: "2026-05-06T12:00:00Z", GIT_AUTHOR_DATE: "2026-05-06T12:00:00Z" } });
 const DIR = "frontend/src/data/evaluation";
 const envelope = (section, format) => JSON.stringify({ format, section, provenance: {}, body: {}, notes: [] }) + "\n";
 
 /** A checkout whose origin/main holds `files` (path -> text). */
-function repo(files, url = "https://example.com/kitchen-station/BioSentry-Intelligence.git") {
+function repo(files, url = "https://github.com/kitchen-station/BioSentry-Intelligence.git") {
   const dir = mkdtempSync(join(tmpdir(), "sync-src-"));
   git(dir, "init", "-q");
   git(dir, "remote", "add", "origin", url);
@@ -63,7 +64,26 @@ describe("sync-evaluation", () => {
     expect(rec.commit_date).toBe("2026-05-06");
     expect(rec.repo).toBe("kitchen-station/BioSentry-Intelligence");
     expect(rec.files.map((f) => f.path)).toEqual([...rec.files.map((f) => f.path)].sort());
-    expect(rec.files[0]).toEqual({ bytes: GOOD[`${DIR}/research-agent.json`].length, path: `${DIR}/research-agent.json`, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    // each entry holds the sha256 and byte length of the source text this test wrote
+    expect(rec.files).toHaveLength(6);
+    for (const f of rec.files) {
+      const bytes = Buffer.from(GOOD[f.path]);
+      expect(f, f.path).toEqual({ bytes: bytes.length, path: f.path, sha256: createHash("sha256").update(bytes).digest("hex") });
+    }
+  });
+
+  it("copies the two held-out files by name when they are on main", () => {
+    const o = out();
+    const rec = sync(repo({ ...GOOD, "models/tier_c/confidence_check/heldout.json": "{}\n", "models/tier_c/student_vitals/held_out.json": "{}\n" }), o, quiet);
+    expect(rec.files.map((f) => f.path)).toEqual(expect.arrayContaining(["models/tier_c/confidence_check/heldout.json", "models/tier_c/student_vitals/held_out.json"]));
+    expect(existsSync(join(o, "repo/models/tier_c/student_vitals/held_out.json"))).toBe(true);
+  });
+
+  it("accepts the https, ssh and plain forms of the origin", () => {
+    for (const url of ["https://github.com/kitchen-station/BioSentry-Intelligence.git", "git@github.com:kitchen-station/BioSentry-Intelligence.git", "kitchen-station/BioSentry-Intelligence"]) {
+      expect(ORIGIN.test(url), url).toBe(true);
+      expect(sync(repo(GOOD, url), out(), quiet).files.length, url).toBe(6);
+    }
   });
 
   it("gives the same bytes on a second run, and deletes a copy that left main", () => {
@@ -103,6 +123,8 @@ describe("sync-evaluation", () => {
     return dir;
   }, /no origin\/main/);
   refused("the wrong origin", () => repo(GOOD, "https://example.com/other/repo.git"), /origin/);
+  for (const url of ["https://evil.example/x/BioSentry-Intelligence.git", "https://github.com/someone-else/BioSentry-Intelligence", "https://github.com/kitchen-station/BioSentry-Intelligence-fork"])
+    refused(`the origin ${url}`, () => repo(GOOD, url), /origin is not BioSentry-Intelligence/);
   refused("an oversize exported file", () => repo({ ...GOOD, [`${DIR}/pipeline.json`]: " ".repeat(262145) }), /over 256 KB/);
   refused("bad JSON", () => repo({ ...GOOD, [`${DIR}/pipeline.json`]: "{" }), /not UTF-8 JSON/);
   refused("a direct file that is bad JSON", () => repo({ ...GOOD, "models/manifest.json": "{" }), /not UTF-8 JSON/);

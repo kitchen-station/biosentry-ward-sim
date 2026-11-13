@@ -3,7 +3,6 @@ import { Sparkline } from "../chart";
 import type { Cell, Curve, Data, Src, Table } from "./data";
 
 const NONE = "not on main yet";
-const MAX_ROWS = 50;
 
 export const Tag = () => <p className="tag">synthetic, not validated</p>;
 
@@ -43,28 +42,33 @@ export function Tbl({ t }: { t: Table }) {
           <tr>{t.head.map((h, i) => <th key={i} scope="col">{h}</th>)}</tr>
         </thead>
         <tbody>
-          {t.rows.slice(0, MAX_ROWS).map((row, i) => (
+          {t.rows.map((row, i) => ( // no cut: every table is already within its contract cap (a realism UNEXPECTED row is never dropped)
             <tr key={i}>
               {row.map((c, j) => (j === 0 ? <th key={j} scope="row">{cell(c)}</th> : <td key={j}>{cell(c)}</td>))}
             </tr>
           ))}
-          {t.rows.length > MAX_ROWS && (
-            <tr>
-              <td colSpan={t.head.length}>more rows not shown</td>
-            </tr>
-          )}
         </tbody>
       </table>
     </div>
   );
 }
 
-const Prov = ({ s }: { s: Src<unknown> | null }) =>
-  s && (
-    <p>
-      {s.line.prefix}from {s.line.repo} at <code>{s.line.commit}</code>, {s.line.date}
+/** One line per distinct (repo, commit, date), then the files it covers. */
+function Prov({ of }: { of: (Src<unknown> | null)[] }) {
+  const groups = new Map<string, { line: Src<unknown>["line"]; paths: string[] }>();
+  for (const s of of) {
+    if (!s) continue;
+    const key = `${s.line.repo} ${s.line.commit} ${s.line.date}`;
+    const g = groups.get(key) ?? { line: s.line, paths: [] };
+    g.paths.push(s.line.path);
+    groups.set(key, g);
+  }
+  return [...groups].map(([key, { line, paths }]) => (
+    <p key={key}>
+      from {line.repo} at <code>{line.commit}</code>, {line.date}: {paths.join(", ")}
     </p>
-  );
+  ));
+}
 
 const Missing = ({ what }: { what: string }) => <p>{what}: {NONE}</p>;
 const Lines = ({ items }: { items: string[] }) => <ul>{items.map((l, i) => <li key={i}>{l}</li>)}</ul>;
@@ -84,7 +88,7 @@ const Empty = () => <p>{NONE}</p>;
 export function Pipeline({ d }: { d: Data }) {
   return d.pipeline ? (
     <>
-      <Prov s={d.pipeline} />
+      <Prov of={[d.pipeline]} />
       <Tbl t={d.pipeline.v.table} />
     </>
   ) : (
@@ -106,7 +110,6 @@ function ModelBody({ id, d }: { id: string; d: Data }) {
   if (id === "tier_b/baseline")
     return d.baseline ? (
       <>
-        <Prov s={d.baseline} />
         <p>{d.baseline.v.line}</p>
         <p>{d.baseline.v.chosen}</p>
       </>
@@ -117,14 +120,11 @@ function ModelBody({ id, d }: { id: string; d: Data }) {
     const rows = [d.rewardAll && ["all", d.rewardAll.v.cells] as const, d.rewardNo && ["no temperature", d.rewardNo.v.cells] as const].filter((x) => x !== null && x !== undefined);
     return (
       <>
-        <Prov s={d.rewardAll} />
-        <Prov s={d.rewardNo} />
         {rows.length > 0 ? (
           <Tbl t={{ caption: "Policies", head: ["Variant", "Round", "Chosen generation", "Lambda", "p", "theta", "Validation reward", "Seeds", "Stop"], rows: rows.map(([v, cells]) => [v, ...cells]) }} />
         ) : (
           <Missing what="Policies" />
         )}
-        <Prov s={d.rewardRun} />
         {d.rewardRun ? <p>{d.rewardRun.v.line}</p> : <Missing what="Run log" />}
       </>
     );
@@ -133,9 +133,6 @@ function ModelBody({ id, d }: { id: string; d: Data }) {
     const rows = [d.calibAll, d.calibNo].filter((x) => x !== null);
     return (
       <>
-        <Prov s={d.calibAll} />
-        <Prov s={d.calibNo} />
-        <Prov s={d.confRun} />
         {rows.length > 0 ? (
           <>
             <Tbl t={{ caption: "Calibration", head: ["Variant", "alpha", "q", "t", "n", "k", "j", "days", "speed", "negative bins", "binding"], rows: rows.map((r) => [...r.v.cells, d.confRun?.v.get(r.v.cells[0]) ?? NONE]) }} />
@@ -144,16 +141,12 @@ function ModelBody({ id, d }: { id: string; d: Data }) {
         ) : (
           <Missing what="Calibration" />
         )}
-        <Prov s={d.heldOut} />
-        {d.heldOut && d.heldOut.v.verdicts.size > 0 ? <Lines items={[...d.heldOut.v.verdicts].map(([v, w]) => `held-out ${v}: ${w}`)} /> : <Missing what="held-out" />}
       </>
     );
   }
   if (id === "tier_c/student_vitals")
     return (
       <>
-        <Prov s={d.studentRun} />
-        <Prov s={d.studentMeta} />
         {d.studentRun ? (
           <p>
             {d.studentRun.v.line}, run commit <code>{d.studentRun.v.commit}</code>
@@ -168,22 +161,21 @@ function ModelBody({ id, d }: { id: string; d: Data }) {
   return (
     <>
       <p>no model file</p>
-      <Prov s={d.agentRun} />
       {d.agentRun ? d.agentRun.v.curves.map((c, i) => <Chart key={i} c={c} />) : <Missing what="Run log" />}
     </>
   );
 }
 
 export function Models({ d }: { d: Data }) {
-  const any = [d.manifest, d.baseline, d.rewardAll, d.rewardNo, d.rewardRun, d.calibAll, d.calibNo, d.confRun, d.heldOut, d.studentMeta, d.studentRun, d.agentRun].some((x) => x !== null);
+  const any = [d.manifest, d.baseline, d.rewardAll, d.rewardNo, d.rewardRun, d.calibAll, d.calibNo, d.confRun, d.studentMeta, d.studentRun, d.agentRun].some((x) => x !== null);
   if (!any) return <Empty />;
   return (
     <>
-      <Prov s={d.pipeline} />
+      <Prov of={[d.pipeline, d.manifest, d.baseline, d.rewardAll, d.rewardNo, d.rewardRun, d.calibAll, d.calibNo, d.confRun, d.studentRun, d.studentMeta, d.agentRun]} />
       {MODELS.map(([id, stage, card]) => (
         <div key={id}>
           <h3>{id}</h3>
-          <p>state: {d.pipeline?.v.states.get(stage) ?? NONE}</p>
+          {d.pipeline?.v.states.has(stage) && <p>state: {d.pipeline.v.states.get(stage)}</p>}
           <p>card: {card}</p>
           <ModelBody id={id} d={d} />
         </div>
@@ -198,7 +190,7 @@ export function Evaluations({ d }: { d: Data }) {
   if (!e && policies.length === 0 && !d.agentRun) return <Empty />;
   return (
     <>
-      <Prov s={e} />
+      <Prov of={[e, d.rewardAll, d.rewardNo, d.rewardRun, d.agentRun]} />
       {e?.v.context ? (
         <>
           <p>{e.v.context.line}</p>
@@ -208,13 +200,18 @@ export function Evaluations({ d }: { d: Data }) {
         <Missing what="Context" />
       )}
       {e?.v.rules ? <Tbl t={e.v.rules} /> : <Missing what="Rules" />}
-      <Missing what="Confidence" />
-      <Prov s={d.rewardAll} />
-      <Prov s={d.rewardNo} />
-      <Prov s={d.rewardRun} />
+      {e?.v.confidence ? (
+        <>
+          <p>
+            confidence source {e.v.confidence.path}, sha256 <code>{e.v.confidence.sha256}</code>
+          </p>
+          <Tbl t={e.v.confidence.table} />
+        </>
+      ) : (
+        <Missing what="Confidence" />
+      )}
       {policies.length > 0 ? policies.map(([name, p]) => <Chart key={name} c={{ ...p!.v.curve, label: `${name}, validation reward` }} />) : <Missing what="Reward loop" />}
       {d.rewardRun ? <Tbl t={d.rewardRun.v.table} /> : <Missing what="Generations" />}
-      <Prov s={d.agentRun} />
       {d.agentRun?.v.table ? <Tbl t={d.agentRun.v.table} /> : <Missing what="Agent tuning" />}
     </>
   );
@@ -226,7 +223,7 @@ export function Simulator({ d }: { d: Data }) {
   const { realism, compare, outcome } = s.v;
   return (
     <>
-      <Prov s={s} />
+      <Prov of={[s]} />
       <p>node {s.v.node}</p>
       {realism ? (
         <>
@@ -264,7 +261,7 @@ export function Registry({ d }: { d: Data }) {
   if (!d.registry && !d.manifest) return <Empty />;
   return (
     <>
-      <Prov s={d.registry} />
+      <Prov of={[d.registry, d.manifest]} />
       {d.registry ? (
         <>
           <Tbl t={d.registry.v.datasets} />
@@ -273,7 +270,6 @@ export function Registry({ d }: { d: Data }) {
       ) : (
         <Missing what="Datasets" />
       )}
-      <Prov s={d.manifest} />
       {d.manifest ? <Tbl t={d.manifest.v.table} /> : <Missing what="Model files" />}
     </>
   );
@@ -284,7 +280,7 @@ export function ResearchAgent({ d }: { d: Data }) {
   if (!a) return <Empty />;
   return (
     <>
-      <Prov s={a} />
+      <Prov of={[a]} />
       <p>{a.v.records}</p>
       <p>
         ledger sha256 <code>{a.v.sha}</code>
