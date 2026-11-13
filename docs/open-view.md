@@ -16,7 +16,7 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 1. No credential to the open route: `credentials: "omit"`, no `headers` key at all (a simple GET), `redirect: "error"`.
 2. No name or title for a figure: staff are named only "Nurse", "Charge nurse", "Physician".
 3. Nothing is stored: no browser storage and no cookie. `cache: "no-store"`. Checked by a source scan of `src/open-view.ts` and `src/App.tsx` only.
-4. No control without a token: the top bar has no speed or Reset, the side panel has no buttons, and `/live` is not read.
+4. No control without a token: the top bar has no speed button or Reset (the speed shows as text, read-only), the side panel has no buttons, and `/live` is not read.
 5. No other API call without a token.
 6. No string from the answer reaches markup. Bed labels must match `[A-Za-z0-9][A-Za-z0-9 ._-]{0,19}` and are only matched against the map's `BEDS`.
 7. Unknown keys are ignored and never read.
