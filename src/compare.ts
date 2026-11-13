@@ -78,7 +78,7 @@ function render(r: Report, difference: unknown, nodeMajor: number): CompareFiles
     const o = r.outcome;
     const [ob, oc, od, ol, op] = [leaves(o.arms.baseline), leaves(o.arms.change), leaves(o.difference), leaves(o.spread), leaves(o.paired_episodes)];
     const ow = Math.max(...Object.keys({ ...ob, ...ol, ...op }).map((p) => p.length), 6);
-    L.push("", o.label, PARAMETER_LINE, ASSUMPTION, RECOGNITION_RULE, `${"metric".padEnd(ow)}${"baseline".padStart(14)}${"change".padStart(14)}${"difference".padStart(14)}`);
+    L.push("", o.label, PARAMETER_LINE, ASSUMPTION, RECOGNITION_RULE, "", `${o.label}: outcome model: pooled over all seeds`, `${"metric".padEnd(ow)}${"baseline".padStart(14)}${"change".padStart(14)}${"difference".padStart(14)}`);
     for (const p of Object.keys(ob)) L.push(`${p.padEnd(ow)}  ${cell(ob[p])}  ${cell(oc[p])}  ${cell(od[p])}`);
     const cols = ["seeds_with_value", "min", "median", "max", "mean", "sd"];
     L.push("", `${o.label}: outcome model: spread of the per-seed difference (change minus baseline)`, `${"metric".padEnd(ow)}${cols.map((k) => k.padStart(18)).join("")}`);
@@ -199,10 +199,10 @@ const ROUND_WATCH_MIN = PARAMS.obs.intervalMin.watch.value; // cited: NEWS2 Char
 const ROUND_CONTINUOUS_MIN = 15; // judgement: "continuous" at 7 or more read as the next 15-minute bin, the data's resolution
 const ROUND_UNRANKED_MIN = ROUND_LOW_MIN; // judgement: NOT RANKED or before the first row, the shorter choice, so it lowers delays
 const SENSITIVITY: [string, number][] = [["zero", 0], ["half", 0.5], ["central", 1], ["double", 2]]; // judgement: multiples of the log odds ratio
-const REFERENCE = `Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h`;
+const REFERENCE = `Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); secondary outcome hospital mortality (adjusted OR 1.02, 95% CI 1.0-1.04, p = 0.026; the primary outcome, critical care mortality, gave the same OR), 27.4% of 632 patients, median time 6.3 h`;
 const PARAMETER_LINE = `parameter: 1.02, the odds ratio the cited paper gives for score-to-door time measured in hours, applied here to each hour of recognition delay (that transfer is judgement) [cited: ${REFERENCE}]`;
-const ASSUMPTION = "under the assumption that each hour from the true start of an episode to its recognition multiplies the odds of a bad outcome by 1.02, as the time from a high NEWS to critical care was associated with hospital mortality in one London cohort; this is an association in other patients, not a measured effect of earlier recognition";
-const RECOGNITION_RULE = "recognition = the first 15-minute bin in the episode window where the rule is true, or the next scheduled NEWS2 round, whichever comes first (or the patient leaving, or the run ending); a round is taken to recognise the episode whatever the score at that round shows (a perfect round, judgement), which shortens delays in both arms";
+const ASSUMPTION = "under the assumption that each hour from the true start of an episode to its recognition multiplies the odds of a bad outcome by 1.02, as the time from a high NEWS to critical care was associated with hospital mortality in one London cohort; this is an association in other patients, not a measured effect of earlier recognition, and that an episode recognised after 6.3 h carries that cohort's 27.4% hospital mortality (judgement), which sets the size of every per-100 figure";
+const RECOGNITION_RULE = "recognition = the first 15-minute bin in the episode window where the rule is true, or the next scheduled NEWS2 round, whichever comes first (or the patient leaving, or the run ending); a round is taken to recognise the episode whatever the score at that round shows (a perfect round, judgement), which shortens delays in both arms; modelled excess = the modelled risk at the recognition delay minus the modelled risk at zero delay, per 100 episodes";
 
 /** Risk of a bad outcome after `hours` of recognition delay; s scales the log odds ratio. */
 export const riskAt = (s: number, hours: number) => {
@@ -295,8 +295,8 @@ function outcomeModel(runs: { ra: Rec[]; rb: Rec[] }[], costA: Cost, costB: Cost
     notes: [
       "in the hospital model W4 counts as monitored and is outside its late-recognition rule (a deterioration on W4 is one of W4's own episodes, with no notice event); this model instead assumes recognition at the next NEWS2 round when no rule bin comes first",
       "no patient changes: nobody dies on W4, no vital sign is altered and no recovery is drawn; each figure is a computed expectation per episode, in this report only",
-      `recognition here needs only a bin where the rule is true, not a new alert, and costs nothing. ${wider === null ? "These two rules are not nested: each can be true in a bin where the other is not, so the difference can have either sign." : `These two rules are nested: the ${wider} rule is true in every bin the other is. So the ${wider} rule is never recognised later, its modelled excess is never higher, and the spread of the difference cannot cross zero: that is the construction, not a finding.`} alerts and bins_alerting, change minus baseline, are ${b.alerts - a.alerts} and ${b.bins_alerting - a.bins_alerting} (negative: the change rule alerts less); this block does not weigh them`,
-      "only modelled_excess_bad_outcomes_per_100_episodes is the modelled outcome; the recognition delays and the counts by rule, by round and at leaving are timing figures and do not depend on the odds ratio",
+      `recognition here needs only a bin where the rule is true, not a new alert, and costs nothing. ${wider === null ? "These two rules are not nested: each can be true in a bin where the other is not, so the difference can have either sign." : `These two rules are nested: the ${wider} rule is true in every bin the other is. So the ${wider} rule is never recognised later, its modelled excess is never higher, and the spread of the difference cannot cross zero: that is the construction, not a finding.`} The alerts and bins_alerting, change minus baseline, are ${b.alerts - a.alerts} and ${b.bins_alerting - a.bins_alerting} (negative: the change rule alerts less); this block does not weigh them`,
+      "only modelled_excess_bad_outcomes_per_100_episodes is the modelled outcome; the recognition delays and the counts by rule, by round and at leaving are timing figures and do not depend on the odds ratio, and alerts and bins_alerting are the same counts as the main table",
       "an episode the patient left, or the run ended, before recognition is scored at that shorter delay, which understates it",
       "W4 episodes are vital-sign offsets fitted from ICU records (eICU), not illnesses with a known risk of a bad outcome",
       "the odds ratio is an observational association in another population (sustained NEWS 7 or more, admitted to critical care, London 2017-2021), timed from a high score to critical care arrival, not from a true onset to recognition",
@@ -304,7 +304,7 @@ function outcomeModel(runs: { ra: Rec[]; rb: Rec[] }[], costA: Cost, costB: Cost
       `round frequency from NEWS2 Chart 4 (RCP 2017): 12 h at 0, 4 h at 1-4 (band start), 1 h at 5 or more or a 3 in one parameter; "continuous" at 7 or more is taken as the next ${ROUND_CONTINUOUS_MIN}-minute bin and NOT RANKED as ${ROUND_UNRANKED_MIN / 60} h (both judgement)`,
       "the 27.4% at 6.3 h is the cited cohort's own hospital mortality, in patients admitted to critical care; anchoring it at that median and applying it to every W4 episode are judgement, and every per-100 figure scales with it (about p(1 - p)), so a lower-risk ward would give smaller figures; the sensitivity table varies only the odds ratio",
       "the cited 95% CI 1.0-1.04 runs from the zero row (1) to just under the double row (1.0404) of the sensitivity table; a difference whose spread crosses zero is not a finding, and at an odds ratio of 1 the difference is exactly zero",
-      `the minimums of ${OUTCOME_MIN_SEEDS} seeds (derived from 30-day runs) and ${OUTCOME_MIN_EPISODES} evaluated episodes are judgement; a seed with no evaluated episode has no value in the spread (see seeds_with_value)`,
+      `the minimums of ${OUTCOME_MIN_SEEDS} seeds (derived from the lead difference in 30-day runs) and ${OUTCOME_MIN_EPISODES} evaluated episodes are judgement; a seed with no evaluated episode has no value in the spread (see seeds_with_value)`,
     ],
   };
 }
@@ -415,6 +415,7 @@ export function compareW4Seeds(seed: number, count: number, days: number, baseli
   const arm = (which: "a" | "b") => ({ pooled: pooled(which), ...Object.fromEntries(seeds.map((s, i) => [`seed_${s}`, perSeed(runs[i][which])])) });
   const [a, b] = [arm("a"), arm("b")];
   // Seeds that gave the same cohort are one run counted several times; the spread would then be a fiction.
+  // shortcut: only the cohort hash is compared, which the real trial runner cannot fool; compare episodes too if a trial is ever injected outside tests.
   if (outcome && new Set(runs.map((r) => r.h1)).size !== count) refuse("--outcome-model: two seeds gave the same cohort, so they are not separate runs");
   const model = outcome ? outcomeModel(runs, a.pooled, b.pooled, widerOf(hitA, hitB)) : undefined;
   const metrics = ["lead_median_minutes", "delay_median_minutes", "alerts_per_patient_per_12h_shift", "episodes_with_new_alert_share"] as const;
