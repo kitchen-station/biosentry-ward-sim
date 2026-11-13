@@ -211,7 +211,6 @@ describe("critical group", () => {
       step(w.s, w.src);
       for (const p of w.s.patients) if (ids.includes(p.id) && p.decision.kind === "ranked" && p.decision.news2.total >= 5) reached.add(p.id);
     }
-    console.log("critical picked", JSON.stringify(picked(null)), "reached", [...reached]);
     expect(reached.size).toBeGreaterThanOrEqual(2);
   });
 });
