@@ -31,6 +31,8 @@ function run(seed: number, days: number, fed: boolean) {
       const bin = stats.levels.at(-1)?.m ?? -1;
       if (bin !== lastBin) {
         lastBin = bin;
+        // The seen list holds only patients on the ward now, so it cannot grow past the beds.
+        expect(stats.epSeen.filter((id) => !s.patients.some((p) => p.id === id))).toEqual([]);
         for (const e of summary(stats).episodes ?? []) {
           expect(Object.keys(e).sort()).toEqual(ALLOWED);
           expect(e.start).toBeLessThanOrEqual(minuteOf(s));

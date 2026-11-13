@@ -178,7 +178,7 @@ describe("the simulated episodes table", () => {
     expect(out).toContain("Showing the newest 50 of 60");
   });
   it("uses no outcome or judgement word in the Ward section", () => {
-    expect(ward(html)).not.toMatch(/\b(caught|missed|late|early|in time|benefit|saved|prevented|delayed|faster|better)\b/i); // whole words: "Simulated" holds "late"
+    expect(ward(html)).not.toMatch(/\b(caught|missed|late|later|early|earlier|in time|benefit|saved|prevented|delayed|faster|better)\b/i); // whole words: "Simulated" holds "late"
   });
   it("prints the stored minutes between, not one worked out from a fractional start", () => {
     expect(html).toContain("<td>15</td>"); // start 300.4, first alert 315: the page must not print 14.6

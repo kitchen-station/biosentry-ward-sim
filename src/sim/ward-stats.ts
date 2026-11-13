@@ -125,7 +125,7 @@ function close(st: WardStats, s: Sim, m: number, src?: VitalsSource) {
       if (a[0]) {
         shift.alerts += 1;
         // The first new alert in the window, as compare's w4Arm takes it.
-        const e = st.ep?.find((x) => x.id === id);
+        const e = st.ep?.find((x) => x.id === id && !x.done); // a closed row never changes
         if (e && e.alertMin === null && m >= e.start && m <= e.start + e.rampMin + WINDOW_AFTER_FULL_MIN) e.alertMin = m;
       }
       a[0] = false;
