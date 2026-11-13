@@ -2,7 +2,7 @@
 
 The pitch says the simulator is "trained on real hospital data, so heart rate, breathing, oxygen, temperature, blood pressure and heart rhythm all move the way they would in a real patient". This page says exactly how far that is true. `npm run realism` prints the numbers.
 
-Everything the simulator produces is synthetic. No patient's values are in this repository.
+Everything the simulator produces is synthetic. No patient's values are in this repository. The simulator is not validated. These checks show realism only, against ICU data and published ward figures.
 
 ## Run it
 
@@ -10,29 +10,31 @@ Everything the simulator produces is synthetic. No patient's values are in this 
 npm run realism
 ```
 
-It takes about three minutes: it runs the ward for 30 simulated days, six times. It takes no arguments. It prints one table and exits 0 when every check has the status the test suite expects. The same Node major version prints the same bytes.
+It takes about three minutes or more. Most of that is running the ward for 30 simulated days, six times. It takes no arguments. It prints one table and exits 0 when every check has the status the test suite expects. Two runs on the same machine printed the same bytes.
 
-The command adds no new check. It recomputes the checks the test suite already makes (`src/sim/sim.test.ts`, `src/sim/calibration.test.ts`, `src/sim/published.test.ts`) with the same seeds, lengths and tolerances, and prints both sides. `src/realism.test.ts` fails if the command and those tests drift apart.
+The command adds no new check. It recomputes the vital-sign and NEWS checks those tests make (`src/sim/sim.test.ts`, `src/sim/calibration.test.ts`, `src/sim/published.test.ts`), with the same seeds, lengths and tolerances, and prints both sides. Oxygen use, patch data loss and occupancy are not in it. `src/realism.test.ts` fails if a copied line or a pass/known-miss marker changes in those tests.
 
 ## The short answer, signal by signal
 
 | Signal | Fitted from | Compared with real data it was not fitted to? | Result |
 |---|---|---|---|
-| Heart rate | eICU (ICU stays), BIDMC (minute noise) | Yes: held-out eICU hospitals, and published ward percentiles (Welch 2015) | All pass |
-| Breathing | eICU, BIDMC | Yes: the same two | Passes, with one known miss: 5-minute changes are too small |
+| Heart rate | eICU (ICU stays), BIDMC (minute noise), van Goor 2022 (size of the 24-hour swing, set by hand) | Yes: held-out eICU hospitals, and published ward percentiles (Welch 2015) | All pass (the 24-hour swing is a fitted target, not evidence) |
+| Breathing | eICU, BIDMC, van Goor 2022 (24-hour swing size) | Yes: the same two | Passes, with one known miss: 5-minute changes are too small |
 | Oxygen (SpO2) | eICU, BIDMC | Yes: the same two | Known misses: 5-minute changes are too small, and the low end is too high (1st percentile 90.3 against 86) |
 | Blood pressure | eICU | Systolic only: held-out eICU hospitals and Welch 2015 | Systolic passes. Diastolic is fitted and never tested |
-| Temperature | eICU for the spread; literature for "does not rise in an episode" | No | Not compared with real data |
-| Heart rhythm | MIT-BIH Arrhythmia, AFDB, LTAFDB (Holter recordings) | No | Not compared with real data. The ECG strip on screen is drawn from the heart rate; it is not data |
+| Temperature | eICU for the slow drift and baselines. Minute noise (SD 0.1 °C) and the 24-hour swing are hand-set. Literature for "does not rise in an episode" | No (a held-out figure exists in `fitted.json`, but no test uses it) | Not compared with real data |
+| Heart rhythm | MIT-BIH Arrhythmia, AFDB, LTAFDB (Holter recordings) | No | Not compared with real data. The ECG strip on screen is drawn from the heart rate with fitted beat timing; it is not data |
 
-So "all move the way they would in a real patient" is supported by held-out comparisons for heart rate, breathing, oxygen and systolic blood pressure, with the misses listed below. For temperature and heart rhythm the simulator's constants come from real recordings, but nothing tests the result against real data.
+So the pitch line is only partly supported. For heart rate, breathing and systolic pressure, a few summary statistics (spread, 5-minute correlation, size of changes, percentiles) agree with held-out ICU data and published ward figures, within judgement tolerances. Oxygen fails two of its four checks. Nothing tests deterioration episodes, how the vitals move together, or temperature, diastolic pressure and heart rhythm against real data. The simulator is not validated.
+
+Temperature, diastolic pressure and heart rhythm are mostly fitted from real recordings. Temperature's minute noise and daily swing are hand-set. Nothing tests any of the three against real data.
 
 ## What the data is, and is not
 
-- **Intensive care stays**, not ward stays: eICU-CRD Demo 2.0.1, restricted to six-hour windows with ward-like medians. No open ward-level dataset was found.
-- **Bedside monitor recordings** (BIDMC PPG and Respiration), used for minute-to-minute noise.
+- **Intensive care stays**, not ward stays: eICU-CRD Demo 2.0.1. The drift and blood-pressure fit uses six-hour windows with ward-like medians. Deterioration episodes use hourly medians. The calibration file uses whole stays of awake adults. No open ward-level dataset was found.
+- **Bedside monitor recordings from ICU patients** (BIDMC PPG and Respiration), used for minute-to-minute noise in heart rate, breathing and SpO2.
 - **Holter and atrial fibrillation recordings** (MIT-BIH Arrhythmia, AFDB, LTAFDB), used for beat timing.
-- **Not a general ward. Not the Philippines.** The eICU hospitals are in the United States.
+- **Not a general ward. Not the Philippines.** The eICU hospitals are in the United States (Pollard 2018, cited in `NOTICE.md`).
 - "Fitted" means summary statistics (spreads, correlations, step sizes) were estimated from those recordings and now drive a random generator. No model was trained to predict anything, and no recording is replayed.
 - The table of which generator part comes from which dataset, with licences, is in the README under "Fitted to real data". Attribution is in `NOTICE.md`.
 
@@ -40,7 +42,7 @@ So "all move the way they would in a real patient" is supported by held-out comp
 
 | Verdict | Meaning |
 |---|---|
-| `pass` | The simulator's number is inside the tolerance of a real number it was not set from |
+| `pass` | The row is inside the test suite's tolerance of a real number that was not used to set it. For calibration rows, see below. Inside a known-miss check, a passing row does not clear the check |
 | `known miss` | It is outside the tolerance. The test suite marks it as an expected failure, with the reason below |
 | `fitted target` | The simulator was set from this very number, so agreement is by construction. This is not evidence of realism |
 | `no real comparison` | Fitted from real recordings, but no test compares the result with real data |
@@ -51,7 +53,7 @@ So "all move the way they would in a real patient" is supported by held-out comp
 | eICU calibration hold-out | Stays kept out of `src/sim/calibration.json` only. That file uses another hospital split, so these stays are NOT guaranteed to be outside the generator's own fit. Read these rows as a weaker check |
 | Welch 2015 | Published percentiles from monitored wards in ten US hospitals. Never used for fitting |
 | RCP 2012 | Published shares of observation sets by NEWS band, medical wards. Never used for fitting. NEWS 2012, not NEWS2 |
-| van Goor 2022 (set from) | The 24-hour swing the simulator's amplitude was set to |
+| van Goor 2022 (set from) | The 24-hour swing the simulator's amplitude was set to (COVID ward patches) |
 
 The tolerances are the test suite's own. They are judgement values, not statistical tests.
 
@@ -130,18 +132,19 @@ only ward W4 has vitals; summary statistics only; fitted and calibration data OD
 |---|---|---|---|
 | Breathing, change over 5 minutes (C5) | 1.71 | 1.96 to 3.08 | The minute noise comes from BIDMC and runs below eICU's 5-minute medians |
 | SpO2, change over 5 minutes (C9) | 0.92 | 0.94 to 1.63 | The same reason |
-| SpO2, low end (D3) | 1st and 5th percentiles 90.30 and 92.63 | 86 and 89 | Simulated patients desaturate less deeply than monitored ward patients. No cause is established |
-| Observation sets at NEWS 5 or more (E1) | 34.66% | about 20% | The test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more); real wards often fall short of that. RCP's figure is for NEWS 2012 |
+| SpO2, low end (D3) | 1st and 5th percentiles 90.30 and 92.63 | 86 and 89 | Simulated patients desaturate less deeply than monitored ward patients. No cause is established. One fact from the fit: it kept only windows with a median SpO2 of 92 to 100 |
+| Observation sets at NEWS 5 or more (E1) | 34.66% | about 20% | The README's explanation: the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more, every 30 minutes at 7 or more). The repo cites no source for how often real wards meet that frequency. RCP's figure is for NEWS 2012 |
 | Observation sets at NEWS 7 or more (E2) | 16.25% | about 10% | The same reason |
 
-The project's goals table says "three known misses". Those are the three published-figure checks (D3, E1, E2). The two calibration checks (C5, C9) are also expected failures in the test suite, so the report shows five.
+The README lists three known misses: the published-figure checks D3, E1 and E2. The two calibration checks C5 and C9 are also expected failures in the test suite, so the report shows five.
 
 A known miss that starts passing makes the command exit 1, as the test suite's expected-failure marker does. The marker must then come off.
 
 ## What is not matched or not modelled
 
 - **Temperature** is not compared with real data. It does not rise in a deterioration episode, by design: ward studies find it does not separate patients who go on to cardiac arrest from controls (see the README).
-- **Heart rhythm** is not compared with real data. There is no ECG waveform; the strip on the chart is drawn from the heart rate.
+- **Heart rhythm** is not compared with real data. No ECG signal is recorded or generated. The strip on the chart is illustrative: it is drawn from the heart rate, with beat timing from the fitted rhythm tables. Nothing analyses it.
+- **Held-out checks use fixture patients.** A and B use one patient (p-002); C uses ten patients over three days. Deterioration episodes, how the vitals move together, and the spread between patients are not compared with held-out data.
 - **Diastolic pressure** follows systolic by a fitted relation and is not tested.
 - **Blood pressure is a cuff reading** taken by a nurse. The patch does not measure it.
 - **Only ward W4 has vitals.** The other hospital units have people, beds and staff, but no vital signs.
@@ -151,4 +154,4 @@ A known miss that starts passing makes the command exit 1, as the test suite's e
 
 ## Licences
 
-`src/sim/fitted.json` and `src/sim/calibration.json` are derived from eICU-CRD Demo and are under ODbL v1.0; the other sources are ODC-By v1.0. See `NOTICE.md`. The report prints summary statistics only.
+`src/sim/fitted.json` and `src/sim/calibration.json` are derived from eICU-CRD Demo and are under ODbL v1.0; BIDMC, MIT-BIH Arrhythmia, AFDB and LTAFDB are ODC-By v1.0. See `NOTICE.md`. The report prints summary statistics only.

@@ -260,7 +260,7 @@ Limits:
 
 MIMIC-IV is not used: its terms treat derived data as sensitive, which rules it out for a public generator.
 
-`npm run realism` prints every one of these checks: the simulator's number beside the real one, the verdict and the dataset. Temperature, diastolic pressure and heart rhythm are fitted from real recordings but are not compared with real data. [docs/realism.md](docs/realism.md) says what "fitted to real data" means here, signal by signal.
+`npm run realism` prints the vital-sign and NEWS checks from `sim.test.ts`, `calibration.test.ts` and `published.test.ts`: the simulator's number beside the real one, the verdict and the dataset. It leaves out oxygen use, patch data loss and occupancy. Temperature, diastolic pressure and heart rhythm are mostly fitted from real recordings, but are not compared with real data. Temperature's minute noise and daily swing are hand-set. [docs/realism.md](docs/realism.md) says what "fitted to real data" means here, signal by signal.
 
 ### Patient flow
 
