@@ -17,7 +17,7 @@ npm run compare -- --seed 101 --days 7 --baseline scenarios/hospital/typical.jso
 - `--seed`: a whole number from 0 to 2147483647. `--days`: 1 to 60.
 - `--out`: a folder that does not exist yet. Its parent must exist. `trials/` is ignored by git.
 - Each flag is given once. `--change` given twice is refused: one run changes one thing.
-- The folder gets two files: `compare.json` (every number) and `compare.txt` (the same numbers as a table, with lists and fixed wording under it).
+- The folder gets two files: `compare.json` (every number) and `compare.txt` (the same numbers as tables, with lists and fixed wording under them).
 - The files hold no clock, no path and no file name. The same command on the same Node major version writes the same bytes.
 - Exit 0 on success. Exit 2 with one line on stderr for a refusal; nothing is written then.
 
@@ -27,7 +27,7 @@ One more flag works with rule arms only:
 npm run compare -- --seed 1 --seeds 20 --days 30 --baseline rule=news2_total_ge_5 --change rule=news2_chart_trigger --out trials/compare-seeds
 ```
 
-- `--seeds K`: run K seeds, from `--seed` upward. K is 2 to 50. The report pools them and gives the spread across seeds. Each seed is run twice for the pairing check, so 20 seeds of 30 days take about 15 to 25 minutes.
+- `--seeds K`: run K seeds, from `--seed` upward. K is 2 to 50. The report pools them and gives the spread across seeds. Each seed is run twice for the pairing check, so the run time grows with K and `--days`; 20 seeds of 30 days take many minutes.
 
 There are two modes. The baseline picks the mode.
 
@@ -66,9 +66,9 @@ The ward is read every 15 minutes (one bin).
 | `episodes_with_new_alert` and its share | Evaluated episodes where an alert fired inside the episode window. The window runs from `episode_start` to 120 minutes after the episode is fully in, both ends included. |
 | `episodes_alerting_any_bin` and its share | Evaluated episodes where the rule was true in at least one bin of the window, whether or not a new alert fired there. |
 | `alerts_outside_episode_windows` | Alerts that fired outside the patient's own episode window. See the limits: this is not the same as "false alarm". |
-| `lead_minutes` | One value per episode with a new alert: the fully-in minute minus the minute of the first new alert in the window. Positive means the alert came before the episode was fully in. Negative means it came after. |
+| `lead_minutes` (single-seed report only) | One value per episode with a new alert: the fully-in minute minus the minute of the first new alert in the window. Positive means the alert came before the episode was fully in. Negative means it came after. |
 | `lead_median_minutes` | The median of `lead_minutes`. Empty when there is none. |
-| `delay_minutes`, `delay_median_minutes` | One value per episode with a new alert: the minute of the first new alert in the window minus `episode_start`. This is when the rule first flags the episode, not when anyone acts. An episode with no new alert has no delay; it is counted in `episodes_no_new_alert` and never filled in. |
+| `delay_minutes` (single-seed report only), `delay_median_minutes` | One value per episode with a new alert: the minute of the first new alert in the window minus `episode_start`. This is when the rule first flags the episode, not when anyone acts. An episode with no new alert has no delay; it is counted in `episodes_no_new_alert` and never filled in. |
 | `episodes_no_new_alert` | Evaluated episodes with no new alert in the window. |
 | `bins`, `bins_alerting` | Rows scored, and rows where the rule was true. |
 | `paired_episodes` | The same episode under both rules. For each episode with a new alert under BOTH rules: the change rule's alert minute minus the baseline rule's. It gives how many, how often the change rule was earlier, in the same bin or later, and the min, median, max, mean and sd in minutes. Negative means the change rule warned earlier. This is the paired figure. The lead and delay medians of an arm are over that arm's own alerted episodes, which can differ between arms. |
@@ -137,15 +137,15 @@ How to read it:
 - It did not see more episodes. Both rules were true at some point inside 5 of the 6 episode windows.
 - It fired a *new* alert inside fewer windows (3 against 4). The reason is the re-arm rule: with the wider rule a patient is more often already alerting before the episode starts, so nothing new fires when the episode begins.
 - A rule that alerts more can show fewer new alerts in a window: an alert before the window keeps the patient un-armed until 16 quiet bins pass. So read `paired_episodes`: of the 3 episodes with a new alert under both rules, the chart trigger was earlier in 2 and in the same bin in 1.
-- Six episodes is a small number. One seed and 30 days show how the comparison works. They do not rank the two rules. Use `--seeds` before saying which rule is earlier.
+- Six episodes is a small number. One seed and 30 days show how the comparison works. They do not rank the two rules. Use `--seeds` before saying which rule is earlier in this model.
 
 ## Many seeds (`--seeds K`)
 
-One seed is one simulated month of one ward. `--seeds K` runs K of them and reports four things.
+One seed is one simulated run of one ward (30 days in the example below). `--seeds K` runs K of them and reports four things.
 
-- **Pooled arms** (`pooled.*`): counts added over all seeds; shares and the alert load computed from those sums; lead and delay medians over every episode of every seed (not the median of the seeds' medians).
+- **Pooled arms** (`pooled.*`): counts added over all seeds; the new-alert share and the alert load per 12-hour shift computed from those sums; lead and delay medians over every episode of every seed (not the median of the seeds' medians).
 - **Per-seed arms** (`seed_N.*`): a short list of figures for each seed, so a reader can see how much the seeds disagree.
-- **Spread** (`spread`): for four figures, the per-seed difference (change minus baseline) summarised as min, median, max, mean and sample sd. A seed where either arm has no value is left out; `seeds_with_value` says how many are in. With fewer than 2 seeds in, nothing but the count is printed. A difference whose min and max have opposite signs is not a finding. One whose signs agree is still only what this model does.
+- **Spread** (`spread`): for four figures, the per-seed difference (change minus baseline) summarised as min, median, max, mean and sample sd. A seed where either arm has no value is left out; `seeds_with_value` says how many are in. With fewer than 2 seeds in, only the count has a value; the other columns are `-` (null in the JSON). A difference whose min and max have opposite signs is not a finding. One whose signs agree is still only what this model does.
 - **Paired episodes** (`paired_episodes`): as above, pooled over all seeds. Each episode counts once; the sd treats episodes as independent.
 
 Every seed has its own pairing check, and the report prints each seed's hashes. If any seed fails it, the whole run is refused.
@@ -209,8 +209,8 @@ How to read it:
 
 - Over 20 simulated months there were 100 evaluated episodes. Each rule gave a new alert in 47 of them.
 - The chart trigger fired 973 more alerts (0.41 against 0.35 per patient per 12-hour shift). That difference is positive in all 20 seeds.
-- Of the 40 episodes with a new alert under both rules, the chart trigger was earlier in 9 and in the same 15-minute bin in 31. It was never later.
-- The medians of lead and delay come from few episodes per seed, so only some seeds have a value. Read `seeds_with_value` before the min and max.
+- Of the 40 episodes with a new alert under both rules, the chart trigger was earlier in 9 and in the same 15-minute bin in 31. It was never later. The chart trigger is true wherever the total is 5 or more, so it can be later only when an earlier alert has left it un-armed; "never later" follows mostly from how the two rules are built.
+- The medians of lead and delay come from few episodes per seed (0 to 5 with a new alert), and 3 of the 20 seeds have no value on one side or both. Read `seeds_with_value` before the min and max.
 - All of this is the simulator's behaviour. It is not a measurement of either rule on patients.
 
 ## Hospital: one group of scenario settings
@@ -293,25 +293,25 @@ How to read it:
 - **W4 has no treatment effect.** An earlier alert does not make a simulated patient better. Compare measures warnings, not outcomes.
 - **An alert delay is not a response time.** It is when a rule first flags an episode. Nobody in the run acts on it.
 - **"Outside an episode window" is not "false alarm".** A simulated patient can score high for a reason that is not a generator episode: a sick baseline, atrial fibrillation, or the scripted worsening of starting patient `p-001`. Those alerts are counted as outside. The 12 starting patients count toward the alert load, and their episodes are not evaluated.
-- **15-minute bins.** An alert minute is a bin minute, so a lead time is accurate only to within 15 minutes.
+- **15-minute bins.** An alert minute is a bin minute, so a lead time, a delay or a paired difference is accurate only to within 15 minutes.
 - **Blood pressure is a cuff reading.** It can be hours old, so a low-pressure episode shows only when a cuff is taken.
 - **Few episodes.** About 6 in 100 admissions have an episode. A short run can have none; the shares are then empty, not zero.
-- **One seed is one night.** Use several seeds before drawing any conclusion.
+- **One seed is one run.** One seed shows how the comparison works. Use `--seeds` before reading anything into a difference, and even then it is only what this model does.
 - **Hospital arms are partly paired.** The minute-0 residents and the arrival minutes are the same. The person at each arrival is checked and reported. Everything after the first differing event is not paired. A difference between arms is the model's response to the change, under the judgement values listed in the report's last note.
 - **Hospital effects are assumptions.** How staffing drives late rounds, late notice and deaths comes from judgement values in `src/sim/hospital/params.ts`.
 - **Same Node major version.** Byte-identical files are promised for the same Node major only, because the generator uses `Math.exp`, `log` and `cos`. `compare.json` records it as `node_major`. The header of `compare.txt` does not carry the Node version.
 
 ### Why compare shows no outcome
 
-The pitch says "you never know what an earlier warning would have changed. Here we can find out." What can be found out here is how early and how often each rule warns, over many seeds, with the spread. The report stops there and gives no modelled deaths or transfers, for these reasons:
+The project pitch (not in this repository) says "you never know what an earlier warning would have changed. Here we can find out." Compare can find out only part of that: how early and how often each rule warns, over many seeds, with the spread. The report stops there and gives no modelled deaths or transfers, for these reasons:
 
 1. **The hospital model treats W4 as monitored.** Its late-recognition rule is for wards without monitors, where a deterioration is noticed at the next observation round. W4 is outside that rule.
-2. **There is nothing on W4 for an outcome to attach to.** No one dies on W4: a stay ends as a discharge or a move to higher care. W4 episodes are changes in vital signs fitted from ICU records, not illnesses with a known risk.
+2. **There is nothing on W4 for an outcome to attach to.** No one dies on W4: a stay ends as a discharge or a move to higher care. W4 episodes are changes in vital signs fitted from ICU records, not illnesses with a known risk. `src/sim/hospital/params.ts` holds two unused judgement values for a later W4 death slice (`w4FatalGivenEpisode`, `w4DeathAfterFullH`); nothing reads them yet.
 3. **The hospital model's one number for this is a judgement.** `obs.excessDeathPerHour` in `src/sim/hospital/params.ts` is tagged judgement; its source was read as a search excerpt only.
 4. **About half of the episodes get no new alert in their window.** A delay for them would have to be assumed.
 5. **The README rules it out for the demo:** "The demo deliberately shows no recovery after review and no response-time figures. Either would imply an outcome benefit the product does not claim."
 
-Any outcome figure built on these timings would be an assumption, not a result. If one is added later it must be labelled as such, be off by default, use many seeds, and show how the answer moves with the assumption.
+Any outcome figure built on these timings would be an assumption, not a result. If one is added later, it should be labelled as such, be off by default, use many seeds, and show how the answer moves with the assumption.
 
 ## Refusals
 
@@ -321,7 +321,7 @@ Each is one line on stderr, exit 2, and nothing is written.
 - A seed or a number of days out of range.
 - A rule baseline with a group change, or a scenario baseline with a rule change.
 - An unknown rule; the same rule in both arms.
-- `--seeds` outside 2 to 50, with a hospital baseline, or running past the largest seed.
+- `--seeds` outside 2 to 50, with a hospital baseline, or `--seed` plus `--seeds` running past 2147483647.
 - An unknown group; a group that is not paired (`beds`, `startOccupancy`, `arrivals`); a group with the same values in both files.
 - A scenario file that cannot be read or is refused by the scenario parser.
 - An `--out` that exists, or whose parent is missing or not a folder.
@@ -330,7 +330,7 @@ Each is one line on stderr, exit 2, and nothing is written.
 ## `compare.json`
 
 ```
-{ "compare_format": 1, "synthetic": true, "mode": "w4" | "w4_seeds" | "hospital", "seed": int, "seeds": [int] (with --seeds only), "days": int, "node_major": int,
+{ "compare_format": 1, "synthetic": true, "mode": "w4" | "w4_seeds" | "hospital", "seed": int (the first seed with --seeds), "seeds": [int] (with --seeds only), "days": int, "node_major": int,
   "baseline": <rule name | the parsed baseline scenario>,
   "change": { "kind": "rule" | "group", "name": string, "fields": [{ "path", "baseline", "change" }] },
   "pairing": { "status": string, "same_person_at_each_arrival": bool, "lines": [string] },
