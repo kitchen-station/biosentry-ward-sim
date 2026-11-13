@@ -4,8 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { compare, compareHospital, compareW4, compareW4Seeds, pairedDiffs, pairedOf, pairEvents, pooledMedian, parseRule, Refusal, rescore, spreadOf, w4Arm } from "./compare";
+import { compare, compareHospital, compareW4, compareW4Seeds, excessAt, pairedDiffs, pairedOf, pairEvents, pooledMedian, parseRule, recognition, Refusal, rescore, riskAt, spreadOf, w4Arm } from "./compare";
+import { PARAMS } from "./sim/hospital/params";
 import { parseScenario } from "./sim/hospital/scenario";
+import { scoreNews2 } from "./sim/news2";
 import { LIMITS } from "./sim/hospital/trial";
 import { COHORT_HEADER, EPISODES_HEADER, runTrial, SCENARIO_V1 } from "./sim/trial";
 
@@ -20,12 +22,25 @@ const args = (seed: number, days: number, baseline: string, change: string, out 
 const w4 = (days = 3) => args(4, days, "rule=news2_total_ge_5", "rule=news2_chart_trigger");
 const sha = (t: string) => createHash("sha256").update(t).digest("hex");
 
+// Without --outcome-model every report must stay byte-identical to the one the code at f1c044a wrote.
+// These are sha256 hashes taken at f1c044a, before compare.ts was changed, of compare.json and compare.txt for
+//   a: --seed 4 --days 3, b: --seed 4 --seeds 2 --days 7 (both rule=news2_total_ge_5 against rule=news2_chart_trigger),
+//   c: --seed 101 --days 1, typical.json against nurses=doh-standard.json.
+// compare.json holds node_major, so its hash is over the text with that one line removed; compare.txt holds no Node version.
+const PINS: Record<string, [string, string]> = {
+  a: ["a33cccf5bc0a69e9daa4537f0073d5dd231cb57c4630bd9796c4df77a12620ea", "24f6d7e7a39236eaa2d201b10aca01307f6d7e3ab8a4b2632f4bfd0a00728f4d"],
+  b: ["e9c631b3db74f2b7b8419b4e19e891598c677d269d20d4dba732e46691962342", "dc88618aeca746dc212d390cdbd4e46b3b45044807ee7dbeaea0407f1dd55dd6"],
+  c: ["260e61180cda4b9f69d3775bf8b4d8e05ece3804f0a391e07195fbf4cedb3f25", "bb854b87274fd16ed3ecf7c56665d1dddc28441d37aa39a469171b9bbc41228f"],
+};
+const pinOf = (f: { "compare.json": string; "compare.txt": string }) => [sha(f["compare.json"].replace(/^ *"node_major": \d+,\n/m, "")), sha(f["compare.txt"])];
+
 describe("W4 compare", () => {
   let first: ReturnType<typeof compare>["files"];
   beforeAll(() => { first = compare(w4()).files; }, 120_000);
 
   it("is byte-identical on a rerun, keeps its keys in order, and holds no path or name", { timeout: 120_000 }, () => {
     expect(compare(w4()).files).toEqual(first);
+    expect(pinOf(first)).toEqual(PINS.a);
     const j = JSON.parse(first["compare.json"]);
     expect(Object.keys(j)).toEqual(["compare_format", "synthetic", "mode", "seed", "days", "node_major", "baseline", "change", "pairing", "arms", "difference", "paired_episodes", "notes"]);
     // Seed 4, 3 days: the one episode gets its first new alert in the same bin under both rules.
@@ -139,6 +154,7 @@ describe("W4 recognition delay and spread", () => {
   it("a 2-seed report is byte-identical on a rerun, keeps its key order, and names no outcome", { timeout: 240_000 }, () => {
     const files = compare(seeds(2)).files;
     expect(compare(seeds(2)).files).toEqual(files);
+    expect(pinOf(files)).toEqual(PINS.b);
     const j = JSON.parse(files["compare.json"]);
     expect(Object.keys(j)).toEqual(["compare_format", "synthetic", "mode", "seed", "seeds", "days", "node_major", "baseline", "change", "pairing", "arms", "difference", "spread", "paired_episodes", "notes"]);
     expect(Object.keys(j.paired_episodes)).toEqual(["episodes_with_new_alert_under_both", "change_earlier", "same_bin", "change_later", "min", "median", "max", "mean", "sd"]);
@@ -199,11 +215,141 @@ describe("W4 recognition delay and spread", () => {
   });
 });
 
+describe("outcome model", () => {
+  const never = parseRule("news2_total_ge_20");
+  const ge5 = parseRule("news2_total_ge_5");
+  const chart = parseRule("news2_chart_trigger");
+  const rowsAt = (minutes: number[], total: number | null, escalated = false) => minutes.map((minute) => ({ id: "e", minute, total, escalated }));
+  const every = (from: number, to: number) => Array.from({ length: (to - from) / 15 + 1 }, (_, i) => from + 15 * i);
+  const ep = (admit: number, start: number, ramp: number, leave = "") => ["e", String(admit), leave, "", "x", String(start), String(ramp)];
+
+  it("uses the cited round intervals of params.ts", () => {
+    expect([PARAMS.obs.intervalMin.routine.value, PARAMS.obs.intervalMin.watch.value]).toEqual([240, 60]);
+  });
+
+  it("recognition: the earliest of a rule bin, the next round, leaving and the run end", () => {
+    const r2 = rowsAt(every(100, 500), 2);
+    expect(recognition([...rowsAt(every(100, 400), 0).map((r) => (r.minute === 235 ? { ...r, total: 5 } : r))], ge5, ep(100, 200, 60), 3)).toEqual({ minute: 235, how: "rule" }); // bin before the round (820)
+    expect(recognition(r2, never, ep(100, 200, 60), 3)).toEqual({ minute: 340, how: "round" }); // score 2: admit + 240
+    expect(recognition([...rowsAt(every(100, 340), 2), ...rowsAt([400], 5)], ge5, ep(100, 200, 400), 3)).toEqual({ minute: 340, how: "round" }); // rule bin after the round
+    expect(recognition(rowsAt(every(100, 900), 0), never, ep(100, 200, 60), 3)).toEqual({ minute: 820, how: "round" }); // score 0: 12 h
+    expect(recognition(rowsAt(every(100, 300), 7, true), never, ep(100, 200, 60), 3)).toEqual({ minute: 205, how: "round" }); // total 7: 15 min
+    expect(recognition(rowsAt(every(100, 500), null), never, ep(100, 200, 60), 3)).toEqual({ minute: 340, how: "round" }); // NOT RANKED: 4 h
+    expect(recognition(rowsAt(every(300, 500), 0), never, ep(100, 200, 60), 3)).toEqual({ minute: 340, how: "round" }); // before the first row: 4 h
+    expect(recognition(rowsAt(every(200, 300), 2), never, ep(200, 200, 60), 3)).toEqual({ minute: 200, how: "round" }); // a round exactly at the start: delay 0
+    expect(recognition(rowsAt(every(100, 500), 0), never, ep(100, 200, 60, "500"), 3)).toEqual({ minute: 500, how: "left" });
+    expect(recognition(rowsAt(every(100, 500), 0), never, ep(100, 200, 60), 0.5)).toEqual({ minute: 720, how: "left" }); // the run ends first
+  });
+
+  it("monotone: a wider rule is never recognised later, even when re-arm gives it no new alert in the window", () => {
+    // Rows from 600 on: the chart trigger is on throughout (so its alert fired at 600, before the window 1000..1180), ge_5 only at 1100.
+    const rs = [...rowsAt(every(600, 1085), 3, true), ...rowsAt([1100], 5, true)];
+    const e = ep(500, 1000, 60);
+    const [fa, fb] = [new Map<string, number>(), new Map<string, number>()];
+    const byPatient = new Map([["e", rs]]);
+    expect(w4Arm(byPatient, ge5, [e], 1, 1, fa).episodes_with_new_alert).toBe(1);
+    expect(w4Arm(byPatient, chart, [e], 1, 1, fb).episodes_with_new_alert).toBe(0);
+    const [ra, rb] = [recognition(rs, ge5, e, 1), recognition(rs, chart, e, 1)];
+    expect([ra, rb]).toEqual([{ minute: 1040, how: "round" }, { minute: 1005, how: "rule" }]);
+    expect(excessAt(1, (rb.minute - 1000) / 60)).toBeLessThanOrEqual(excessAt(1, (ra.minute - 1000) / 60));
+  });
+
+  it("at an odds ratio of 1 the excess is exactly 0; the odds multiply by 1.02 per hour", () => {
+    for (const d of [0, 0.25, 1, 4.5, 12]) expect(excessAt(0, d)).toBe(0);
+    const odds = (p: number) => p / (1 - p);
+    for (const [s, k] of [[1, 4], [2, 4]] as const) expect(Math.abs(odds(riskAt(s, 4)) / odds(riskAt(s, 0)) - 1.02 ** (s * k))).toBeLessThan(1e-12);
+    expect(riskAt(1, 6.3)).toBeCloseTo(0.274, 12); // the cited cohort's figure at its median
+    expect(excessAt(2, 4)).toBeGreaterThan(excessAt(1, 4));
+  });
+
+  // A stub trial: each seed has two episodes where the chart trigger fires 1 h before ge_5, and one patient who leaves first.
+  const row = (id: string, minute: number, rr: number, hr: number) => {
+    const r = scoreNews2({ respiratory_rate: rr, spo2: 97, spo2_scale: 1, supplemental_o2: false, systolic_bp: 120, heart_rate: hr, consciousness: "A", temperature: 37 });
+    return `${id},${minute},${hr},${rr},97,37,120,80,10,A,0,1,100,1,${r.kind === "score" ? r.total : ""}`;
+  };
+  const stub = ((o: { seed: number }) => {
+    const [c, e] = [[COHORT_HEADER], [EPISODES_HEADER]];
+    for (const [id, admit, start] of [["n-0001", 20, 300 + 15 * (o.seed % 4)], ["n-0002", 100, 600], ["n-0003", 90, 400]] as [string, number, number][]) {
+      const leave = id === "n-0003" ? 430 : 1500; // n-0003 never deviates and leaves before its round
+      e.push(`${id},${admit},${leave},,respiratory,${start},60,,,0`);
+      for (let m = 105; m <= leave - 15; m += 15) {
+        const dev = id !== "n-0003" && m >= start + 30 && m < start + 180;
+        c.push(row(id, m, dev ? 25 : 16, dev && m >= start + 90 ? 130 : 80));
+      }
+    }
+    return { "manifest.json": "", "cohort.csv": `${c.join("\n")}\n`, "episodes.csv": `${e.join("\n")}\n`, "summary.json": '{"patient_days":3}' };
+  }) as never;
+  const run = () => compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", stub, true);
+  const LABEL = "MODEL ASSUMPTION, not evidence about patients";
+
+  it("20 seeds: the block, its order, the label twice, the zero row, and the wording", () => {
+    const files = run();
+    expect(run()).toEqual(files);
+    const j = JSON.parse(files["compare.json"]);
+    expect(Object.keys(j)).toEqual(["compare_format", "synthetic", "mode", "seed", "seeds", "days", "node_major", "baseline", "change", "pairing", "arms", "difference", "spread", "paired_episodes", "outcome_model", "notes"]);
+    const o = j.outcome_model;
+    expect(Object.keys(o)).toEqual(["label", "parameter", "assumption", "recognition_rule", "arms", "difference", "spread", "paired_episodes", "sensitivity", "notes"]);
+    expect(o.label).toBe(LABEL);
+    expect(o.arms.baseline).toMatchObject({ episodes_evaluated: 60, recognised_by_rule: 40, recognised_by_round: 0, unrecognised_at_leave_or_run_end: 20 });
+    expect(o.arms.baseline.recognition_delay_mean_hours).toBeGreaterThan(o.arms.change.recognition_delay_mean_hours);
+    expect(o.paired_episodes).toMatchObject({ episodes_paired: 60, change_earlier: 40, same_minute: 20, change_later: 0 });
+    expect(o.arms.change.modelled_excess_bad_outcomes_per_100_episodes).toBeLessThan(o.arms.baseline.modelled_excess_bad_outcomes_per_100_episodes);
+    expect(o.sensitivity.map((s: { assumption: string }) => s.assumption)).toEqual(["zero", "half", "central", "double"]);
+    expect(o.sensitivity.map((s: { odds_ratio_per_hour: number }) => s.odds_ratio_per_hour)).toEqual([1, 1.01, 1.02, 1.0404]);
+    const [zero, , central, double] = o.sensitivity;
+    expect([zero.baseline, zero.change, zero.difference]).toEqual([0, 0, 0]);
+    expect(central.difference).not.toBe(0);
+    expect(Math.abs(double.difference)).toBeGreaterThan(Math.abs(central.difference));
+    expect(central.difference).toBe(o.difference.modelled_excess_bad_outcomes_per_100_episodes);
+    const txt = files["compare.txt"];
+    expect(txt.split(LABEL).length - 1).toBeGreaterThanOrEqual(2);
+    expect(txt).toContain(`\n${LABEL}\nparameter: odds of a bad outcome multiplied by 1.02 for each hour of recognition delay [cited: Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first NEWS of 7 or more to critical care admission, which the paper measures in hours (it does not print the words "per hour"); outcome hospital mortality, 27.4% of 632 patients, median time 6.3 h]\n`);
+    expect(txt).toContain(`\n${LABEL}: sensitivity to the odds ratio per hour`);
+    expect(txt).toMatch(/^zero +1 +0 +0 +0$/m);
+    // after the paired block, before the notes; the old "no outcome is given" note is replaced by the block's own
+    expect(txt.indexOf("same episode under both rules")).toBeLessThan(txt.indexOf(LABEL));
+    expect(txt.indexOf(LABEL)).toBeLessThan(txt.indexOf("\nnote: "));
+    expect(txt.indexOf("note: W4 is a monitored ward")).toBeLessThan(txt.indexOf("note: nothing in the run responds to a warning"));
+    expect(txt).not.toContain("the outcome of a warning is not modelled"); // it would contradict the block
+    expect(txt).not.toContain("no outcome is given");
+    expect(j.notes.join("\n")).not.toContain("no outcome is given");
+    // no word that says or implies a patient died or was saved
+    expect(files["compare.json"] + txt).not.toMatch(/\b(saved?|prevent\w*|would have|lives?)\b/i);
+    const keys = (v: unknown): string[] => (typeof v === "object" && v !== null ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : []);
+    expect(keys(j).filter((k) => /death|died|mortality/i.test(k))).toEqual([]);
+    // the flagless report of the same runs has neither the key nor the block
+    const plain = compareW4Seeds(4, 20, 7, "news2_total_ge_5", "news2_chart_trigger", stub);
+    expect(plain["compare.json"]).not.toContain("outcome_model");
+    expect(plain["compare.txt"]).not.toContain("MODEL ASSUMPTION");
+    expect(JSON.parse(plain["compare.json"]).notes.at(-1)).toMatch(/^no outcome is given: /);
+  });
+
+  it("each refusal gives its line, writes nothing and returns at once", () => {
+    const before = readdirSync(root);
+    const base = (k: number) => ["--seed", "4", "--seeds", String(k), "--days", "60", "--baseline", "rule=news2_total_ge_5", "--change", "rule=news2_chart_trigger", "--out", join(root, "never")];
+    const cases: [RegExp, string[]][] = [
+      [/^--outcome-model is for rule arms only$/, ["--outcome-model", ...args(4, 60, SCEN, `nurses=${DOH}`)]],
+      [/^--outcome-model is for rule arms only$/, ["--outcome-model", "--seeds", "20", ...args(4, 60, SCEN, `nurses=${DOH}`)]],
+      [/^--outcome-model needs --seeds 20 or more \(one seed, or a few, is noise\)$/, [...w4(60), "--outcome-model"]],
+      [/^--outcome-model needs --seeds 20 or more \(one seed, or a few, is noise\)$/, [...base(19), "--outcome-model"]],
+      [/^usage: compare --seed N \[--seeds K\] --days N --baseline B --change C --out DIR \[--outcome-model\]$/, [...base(20), "--outcome-model", "--outcome-model"]],
+    ];
+    for (const [line, a] of cases) {
+      const t = Date.now();
+      expect(() => compare(a), String(line)).toThrow(Refusal);
+      expect(() => compare(a), String(line)).toThrow(line);
+      expect(Date.now() - t, String(line)).toBeLessThan(2000);
+    }
+    expect(readdirSync(root)).toEqual(before);
+  });
+});
+
 describe("hospital compare", () => {
   it("is byte-identical on a rerun", { timeout: 120_000 }, () => {
     const a = args(101, 1, SCEN, `nurses=${DOH}`);
     const files = compare(a).files;
     expect(compare(a).files).toEqual(files);
+    expect(pinOf(files)).toEqual(PINS.c);
     const j = JSON.parse(files["compare.json"]);
     expect(j.change.name).toBe("nurses");
     expect(j.change.fields.length).toBeGreaterThan(0);
