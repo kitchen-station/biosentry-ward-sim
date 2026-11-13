@@ -190,6 +190,10 @@ VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
 
 The top bar has two links, Simulation and Analytics. Analytics shows charts for the hospital, for ward W4 and for one person, from the run in the page. The data is synthetic and the page makes no outcome claim. In a viewer build the Hospital section says "The runner runs ward W4 only." and the ward charts say "Not available from the runner yet". See [docs/ward-analytics.md](docs/ward-analytics.md).
 
+## Scenarios, Shuffle and the seed
+
+The standalone hospital page has a select of four named scenarios (Pitch ward is the default and is the run the page always opened on), a Shuffle button and a seed pill. Shuffle draws a new seed for the hospital and the vitals; ward W4's first 12 patients stay the same people, and only their noise and who arrives later change. `?scenario=<id>&seed=<n>` in the address repeats a run. A viewer build and the ward-only build do not show them. See [docs/scenarios.md](docs/scenarios.md).
+
 ## What you can do
 
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.

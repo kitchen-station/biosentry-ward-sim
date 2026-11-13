@@ -134,7 +134,7 @@ export function TopBar({
   /** Viewer mode: the speed is asked of the runner, not set here. */
   onSpeed?: (speed: Speed) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
-  hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: string[]; onScenario: (name: string) => void };
+  hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: { id: string; label: string; sentence: string }[]; onScenario: (id: string) => void; seedText: string; onShuffle?: () => void };
   /** The page shown. Left out, there is no switch. The links change the URL hash and nothing else. */
   page?: "simulation" | "analytics";
 }) {
@@ -166,9 +166,13 @@ export function TopBar({
       )}
       {hospital && (
         <>
-          <select aria-label="Scenario" value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
-            {hospital.scenarios.map((n) => <option key={n}>{n}</option>)}
+          <select aria-label="Scenario" title={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
+            {hospital.scenarios.map((n) => <option key={n.id} value={n.id} title={n.sentence}>{n.label}</option>)}
           </select>
+          {hospital.onShuffle && (
+            <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4's first 12 patients are the same people; only their noise and who arrives later change." onClick={hospital.onShuffle}>Shuffle</button>
+          )}
+          <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address">{hospital.seedText}</span>
           <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
         </>
       )}

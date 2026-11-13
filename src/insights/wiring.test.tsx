@@ -29,7 +29,7 @@ describe("App.tsx", () => {
     expect(app.match(/step\(s, src\);\s*feed\(statsRef\.current, s, src\);/g)).toHaveLength(2);
     // The frame loop feed sits in the branch that is not a viewer's.
     expect(app).toMatch(/if \(!VIEW_API && !skippingRef\.current\) \{\s*step\(s, src\);\s*feed\(/);
-    expect(app).toMatch(/statsRef\.current = createWardStats\(\);\s*setWorld\(newWorld\(name\)\)/);
+    expect(app).toMatch(/statsRef\.current = createWardStats\(\);\s*setWorld\(newWorld\(next\)\)/);
   });
 
   it("loads the page only when it is opened, keeps the ward mounted, and never feeds a viewer", () => {
