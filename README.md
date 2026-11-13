@@ -131,6 +131,10 @@ It reads a second feed the same way, `GET /sim/runs/{run_id}/commands`: what a c
 
 While it runs, it also publishes the ward as it would be drawn (`src/sim/view.ts`) to `POST /sim/runs/{run_id}/view` every 2 seconds.
 
+### The lab worker
+
+The same image holds a second program, the lab worker: `node dist/lab/lab-worker.js`. It claims a compare request from the BioSentry API with the ingest key, runs this repository's `compare` once, and posts the two files compare wrote. The dashboard's Simulation lab is what makes the requests. Locally: `BIOSENTRY_API_URL=http://127.0.0.1:8000 BIOSENTRY_INGEST_KEY=dev-local npm run lab-worker`. It refuses to start behind a proxy variable, never writes the key down, and never passes text from a request to a shell. [docs/lab-worker.md](docs/lab-worker.md) has the rules.
+
 ## Compare two runs of the same patients
 
 A real ward cannot run the same night twice. The simulator can. `npm run compare` runs two arms with the same seed and days, changes exactly one named thing, and writes what differs.
