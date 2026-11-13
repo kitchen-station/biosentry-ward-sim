@@ -70,7 +70,48 @@ describe("drawn cohort", () => {
       for (let k = 0; k < 5; k += 1) expect(b.read(id, m + k)).toEqual(a.src.read(id, m + k));
       expect(b.cuff(id, m)).toEqual(a.src.cuff(id, m));
     }
-    expect(() => b.seeds()).toThrow(/restored drawn cohort/);
+    expect(() => b.seeds()).toThrow(/restored drawn world/);
+    // persist.ts passes no cohort: a saved drawn world must still refuse.
+    expect(() => createSyntheticSource(777, true, saved).seeds()).toThrow(/restored drawn world/);
+  });
+
+  it("a restored fixture source still returns the 12 fixture patients", () => {
+    const src = createSyntheticSource(777, true);
+    const s = createSim(src);
+    const saved = JSON.parse(JSON.stringify(src.save!(s.patients.map((p) => p.id))));
+    expect(createSyntheticSource(777, true, saved).seeds()).toEqual(createSyntheticSource(777, true).seeds());
+  });
+});
+
+const short = (x: unknown) => {
+  let h = 0x811c9dc5;
+  for (const c of JSON.stringify(x)) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, "0");
+};
+const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+describe("a baseline shift on the drawn path is caught", () => {
+  it("pins seeds() and the first reading of every c- id for seed 777", () => {
+    const src = drawn(777);
+    const seeds = src.seeds();
+    const first = seeds.map((p) => src.read(p.id, 1));
+    expect({ seeds: short(seeds), first: short(first) }).toEqual({ seeds: "f2c5b441", first: "83165287" });
+  });
+
+  it("median baseline heart rate of the 12 drawn equals that of the first 12 admitted, over seeds 1 to 60", () => {
+    const drawnHr: number[] = [];
+    const admittedHr: number[] = [];
+    for (let seed = 1; seed <= 60; seed += 1) {
+      drawnHr.push(...drawn(seed).seeds().map((p) => p.history.heart_rate[0] as number));
+      const f = createSyntheticSource(seed, true);
+      const occupied: { bed: string; rn: string; md: string }[] = [];
+      for (let k = 0; k < 12; k += 1) {
+        const p = f.admit!(0, occupied)!;
+        occupied.push(p);
+        admittedHr.push(p.history.heart_rate[0] as number);
+      }
+    }
+    expect(Math.abs(median(drawnHr) - median(admittedHr))).toBeLessThanOrEqual(2);
   });
 });
 

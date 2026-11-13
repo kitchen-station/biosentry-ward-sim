@@ -536,8 +536,9 @@ export function createSyntheticSource(seed: number, flow = false, saved?: SavedS
     synthetic: true,
     rules: SYNTHETIC_RULES,
     seeds: () => {
-      // A restore never redraws, and the sim never seats a restored source: say so rather than return the wrong people.
-      if (cohort === "drawn" && saved) throw new Error("a restored drawn cohort has no seeds: restore the saved Sim");
+      // A restore never redraws and the sim never seats a restored source. persist.ts passes no cohort, so the saved ids tell:
+      // a saved state with no fixture id is a drawn world, and returning the hand-written 12 for it would be silently wrong.
+      if (saved && !Object.keys(saved.streams).some((id) => fixtureAnchors.has(id))) throw new Error("a restored drawn world has no seeds: restore the saved Sim, do not seat it again");
       return cohort === "drawn" ? cohortSeeds.map((p) => ({ ...p, history: structuredClone(p.history) })) : fixtureSeeds();
     },
 

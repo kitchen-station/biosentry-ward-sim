@@ -29,7 +29,13 @@ A shuffled seed draws 12 new ward W4 patients. The same seed gives the same 12 p
 
 How the 12 are drawn: each one is drawn by the same code that draws an arriving patient (sex, bed, case, stay, baseline vitals, rhythm, name and age), from random streams of their own named `cohort:1` to `cohort:12`. They never use the arrival stream, so with one seed the arrivals after minute 0 are the same whether the 12 are drawn or fixture. Their ids are `c-001` to `c-012`. They are seated at minute 0 part-way through a stay, like the fixture 12. Their story line says they are synthetic patients drawn for this run. They have no invented history.
 
-Limits. A drawn group can hold two patients with the same full name; the log matches lines to patients by name. The numbers are in the test `src/sim/source.cohort.test.ts`. The runner, the trial runners, the compare runner and the viewer always use the fixture 12; only the standalone page draws.
+Limits.
+
+- A drawn group never repeats a full name: a repeat gets a new name (only the name) from its own stream `cohort:i:name`. An arriving patient can still share a name with one of the 12.
+- A drawn patient is drawn exactly as an arriving patient is, so about 6 in 100 have a simulated deterioration scheduled (the arrivals' rate), always after minute 0; about half of those start before the patient leaves. The Analytics page's episode table does not list them, because it leaves out stays that were already on the ward at the start, as the compare runner does.
+- Oxygen and the discharge time of a drawn patient are drawn separately, as for the hand-written 12: oxygen comes from the patient's own drawn stay, and the due time comes from the ward's own rule for patients already present.
+- A saved state that holds no fixture patient is a drawn world. Its source refuses to seat the 12 again (`seeds()` throws).
+- The runner, the trial runners, the compare runner and the viewer always use the fixture 12; only the standalone page draws.
 
 ## Repeat a run by URL
 
