@@ -315,7 +315,7 @@ describe("outcome model", () => {
     expect([o.arms.baseline.alerts, o.arms.change.alerts]).toEqual([j.arms.baseline.pooled.alerts, j.arms.change.pooled.alerts]);
     expect([o.arms.baseline.bins_alerting, o.arms.change.bins_alerting]).toEqual([j.arms.baseline.pooled.bins_alerting, j.arms.change.pooled.bins_alerting]);
     expect(o.arms.change.bins_alerting).toBeGreaterThan(o.arms.baseline.bins_alerting);
-    expect(o.notes.join("\n")).toContain(`that is the construction, not a finding. The alerts and bins_alerting, change minus baseline, are ${o.difference.alerts} and ${o.difference.bins_alerting} (negative: the change rule alerts less); this block does not weigh them`);
+    expect(o.notes.join("\n")).toContain(`that is the construction, not a finding. The alerts and bins_alerting, change minus baseline, are ${o.difference.alerts} and ${o.difference.bins_alerting} (the change rule alerts more); this block does not weigh them`);
     expect(o.notes.join("\n")).toContain("These two rules are nested: the change rule is true in every bin the other is. So the change rule is never recognised later");
     expect(o.recognition_rule).toMatch(/a perfect round, judgement/);
     expect(o.notes.join("\n")).toContain("applying it to every W4 episode are judgement, and every per-100 figure scales with it");
@@ -349,7 +349,7 @@ describe("outcome model", () => {
     expect(txt).toContain(`\n${LABEL}\nparameter: 1.02, the odds ratio the cited paper gives for score-to-door time measured in hours, applied here to each hour of recognition delay (that transfer is judgement) [cited: Whebell SF et al., Crit Care 2021;25:226, doi:10.1186/s13054-021-03650-1: adjusted odds ratio 1.02 (95% CI 1.0-1.04) for the time from a first sustained NEWS of 7 or more (not falling below 5 before admission) to critical care admission, which the paper measures in hours (it does not print the words "per hour"); secondary outcome hospital mortality (adjusted OR 1.02, 95% CI 1.0-1.04, p = 0.026; the primary outcome, critical care mortality, gave the same OR), 27.4% of 632 patients, median time 6.3 h]\nunder the assumption that `);
     // The table that holds the headline row has the label in its own title line, so a crop from the header down still carries it.
     expect(txt).toContain(`\n${LABEL}: outcome model: pooled over all seeds\nmetric`);
-    expect(o.assumption).toMatch(/carries that cohort's 27\.4% hospital mortality \(judgement\), which sets the size of every per-100 figure$/);
+    expect(o.assumption).toMatch(/^under the assumption that each hour .* multiplies the odds of a bad outcome by 1\.02, and that an episode recognised after 6\.3 h carries the cited cohort's 27\.4% hospital mortality \(that anchoring is judgement\), which sets the size of every per-100 figure; the 1\.02 is the association .*, an association in other patients, not a measured effect of earlier recognition$/);
     expect(o.recognition_rule).toMatch(/modelled excess = the modelled risk at the recognition delay minus the modelled risk at zero delay, per 100 episodes$/);
     expect(txt).toContain(`\n${LABEL}: outcome model: spread of the per-seed difference (change minus baseline)\n`);
     expect(txt).toContain(`\n${LABEL}: outcome model: same episode under both rules, `);
