@@ -135,6 +135,12 @@ const PINS: [string, string, string?][] = [
 const marker = (text: string, title: string) => new RegExp(`\\b(it\\.fails|it)\\("${title}`).exec(text)?.[1];
 
 describe("source pins", () => {
+  it("check A has one tolerance for every signal: nothing is special-cased for temperature", () => {
+    expect(mine.split("inside: sd / real.sd > 0.75 && sd / real.sd < 1.25 }").length - 1).toBe(1);
+    expect(mine.split("inside: Math.abs(lag / sum - real.lag5Corr) < 0.2 }").length - 1).toBe(1);
+    expect(mine).not.toMatch(/===? "temperature"|vi === 3/);
+  });
+
   it("every copied literal is still in its test file and in realism.ts", () => {
     for (const [text, line, own] of PINS) {
       expect(text, line).toContain(line);
@@ -275,7 +281,7 @@ describe("the report", () => {
 
   const statistics: Record<string, string> = {
     B3: "fitted from eICU; not tested",
-    R1: "fitted from MIT-BIH, AFDB, LTAFDB; no honest real check",
+    R1: "fitted from MIT-BIH, AFDB, LTAFDB; open data exists, no honest check (docs/realism.md)",
   };
 
   it("diastolic and heart rhythm have no real comparison, and H1 is gone", () => {

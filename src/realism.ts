@@ -186,7 +186,7 @@ const none = (check: string, signal: string, statistic: string): Row => ({ check
 export const fastRows = (): Row[] => [
   ...rowsA(), ...rowsB(), ...rowsC(), ...rowsF(),
   none("B3", SIGNALS[5], "fitted from eICU; not tested"),
-  none("R1", SIGNALS[6], "fitted from MIT-BIH, AFDB, LTAFDB; no honest real check"),
+  none("R1", SIGNALS[6], "fitted from MIT-BIH, AFDB, LTAFDB; open data exists, no honest check (docs/realism.md)"),
 ];
 
 // ---- D and E, mirror published.test.ts beforeAll
