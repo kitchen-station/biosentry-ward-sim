@@ -139,18 +139,18 @@ export function App() {
         </Suspense>
       </PageBoundary>
     );
-  const shown = screen(VIEW_API, token, gate);
+  const shown = screen(VIEW_API, token, gate, first);
   if (shown === "loading") return <p className="tag">loading</p>;
   if (shown === "signin") return <SignIn onToken={setToken} />;
   const onSignedOut = () => {
     setToken(null);
     setGate((g) => nextGate(g, "signed_out"));
   };
-  const watch = shown === "watch" && first ? { first, onGone: () => setGate((g) => nextGate(g, "poll_gone")), onLeave: () => setGate((g) => nextGate(g, "leave")) } : undefined;
+  const watch = shown === "watch" && first ? { first, onBody: setFirst, onGone: () => setGate((g) => nextGate(g, "poll_gone")), onLeave: () => setGate((g) => nextGate(g, "leave")) } : undefined;
   return <Ward token={token} onSignedOut={onSignedOut} watch={watch} />;
 }
 
-type Watch = { first: OpenWard; onGone: () => void; onLeave: () => void };
+type Watch = { first: OpenWard; onBody: (w: OpenWard) => void; onGone: () => void; onLeave: () => void };
 
 function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut: () => void; watch?: Watch }) {
   const [world, setWorld] = useState(() => newWorld());
@@ -215,11 +215,15 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
       setWorld({ s: sim, src: VIEW_SOURCE });
       setViewNotice(w.sim ? null : "No live ward yet");
     };
+    // Each valid answer also replaces `first` in App, so a return from Analytics shows the latest picture.
     apply(watch.first);
     return startOpenPoll({
       fetch: window.fetch.bind(window),
       base: VIEW_API!,
-      onBody: apply,
+      onBody: (w) => {
+        watch.onBody(w);
+        apply(w);
+      },
       onDown: () => setViewNotice("Not updating"), // the last ward stays drawn
       onGone: watch.onGone,
     });

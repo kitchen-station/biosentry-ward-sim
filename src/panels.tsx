@@ -839,9 +839,11 @@ export function Inspector({
               <i style={{ background: RISK_LIGHT[risk] }} /> {word}
             </li>
           ))}
-          <li>
-            <i style={{ background: "#A899B5" }} /> Not ranked (NR)
-          </li>
+          {!watching && (
+            <li>
+              <i style={{ background: "#A899B5" }} /> Not ranked (NR)
+            </li>
+          )}
         </ul>
       </aside>
     );

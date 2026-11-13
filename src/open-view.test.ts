@@ -41,6 +41,7 @@ describe("parser", () => {
     ["synthetic", (b) => (b.synthetic = false)],
     ["can_control", (b) => (b.can_control = true)],
     ["sim type", (b) => (b.sim = 3)],
+    ["clock over bound", (b) => (b.sim.clockS = 1e9 + 1)],
     ["clock negative", (b) => (b.sim.clockS = -1)],
     ["speed", (b) => (b.sim.speed = 5)],
     ["ended", (b) => (b.sim.ended = "no")],
@@ -76,6 +77,12 @@ describe("parser", () => {
     const b = good();
     f(b);
     expect(parseOpenWard(text(b))).toBeNull();
+  });
+
+  it("accepts clockS at the bound", () => {
+    const b = good() as any;
+    b.sim.clockS = 1e9;
+    expect(parseOpenWard(text(b))).not.toBeNull();
   });
 
   it("refuses non-finite numbers, not JSON and an array top", () => {
@@ -177,6 +184,26 @@ describe("the poll (rules 5, 8)", () => {
     expect(f).toHaveBeenCalledTimes(n);
   });
 
+  it("stop() aborts the request in flight and ignores its late answer", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    let answer!: (r: Response) => void;
+    const f = vi.fn((_u: string, init: RequestInit) => {
+      signal = init.signal ?? undefined;
+      return new Promise<Response>((r) => (answer = r));
+    });
+    const onBody = vi.fn();
+    const stop = startOpenPoll({ fetch: f as unknown as typeof fetch, base: BASE, onBody, onDown: vi.fn(), onGone: vi.fn() });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(signal?.aborted).toBe(false);
+    stop();
+    expect(signal?.aborted).toBe(true);
+    answer(ok());
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onBody).not.toHaveBeenCalled();
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps polling after a failure, 2 s after it, and stops for good on a gone answer", async () => {
     vi.useFakeTimers();
     const answers = [() => Promise.reject(new Error("x")), () => Promise.resolve(new Response("", { status: 404 })), () => Promise.resolve(ok())];
@@ -209,12 +236,14 @@ describe("the gate (rows of the state table)", () => {
   it.each(rows)("%s + %s -> %s", (g, e, n) => expect(nextGate(g, e)).toBe(n));
 
   it("screen: no flash, no open route with a token, standalone untouched", () => {
-    expect(screen("http://api", null, "trying")).toBe("loading");
-    expect(screen("http://api", null, "watch")).toBe("watch");
-    expect(screen("http://api", null, "signin")).toBe("signin");
+    const first = parseOpenWard(text(good()));
+    expect(screen("http://api", null, "trying", null)).toBe("loading");
+    expect(screen("http://api", null, "watch", first)).toBe("watch");
+    expect(screen("http://api", null, "watch", null)).toBe("signin"); // no body, no watching
+    expect(screen("http://api", null, "signin", null)).toBe("signin");
     for (const g of ["trying", "watch", "signin"] as const) {
-      expect(screen("http://api", "tok", g)).toBe("ward");
-      expect(screen(undefined, null, g)).toBe("ward");
+      expect(screen("http://api", "tok", g, null)).toBe("ward");
+      expect(screen(undefined, null, g, null)).toBe("ward");
     }
   });
 });
@@ -267,19 +296,45 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     const panel = renderToStaticMarkup(createElement(Inspector, { s, src: VIEW_SOURCE, selected: null, onSelect: () => {}, onTimeline: () => {}, watching: true }));
     expect(panel).toContain("Watching W4");
     expect(panel).not.toContain("<button");
+    expect(panel).not.toContain("NR"); // a watcher never sees an NR tag
   });
 
   it("App.tsx and open-view.ts hold no browser storage, and open-view.ts never logs", () => {
     const storage = /localStorage|sessionStorage|indexedDB|document\.cookie|caches\./;
-    for (const file of ["src/open-view.ts", "src/App.tsx"]) expect(readFileSync(file, "utf8")).not.toMatch(storage);
+    for (const file of ["src/open-view.ts", "src/App.tsx"]) expect(code(file)).not.toMatch(storage);
     expect(readFileSync("src/open-view.ts", "utf8")).not.toMatch(/console\./);
   });
 
-  it("only open-view.ts and the App's two calls reach the open route; the watch effect sends no other request", () => {
-    const app = readFileSync("src/App.tsx", "utf8");
-    const watch = app.slice(app.indexOf("Watching with no token: the open answer"), app.indexOf("Viewer mode: each answer replaces"));
-    expect(watch).not.toMatch(/fetch\(|sendCommand|\/live|\/stays|\/session|Authorization/);
-    expect(app).toContain("if (!VIEW_API || watch) return;"); // no /live with a null token while watching
-    expect(app).toMatch(/if \(!VIEW_API \|\| token !== null \|\| gate !== "trying"\) return;/);
+  // Comments are cut first, so a guard kept only in a comment fails.
+  const code = (file: string) => readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+  const app = () => code("src/App.tsx");
+  const before = (src: string, guard: string, thing: string) => {
+    const [g, x] = [src.indexOf(guard), src.indexOf(thing)];
+    expect(g).toBeGreaterThan(-1);
+    expect(x).toBeGreaterThan(g);
+  };
+
+  it("the /live effect and the probe effect keep their guards", () => {
+    before(app(), "if (!VIEW_API || watch) return;", "/wards/W4/live");
+    before(app(), 'if (!VIEW_API || token !== null || gate !== "trying") return;', "fetchOpenWard(");
+  });
+
+  it("click, hover and the select list are off while watching", () => {
+    const a = app();
+    const click = a.slice(a.indexOf("onClick={(e) => {"), a.indexOf("onPointerDown"));
+    before(click, "if (watch) return", "targetAt(e)");
+    const move = a.slice(a.indexOf("onMouseMove="), a.indexOf("/>", a.indexOf("onMouseMove=")));
+    before(move, "if (watch) return", "targetAt(e)");
+    expect(a).toContain("{!watch && selectList}");
+    expect(a.match(/\{selectList\}/g)).toBeNull();
+  });
+
+  // shortcut: pinned. main's App.tsx has 4 fetch( calls: /session, /stays, /live, /api/snapshot. Update only for a call that needs a token or is not for the open route.
+  const MAIN_FETCH_CALLS = 4;
+  it("App.tsx has no new fetch, and only open-view.ts names the open route", () => {
+    expect(app().match(/\bfetch\(/g)).toHaveLength(MAIN_FETCH_CALLS);
+    expect(app()).not.toMatch(/wards\/[^\n]*open-view/);
+    expect(code("src/open-view.ts").match(/\/open-view`/g)).toHaveLength(1);
+    expect(code("src/open-view.ts").match(/\bf\(/g)).toHaveLength(1);
   });
 });

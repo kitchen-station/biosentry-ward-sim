@@ -48,7 +48,7 @@ function parseStaff(v: unknown, seen: Set<number>): OpenStaff | null {
 function parseSim(v: unknown): OpenSim | null {
   if (!isObj(v)) return null;
   const { clockS, speed, ended, staff, moves } = v;
-  if (!num(clockS, 0, Number.MAX_VALUE) || !oneOf(speed, SPEEDS) || typeof ended !== "boolean") return null;
+  if (!num(clockS, 0, 1e9) || !oneOf(speed, SPEEDS) || typeof ended !== "boolean") return null;
   if (!Array.isArray(staff) || staff.length > MAX_STAFF || !Array.isArray(moves) || moves.length > MAX_MOVES) return null;
   const seen = new Set<number>();
   const outStaff: OpenStaff[] = [];
@@ -129,11 +129,14 @@ export interface Timers { setTimeout: (f: () => void, ms: number) => unknown; cl
 const BROWSER_TIMERS: Timers = { setTimeout: (f, ms) => globalThis.setTimeout(f, ms), clearTimeout: (h) => globalThis.clearTimeout(h as never) };
 
 export type OpenResult = { ok: true; body: OpenWard } | { ok: false; kind: "down" | "gone" };
-export interface OpenRequest { fetch: typeof fetch; base: string; ward?: string; timers?: Timers }
+export interface OpenRequest { fetch: typeof fetch; base: string; ward?: string; timers?: Timers; signal?: AbortSignal }
 
 /** One request. down: 5xx, network error, timeout. gone: any other status or a bad body. */
-export async function fetchOpenWard({ fetch: f, base, ward = OPEN_WARD, timers = BROWSER_TIMERS }: OpenRequest): Promise<OpenResult> {
+export async function fetchOpenWard({ fetch: f, base, ward = OPEN_WARD, timers = BROWSER_TIMERS, signal }: OpenRequest): Promise<OpenResult> {
   const ctl = new AbortController();
+  const join = () => ctl.abort(); // the caller's signal and the 5 s timeout both end this request
+  if (signal?.aborted) join();
+  signal?.addEventListener("abort", join, { once: true });
   let timer: unknown;
   const timeout = new Promise<never>((_, reject) => {
     timer = timers.setTimeout(() => {
@@ -157,6 +160,7 @@ export async function fetchOpenWard({ fetch: f, base, ward = OPEN_WARD, timers =
     return { ok: false, kind: "down" };
   } finally {
     timers.clearTimeout(timer);
+    signal?.removeEventListener("abort", join);
   }
 }
 
@@ -165,9 +169,10 @@ export function startOpenPoll(req: OpenRequest & { onBody: (b: OpenWard) => void
   const timers = req.timers ?? BROWSER_TIMERS;
   let off = false;
   let handle: unknown;
+  const ctl = new AbortController();
   const wait = () => void (handle = timers.setTimeout(run, OPEN_POLL_MS));
   const run = async () => {
-    const r = await fetchOpenWard(req);
+    const r = await fetchOpenWard({ ...req, signal: ctl.signal });
     if (off) return;
     if (r.ok) req.onBody(r.body);
     else if (r.kind === "down") req.onDown();
@@ -180,6 +185,7 @@ export function startOpenPoll(req: OpenRequest & { onBody: (b: OpenWard) => void
   wait();
   return () => {
     off = true;
+    ctl.abort(); // a request in flight is cancelled, so a remount never leaves two open
     timers.clearTimeout(handle);
   };
 }
@@ -235,7 +241,8 @@ export function nextGate(g: Gate, e: GateEvent): Gate {
 }
 
 /** Which page to show. With a token, or in a build with no view API, the open route plays no part. */
-export function screen(viewApi: string | undefined, token: string | null, gate: Gate): "ward" | "loading" | "watch" | "signin" {
+export function screen(viewApi: string | undefined, token: string | null, gate: Gate, first: OpenWard | null): "ward" | "loading" | "watch" | "signin" {
   if (!viewApi || token !== null) return "ward";
+  if (gate === "watch" && !first) return "signin"; // never a ward with no token and nothing to watch
   return gate === "trying" ? "loading" : gate;
 }
