@@ -34,7 +34,7 @@ export class PageBoundary extends Component<{ children: ReactNode }, { failed: b
     return this.state.failed ? (
       <div className="app">
         <p>could not load</p>
-        <PageNav page="simulation" />
+        <PageNav page="analytics" />
       </div>
     ) : (
       this.props.children

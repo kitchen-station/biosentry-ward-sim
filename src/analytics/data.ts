@@ -11,7 +11,6 @@ const RAW = import.meta.glob<string>(
     "../data/evaluation/repo/models/tier_b/reward_policy/no_temperature/policy.json",
     "../data/evaluation/repo/models/tier_c/confidence_check/calibration.json",
     "../data/evaluation/repo/models/tier_c/confidence_check/calibration_no_temp.json",
-    "../data/evaluation/repo/models/tier_c/confidence_check/heldout.json",
     "../data/evaluation/repo/models/tier_c/student_vitals/metadata.json",
     "../data/evaluation/repo/training/runs/student_vitals/*.json",
     "../data/evaluation/repo/training/runs/reward_policy/*.json",
@@ -49,8 +48,9 @@ const bad = (why: string): never => {
 const own = (o: Obj, k: string): unknown => (Object.hasOwn(o, k) ? o[k] : undefined);
 const obj = (v: unknown): Obj => (v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : bad("not an object"));
 const arr = (v: unknown, cap: number): unknown[] => (Array.isArray(v) && v.length <= cap ? v : bad("not an array within its cap"));
-// No string the page reads may hold a control, a line or direction control, or a lone surrogate (no contract field is multi-line).
-const UNSAFE = /[\p{Cc}\p{Cs}\u2028\u2029\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/u;
+// No string the page reads may hold a control, any invisible format character (direction marks, zero-width and tag characters),
+// a line separator, a lone surrogate, or a digit that is not 0 to 9 (it would pass for a number the number test cannot see).
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]|(?![0-9])\p{Nd}/u;
 const str = (v: unknown, max = MAX_STR): string => (typeof v === "string" && v.length <= max && !UNSAFE.test(v) ? v : bad("not a string within its cap, or it holds a control character"));
 const oneOf = <T extends string>(v: unknown, words: readonly T[]): T => (words.includes(v as T) ? (v as T) : bad("not an allowed word"));
 
@@ -66,7 +66,7 @@ function show(c: Ctx, h: object, k: string): string {
   const text = token ?? String(v);
   if (!c.direct) {
     if (/e/i.test(text)) bad(`${k} is in exponent form`);
-    if (token !== undefined && !token.includes(".") && !Number.isSafeInteger(v)) bad(`${k} is not a safe integer`);
+    if (Math.abs(v as number) > Number.MAX_SAFE_INTEGER) bad(`${k} is too large to be exact`);
   }
   return text;
 }
@@ -245,7 +245,7 @@ function confidence(x: Rd) {
       `negative bins ${pooled.n("negative_bins")}, scored bins ${pooled.n("scored_bins")}, above q ${pooled.n("above_q")}, checked ${pooled.n("checked")}, student ${pooled.n("student")}`,
     ];
   });
-  const head = ["Variant", "Achieved error [low, high]", "Bound", "Verdict", "Not sure", "Alerting bins", "New alerts", "Lost episodes", "Pooled, context only"];
+  const head = ["Variant", "Achieved error [low, high]", "Bound", "Verdict", "Not sure", "Alerting bins", "New alerts", "Lost episodes", "Pooled, context only, not the pre-registered quantity"];
   return { path, sha256, table: T("Confidence check", head, rows) };
 }
 
@@ -367,7 +367,13 @@ function outcome(o: Rd) {
     notes: notes(o, 20),
   };
 }
+// An outcome figure may appear only in the labelled outcome block, so the other blocks may not word one in their free text.
+const OUTCOME_TEXT = /modelled_excess|excess_difference|bad outcomes?\D{0,20}\d/i;
+const strings = (v: unknown): string[] => (typeof v === "string" ? [v] : Array.isArray(v) ? v.flatMap(strings) : v !== null && typeof v === "object" ? Object.values(v).flatMap(strings) : []);
+// A compare number must fit the kind its row states: a whole number for int, at most 4 decimals for d4.
+const fitsKind = (kind: "int" | "d4", text: string) => text === "none" || (kind === "int" ? /^-?\d+$/ : /^-?\d+(\.\d{1,4})?$/).test(text) || bad(`a number does not fit its kind ${kind}`);
 const simulator = exported("simulator", (body, c) => {
+  for (const k of ["realism", "compare"]) if (strings(body.get(k)).some((t) => OUTCOME_TEXT.test(t))) bad("outcome wording outside the outcome block");
   const realism =
     body.get("realism") === null
       ? null
@@ -390,9 +396,18 @@ const simulator = exported("simulator", (body, c) => {
           x.w("mode", ["w4_seeds"]);
           const seeds = x.a("seeds", 100);
           const kinds = ["int", "d4"] as const;
-          const pooled = x.ra("pooled", 30).map((q) => (q.w("kind", kinds), [q.w("metric", POOLED), q.nn("baseline"), q.nn("change"), q.nn("difference")]));
+          const pooled = x.ra("pooled", 30).map((q) => {
+            const kind = q.w("kind", kinds);
+            const cells = [q.nn("baseline"), q.nn("change"), q.nn("difference")];
+            cells.forEach((t) => fitsKind(kind, t));
+            return [q.w("metric", POOLED), ...cells];
+          });
           const spread = x.ra("spread", 10).map((q) => [q.w("metric", SPREAD), q.n("seeds_with_value"), ...STAT_KEYS.map((k) => q.nn(k))]);
-          const paired = x.ra("paired", 15).map((q) => (q.w("kind", kinds), [q.w("metric", PAIRED), q.nn("value")]));
+          const paired = x.ra("paired", 15).map((q) => {
+            const value = q.nn("value");
+            fitsKind(q.w("kind", kinds), value);
+            return [q.w("metric", PAIRED), value];
+          });
           return {
             line: `${x.s("baseline")} vs ${x.s("change")}, ${x.n("days")} days, seeds ${nums(c, seeds).join(", ")}, pairing: ${x.s("pairing_status")}`,
             tables: [T("Pooled", ["Metric", "Baseline", "Change", "Difference"], pooled), T("Spread over seeds", SPREAD_HEAD, spread), T("Paired episodes", ["Metric", "Value"], paired)],

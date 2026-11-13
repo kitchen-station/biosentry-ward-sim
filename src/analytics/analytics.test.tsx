@@ -231,7 +231,10 @@ describe("the Simulation page stays light", () => {
     for (const t of ['import x from "./nav";', 'const a = "./analytics/x";']) expect(STATIC.test(t), t).toBe(false);
   });
   it("does not import analytics statically", () => {
-    for (const f of ["App.tsx", "main.tsx", "panels.tsx", "nav.tsx"]) expect(src(f).replace(/import\("\.\/analytics\/Analytics"\)/g, "")).not.toMatch(STATIC);
+    // every source file outside src/analytics, tests aside
+    const outside = readdirSync(new URL("../", import.meta.url), { recursive: true, encoding: "utf8" }).filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.startsWith("analytics"));
+    expect(outside).toEqual(expect.arrayContaining(["App.tsx", "main.tsx", "panels.tsx", "nav.tsx"]));
+    for (const f of outside) expect(readFileSync(new URL(`../${f}`, import.meta.url), "utf8").replace(/import\("\.\/analytics\/Analytics"\)/g, ""), f).not.toMatch(STATIC);
     expect(src("App.tsx").match(/import\("\.\/analytics\/Analytics"\)/g)).toHaveLength(1);
   });
   it("App's effect uses onHashChange and returns its remover", () => {
@@ -493,8 +496,21 @@ describe("hostile files", () => {
   add("a newline in a realism check", "simulator", sim((b) => (b.realism.rows[0].check = "a\nb")));
   add("a lone surrogate in compare.change", "simulator", sim((b) => (b.compare.change = "a\ud800b")));
   add("U+2028 in a realism signal", "simulator", sim((b) => (b.realism.rows[0].signal = "a\u2028b")));
+  add("a direction isolate in compare.baseline", "simulator", sim((b) => (b.compare.baseline = "rule\u2066")));
+  add("a zero-width space inside a number-like text", "simulator", sim((b) => (b.realism.rows[0].sim = "7\u200B0")));
+  add("a full-width digit", "simulator", sim((b) => (b.realism.rows[0].sim = "\uFF13")));
+  add("an Arabic-Indic digit", "simulator", sim((b) => (b.realism.rows[0].real = "\u0663")));
+  add("a soft hyphen", "simulator", sim((b) => (b.compare.change = "ru\u00ADle")));
+  // an outcome figure may not be worded outside the labelled outcome block
+  add("outcome wording in a compare note", "simulator", sim((b) => b.compare.notes.push("modelled excess bad outcomes: 3 per 100")));
+  add("an outcome key name in a realism note", "simulator", sim((b) => b.realism.notes.push("see modelled_excess_bad_outcomes_per_100_episodes")));
+  add("outcome wording in pairing_status", "simulator", sim((b) => (b.compare.pairing_status = "bad outcome 2 fewer")));
+  // a compare number must fit the kind its row states
+  add("an int row holding 2.5", "simulator", sim((b) => Object.assign(b.compare.pooled[0], { kind: "int", baseline: 2.5 })));
+  add("a d4 row holding 5 decimals", "simulator", sim((b) => Object.assign(b.compare.pooled[0], { kind: "d4", baseline: 0.12345 })));
+  add("a paired int value holding 0.5", "simulator", sim((b) => Object.assign(b.compare.paired[0], { kind: "int", value: 0.5 })));
   // finding 5: an exported printed number may not be in exponent form or too large to be exact
-  for (const token of ["1.5e3", "12345678901234567890", "9007199254740992"])
+  for (const token of ["1.5e3", "12345678901234567890", "9007199254740992", "9007199254740993.0"])
     add(`exported printed number ${token}`, "simulator", JSON.stringify(sim((b) => (b.compare.pooled[0].baseline = "@@"))).replace('"@@"', token));
   // finding 12
   add("sensitivity with 3 rows", "simulator", sim((b) => b.outcome.sensitivity.pop()));

@@ -31,7 +31,6 @@ const DIRECT = [
   "models/tier_c/confidence_check/calibration_no_temp.json",
   "models/tier_c/confidence_check/heldout.json", // D8: copied by name, the page prints nothing from it
   "models/tier_c/student_vitals/held_out.json", // D9
-  "models/tier_c/confidence_check/heldout.json",
   "models/tier_c/student_vitals/metadata.json",
   "training/agent/runs/run1.json",
   "training/agent/runs/run1.scores.json",

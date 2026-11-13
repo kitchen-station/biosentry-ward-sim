@@ -77,6 +77,7 @@ describe("sync-evaluation", { timeout: 60_000 }, () => {
     const o = out();
     const rec = sync(repo({ ...GOOD, "models/tier_c/confidence_check/heldout.json": "{}\n", "models/tier_c/student_vitals/held_out.json": "{}\n" }), o, quiet);
     expect(rec.files.map((f) => f.path)).toEqual(expect.arrayContaining(["models/tier_c/confidence_check/heldout.json", "models/tier_c/student_vitals/held_out.json"]));
+    expect(new Set(rec.files.map((f) => f.path)).size).toBe(rec.files.length); // one entry for each copied file
     expect(existsSync(join(o, "repo/models/tier_c/student_vitals/held_out.json"))).toBe(true);
   });
 
@@ -124,7 +125,7 @@ describe("sync-evaluation", { timeout: 60_000 }, () => {
     return dir;
   }, /no origin\/main/);
   refused("the wrong origin", () => repo(GOOD, "https://example.com/other/repo.git"), /origin/);
-  for (const url of ["https://evil.example/x/BioSentry-Intelligence.git", "https://github.com/someone-else/BioSentry-Intelligence", "https://github.com/kitchen-station/BioSentry-Intelligence-fork"])
+  for (const url of ["https://evil.example/kitchen-station/BioSentry-Intelligence.git", "ssh://git@evil.example/kitchen-station/BioSentry-Intelligence", "https://evil.example/x/BioSentry-Intelligence.git", "https://github.com/someone-else/BioSentry-Intelligence", "https://github.com/kitchen-station/BioSentry-Intelligence-fork"])
     refused(`the origin ${url}`, () => repo(GOOD, url), /origin is not BioSentry-Intelligence/);
   refused("an oversize exported file", () => repo({ ...GOOD, [`${DIR}/pipeline.json`]: " ".repeat(262145) }), /over 256 KB/);
   refused("bad JSON", () => repo({ ...GOOD, [`${DIR}/pipeline.json`]: "{" }), /not UTF-8 JSON/);
