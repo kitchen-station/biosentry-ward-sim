@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { floorName, floorSummary } from "./building";
-import { RISK_LIGHT } from "./render/draw";
+import { floorName, floorSummary, GROUP_COLOURS } from "./building";
+import { cellDot, RISK_LIGHT } from "./render/draw";
 import { createHospitalSim } from "./sim/hospital/attach";
 import { UNITS } from "./sim/hospital/params";
 import { parseScenario } from "./sim/hospital/scenario";
@@ -87,6 +87,23 @@ describe("floorSummary", () => {
     expect(w4.census).toBe(2);
     expect(w4.beds.slice(0, 3).map((c) => (c ? c.risk : "empty"))).toEqual(["high", null, "empty"]);
     expect(RISK_LIGHT[w4.beds[0]!.risk!]).toBe("#FF6B6B");
+  });
+
+  it("outside W4 a cell takes its risk by its click key; intensive care and bodies have none", () => {
+    const h = fixed();
+    h.people.push(person("ICU", "bed", 0));
+    const [med, icu] = [h.people.find((p) => p.unit === "MED3A" && p.slot === 0)!, h.people.find((p) => p.unit === "ICU")!];
+    const risk = { "W4-01": "high", "W4-02": null, [`h:${med.n}`]: "medium" };
+    const f = floorSummary(h, risk);
+    const cells = (id: string) => f.flatMap((x) => x.units).find((u) => u.id === id)!;
+    expect(cells("MED3A").beds[0]!.risk).toBe("medium");
+    expect(cells("MED3A").beds[1]!.risk).toBeUndefined(); // no key: nothing shown
+    expect(cells("ICU").beds[0]!.risk).toBeUndefined(); // riskBySel has no ICU key, and a stray key is the engine's to withhold
+    expect(cells("W4").beds.slice(0, 2).map((c) => c!.risk)).toEqual(["high", null]); // W4 as before
+    expect(icu.n).toBeGreaterThan(0);
+    expect(cellDot(cells("MED3A").beds[0]!)).toBe(RISK_LIGHT.medium);
+    expect(cellDot({ ...cells("MED3A").beds[0]!, risk: null })).toBe("#A899B5");
+    expect(cellDot(cells("ICU").beds[0]!)).toBe(GROUP_COLOURS.minor);
   });
 
   it("counts deaths on a later day by the clock's own day, not the minute count", () => {

@@ -11,7 +11,7 @@ export const TRIAGE_COLOURS: Record<Triage, string> = { emergent: "#FF6B6B", urg
 const TRIAGE_RANK: Record<Triage, number> = { emergent: 0, urgent: 1, non_urgent: 2 };
 
 // sel: what a click selects (a W4 patient keeps the ward's own id); slot: the bed slot, or W4's bed index.
-export interface Cell { group: Group; initials: string; sel: string; slot: number; risk?: string | null; dead?: boolean; icu?: boolean } // risk: W4 only, null = not ranked
+export interface Cell { group: Group; initials: string; sel: string; slot: number; risk?: string | null; dead?: boolean; icu?: boolean } // risk: NEWS2 risk, null = not ranked, undefined = none shown (intensive care, bodies)
 export interface UnitSummary {
   id: UnitId; name: string; beds: (Cell | null)[]; stretchers: (Cell | null)[]; over: Cell[]; // over: ER trolleys, morgue overflow
   census: number; bodies: number; nurses: number; occupancyPct: number | null; ratio: number | null;
@@ -37,6 +37,7 @@ const initialsOf = (name: string) => name.split(/\s+/).map((w) => w[0] ?? "").jo
 const cellOf = (p: Person, risk: Record<string, string | null>, slot = p.slot ?? 0): Cell => {
   const c: Cell = { group: p.group, initials: initialsOf(p.name), slot, sel: p.unit === "W4" && p.w4Id !== null ? p.w4Id : `h:${p.n}` };
   if (p.w4Id !== null) c.risk = Object.hasOwn(risk, p.w4Id) ? risk[p.w4Id] : null;
+  else if (Object.hasOwn(risk, c.sel)) c.risk = risk[c.sel]; // outside W4: by click key `h:${n}` (vitals engine; no intensive care)
   if (p.where === "awaiting_morgue") c.dead = true; // still holds its bed until the body leaves
   else if (icuFlag(p)) c.icu = true;
   return c;
@@ -45,7 +46,7 @@ const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : null)
 const ratioOf = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 10) / 10 : null);
 const FLOOR_NAMES: Record<number, string> = { 0: "Ground floor" };
 
-/** Every number the strips and boards show. `w4Risk`: W4 patient id to NEWS2 risk, null when not ranked. */
+/** Every number the strips and boards show. `w4Risk`: NEWS2 risk by W4 patient id, and by `h:${n}` for people outside W4; null when not ranked. */
 export function floorSummary(h: Hospital, w4Risk: Record<string, string | null> = {}): FloorSummary[] {
   const START = PARAMS.clock.startMinuteOfDay.value;
   const day = (m: number) => Math.floor((m + START) / 1440);

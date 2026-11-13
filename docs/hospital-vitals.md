@@ -1,6 +1,6 @@
 # Hospital vitals engine
 
-Synthetic data only. Code: `src/sim/hospital/vitals.ts`. Nothing on the page uses it yet. The page wiring is a later slice.
+Synthetic data only. Code: `src/sim/hospital/vitals.ts`. The standalone hospital page uses it, as described under "On the page" below.
 
 ## What it is
 One vital-sign stream for each hospital person, kept beside the hospital. It uses the ward's own generator and `scoreNews2`. Each person gets a new generator of their own, seeded by `vitals:${id}:v${visit}`. A person is read once per simulated minute, on their own second (`n % 60`).
@@ -46,5 +46,14 @@ No unit has a shifted baseline. Age, sex and group change no vital: the generato
 ## Cost
 The contract's prototype measurement, on a loaded machine, one simulated day, seed 101: hospital step alone 0.43 s; with the engine 2.38 s; about 12-13 microseconds per read; 1.35 ms per simulated minute. The first minute opens about 106 streams in one 22 ms step. These are the prototype's numbers, not this build's.
 
+## On the page
+Only the standalone hospital build makes the engine. A viewer build, a watcher and the ward-only build never do, and no request is added. It is made with the world and replaced on every restart (scenario change, Shuffle, Reset). It is fed with `feedVitals` right after each `step` in the frame loop and in the chunked day skip, next to the ward-stats feed. It is display only.
+- **Canvas.** Beds and tags outside W4 take the NEWS2 risk colour of their person, from `riskBySel`. Grey means not ranked. Ward W4's drawing is unchanged. Intensive care keeps its group colours: no NEWS2 colour. The ER waiting room keeps its triage colours.
+- **Unit panels** (MED3A, MED3B, SURG5A, the ER queue panel, ICU). The unit's label, then the ranked list in the ward's own order (rank, name, bed or stretcher, NEWS2 total, the mini vitals line), then the people not ranked and why. The ER list includes the waiting room. Intensive care lists its people with their vitals and the line "Not ranked: NEWS2 is a ward score." Every one of them also says "Display only. Care in the model does not read this score."
+- **Person panel** for someone outside W4. The unit label, the NEWS2 total and risk word (in intensive care, the ward-score line), the same five vital cards as W4's patient panel, and one line of inputs: consciousness alert (not modelled), oxygen the generator's draw, blood pressure at arrival and each round (arrival only in intensive care). A person whose episode was cleared at an intensive care step-down shows "Simulated recovery, not modelled."
+- **W4's own panels** are unchanged. The unit panel for W4 shows no label.
+- **Legend.** "ICU: no NEWS2 colour. Waiting room: triage colour."
+- **Entrance panel.** Its "Skip 1 day" button is hidden in a hospital world, because that jump steps with no feed. The top bar's "+1 day" stays and is fed.
+
 ## Not claimed
-No outcome claim. Nothing here has been shown on a page.
+No outcome claim. A NEWS2 colour outside W4 is a display of a synthetic score. It is not a finding about any real ward.

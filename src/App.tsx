@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
+import { createVitals, feedVitals, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
 import { floorOf } from "./hospital-panels";
 import { fetchOpenWard, nextGate, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
@@ -144,6 +145,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   const [pick, setPick] = useState<Pick>(() => parseQuery(window.location.search)); // only the standalone page reads it
   const [world, setWorld] = useState(() => newWorld(pick));
   const statsRef = useRef(createWardStats()); // beside the world, not in it: replaced with the world, fed after every step. A viewer never feeds it.
+  // The vitals engine (display only), beside the world and replaced with it on every restart. Made only in the standalone hospital build.
+  // `world` is the Sim it belongs to: a frame that still holds another Sim feeds nothing into it.
+  const vitalsRef = useRef<{ world: Sim; v: HospitalVitals } | null>(null);
+  if (HOSPITAL && world.s.hospital && vitalsRef.current?.world !== world.s) vitalsRef.current = { world: world.s, v: createVitals() };
   const [page, setPage] = useState(pageOf);
   useEffect(() => {
     const onHash = () => setPage(pageOf());
@@ -282,7 +287,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer: Renderer = HOSPITAL ? createStackRenderer(canvas, () => viewRef.current) : createRenderer(canvas);
+    const renderer: Renderer = HOSPITAL ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : {})) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -320,6 +325,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         if (!VIEW_API && !skippingRef.current) {
           step(s, src); // a viewer draws the runner's ward and never advances one
           feed(statsRef.current, s, src);
+          if (vitalsRef.current?.world === s) feedVitals(vitalsRef.current.v, s.hospital!, s.clockS);
         }
       }
       if (perf) perf.step(performance.now() - t0, minuteOf(s) - m0);
@@ -440,7 +446,8 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     }
   };
 
-  const floors = world.s.hospital ? floorSummary(world.s.hospital, Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null]))) : [];
+  const vitals = vitalsRef.current?.world === world.s ? vitalsRef.current.v : null;
+  const floors = world.s.hospital ? floorSummary(world.s.hospital, { ...Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null])), ...(vitals ? riskBySel(vitals) : {}) }) : [];
 
   // The same steps as skipDay (sim.ts), in chunks so the page stays responsive. Hospital worlds only.
   const skipDayChunked = () => {
@@ -462,6 +469,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         for (let i = 0; i < 200 && left > 0; i += 1, left -= 1) {
           step(s, src);
           feed(statsRef.current, s, src);
+          if (vitalsRef.current?.world === s) feedVitals(vitalsRef.current.v, s.hospital!, s.clockS);
         }
       }
       s.moves.length = 0; // as skipDay: a day of trolleys at once would only be noise
@@ -639,7 +647,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} />
+        <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} vitals={vitals} />
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>

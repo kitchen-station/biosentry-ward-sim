@@ -499,7 +499,9 @@ const bedPoint = (bed: Bed): [number, number] => {
 };
 /** Initials; "XX ICU" for an ICU-indicated person once admitted; a body's tag is inverted and has no dot. */
 const cellText = (c: Cell) => (c.icu && !c.dead ? `${c.initials} ICU` : c.initials);
-const cellTag = (ctx: Ctx, c: Cell, x: number, bottom: number) => tag(ctx, cellText(c), x, bottom, c.dead ? undefined : GROUP_COLOURS[c.group], c.dead);
+// The dot: the NEWS2 risk when the cell has one, grey when not ranked, else the group colour (intensive care, bodies).
+export const cellDot = (c: Cell) => (typeof c.risk === "string" ? RISK_LIGHT[c.risk] : c.risk === null ? "#A899B5" : GROUP_COLOURS[c.group]);
+const cellTag = (ctx: Ctx, c: Cell, x: number, bottom: number) => tag(ctx, cellText(c), x, bottom, c.dead ? undefined : cellDot(c), c.dead);
 const inTag = (x: number, y: number, cx: number, bottom: number, text: string, dot: boolean) =>
   Math.abs(x - cx) <= text.length * 2 + (dot ? 6 : 3) && y >= bottom - 12 && y <= bottom;
 const TROLLEY: [string, string, string] = ["#7DA7D9", "#5E89BC", "#4F78A9"];
