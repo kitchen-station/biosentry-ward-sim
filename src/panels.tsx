@@ -161,7 +161,7 @@ export function TopBar({
           {hospital.onShuffle && (
             <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4 starts with 12 newly drawn synthetic patients; arrivals and the hospital change too." onClick={hospital.onShuffle}>Shuffle</button>
           )}
-          <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address. With a seed, ward W4's 12 starting patients are drawn from it. Without one, they are the 12 fixture patients.">{hospital.seedText}</span>
+          <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address. With a seed, ward W4's 12 starting patients are drawn from it. Without one, they are the 12 fixture patients, or the scenario's own drawn group for Critical group.">{hospital.seedText}</span>
           <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
         </>
       )}

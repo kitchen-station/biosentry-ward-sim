@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import doh from "../scenarios/hospital/doh-standard.json?raw";
 import moreNurses from "../scenarios/hospital/more-nurses.json?raw";
 import typical from "../scenarios/hospital/typical.json?raw";
@@ -8,6 +8,7 @@ import { createHospitalSim } from "./sim/hospital/attach";
 import { parseScenario } from "./sim/hospital/scenario";
 import { setSpeed, step, type Sim } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
+import * as rngModule from "./sim/hospital/rng";
 
 // FNV-1a 32-bit, as in golden.test.ts (not imported: that file stays untouched).
 const hash = (text: string) => {
@@ -53,7 +54,7 @@ describe("pitch", () => {
 describe("seed draws ward W4's 12", () => {
   const w4 = (id: string, seed: number | null) => buildWorld(id, seed).s.patients.map((p) => `${p.id}|${p.name}`);
   it("no seed keeps the fixture 12 in every named scenario; any seed draws c-001 to c-012", () => {
-    for (const n of NAMED) {
+    for (const n of NAMED.filter((x) => !x.critical)) { // critical always draws, see its own tests
       expect(w4(n.id, null)).toEqual(createSyntheticSource(FIXTURE_SEED, true).seeds().map((p) => `${p.id}|${p.name}`));
       expect(w4(n.id, null).every((x) => x.startsWith("p-"))).toBe(true);
       expect(w4(n.id, 777).map((x) => x.split("|")[0])).toEqual(Array.from({ length: 12 }, (_, i) => `c-${String(i + 1).padStart(3, "0")}`));
@@ -90,8 +91,8 @@ describe("more-nurses.json", () => {
 });
 
 describe("named list", () => {
-  it("has the four ids, and every file parses", () => {
-    expect(NAMED.map((n) => n.id)).toEqual(["pitch", "calm", "surge", "more-nurses"]);
+  it("has the five ids, and every file parses", () => {
+    expect(NAMED.map((n) => n.id)).toEqual(["pitch", "calm", "surge", "more-nurses", "critical"]);
     for (const n of NAMED) expect(() => buildWorld(n.id, null)).not.toThrow();
   });
 });
@@ -136,5 +137,75 @@ describe("who gets Shuffle", () => {
     expect(app).toContain("onShuffle: HOSPITAL ? ");
     expect(app.match(/onShuffle:/g)).toHaveLength(1);
     expect(app).toContain("const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;");
+  });
+});
+
+describe("critical group", () => {
+  const injectAts = (w: ReturnType<typeof buildWorld>) =>
+    Object.fromEntries(Object.entries((w.src.save!(w.s.patients.map((p) => p.id)) as unknown as { streams: Record<string, { injectAt: number | null }> }).streams).map(([id, v]) => [id, v.injectAt]));
+  // The same world without the critical step.
+  const plain = (seed: number | null) => {
+    const src = createSyntheticSource(seed ?? 20261114, true, undefined, "drawn");
+    return { s: createHospitalSim(src, parseScenario(typical), seed ?? 101), src };
+  };
+  const picked = (seed: number | null) => {
+    const a = injectAts(plain(seed));
+    const b = injectAts(buildWorld("critical", seed));
+    return Object.keys(b).filter((id) => a[id] !== b[id]).map((id) => [id, b[id]] as const);
+  };
+
+  it("sets exactly the chosen streams, each in [0, 360), and no other", () => {
+    for (const seed of [null, 777]) {
+      const w = buildWorld("critical", seed);
+      const cand = w.s.patients.filter((p) => p.dueMin !== null && p.dueMin > 360).length;
+      const a = injectAts(plain(seed));
+      const b = injectAts(w);
+      const changed = Object.keys(b).filter((id) => a[id] !== b[id]);
+      expect(changed.length).toBeLessThanOrEqual(Math.min(4, cand));
+      for (const id of changed) expect(Number.isInteger(b[id])).toBe(true);
+      for (const id of changed) expect(b[id]!).toBeGreaterThanOrEqual(0), expect(b[id]!).toBeLessThan(360);
+      for (const id of Object.keys(b)) if (!changed.includes(id)) expect(b[id]).toBe(a[id]);
+      expect(w.s.log[0].text).toContain(`Chosen group: ${Math.min(4, cand)} of 12`);
+    }
+  });
+
+  it("repeats for a seed, differs for another, and never picks someone due by minute 360", () => {
+    expect(picked(777)).toEqual(picked(777));
+    expect(picked(777)).not.toEqual(picked(778));
+    for (const seed of [null, 777, 778]) {
+      const w = buildWorld("critical", seed);
+      const due = new Map(w.s.patients.map((p) => [p.id, p.dueMin]));
+      for (const [id] of picked(seed)) expect(due.get(id)!).toBeGreaterThan(360);
+    }
+  });
+
+  it("leaves every other scenario alone", () => {
+    for (const id of ["pitch", "calm", "surge", "more-nurses"]) {
+      const spy = vi.spyOn(rngModule, "stream");
+      buildWorld(id, 777);
+      expect(spy.mock.calls.some((c) => c[1] === "critical")).toBe(false);
+      spy.mockRestore();
+    }
+    const a = oldWorld();
+    const b = buildWorld("pitch", null);
+    expect(fingerprint(b.s)).toBe(fingerprint(a.s));
+  });
+
+  it("shows the label on the seed pill", () => {
+    expect(seedText("critical", null)).toBe("Seed 101 / 20261114 · chosen group");
+    expect(seedText("critical", 777)).toBe("Seed 777 · chosen group");
+  });
+
+  it("reaches NEWS2 5 or more for some picked patients in 12 hours (seed 20261114)", () => {
+    const w = buildWorld("critical", null);
+    const ids = picked(null).map(([id]) => id);
+    const reached = new Set<string>();
+    setSpeed(w.s, 60);
+    while (w.s.clockS < 12 * 3600) {
+      step(w.s, w.src);
+      for (const p of w.s.patients) if (ids.includes(p.id) && p.decision.kind === "ranked" && p.decision.news2.total >= 5) reached.add(p.id);
+    }
+    console.log("critical picked", JSON.stringify(picked(null)), "reached", [...reached]);
+    expect(reached.size).toBeGreaterThanOrEqual(2);
   });
 });

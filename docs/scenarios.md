@@ -12,20 +12,29 @@ The top bar's scenario select lists these. Each sets a scenario file, a hospital
 | Calm, fully staffed | `calm` | `doh-standard.json` | hospital 101, vitals 20260903 |
 | Surge | `surge` | `surge.json` | hospital 101, vitals 20260903 |
 | More ward nurses (DOH ward staffing) | `more-nurses` | `more-nurses.json` | hospital 101, vitals 20260903 |
+| Critical group | `critical` | `typical.json` | hospital 101, vitals 20261114 |
 
 - Pitch ward is the run the page opened on before this list existed. It is the same world, step for step.
 - Calm uses the DOH staffing standard and fewer arrivals than typical. Surge has more arrivals than typical and the same staff. The numbers are in the files.
 - `more-nurses.json` is `typical.json` with one kind of change: the ward nurse counts (MED3A, MED3B and SURG5A, three fields) are the values `doh-standard.json` uses. Choosing those values is a judgement. ICU and ER staffing are unchanged. Its `name` and `note` text also differ. It is made for `npm run compare` and `npm run hospital-trial`, which read it like any scenario file.
 
+## Critical group
+
+- A chosen demonstration group, not a ward rate: 4 of ward W4's 12 starting patients start a simulated deterioration in the first 6 hours. The 4 and the 6 hours are chosen values, with no source.
+- It always draws the 12 (also with no seed in the address). The pick uses its own stream, `critical`, so with one seed the 12 people are the same as under "Pitch ward" with that seed. Only patients due to leave after minute 360 can be picked.
+- Each picked patient gets `inject` at a minute from 0 to 359, the same call the page's "Start deterioration" button makes. That button can still move a picked patient's start earlier.
+- Limit: if fewer than 4 of the 12 are due after 6 hours, fewer are picked. The first log line and the label show the real count. A drawn patient may also have a deterioration of its own scheduled (see below), and that is not counted.
+- The seed pill reads `Seed 101 / 20261114 · chosen group`, or `Seed 777 · chosen group` with a seed.
+
 ## The seed pill
 
-The pill next to the select shows the seed. A named scenario with its own seeds shows the hospital seed and, when it differs, the vitals seed, for example `Seed 101 / 20260903`. After Shuffle, or with `seed` in the address, it shows that one number, which is used for both seeds and draws ward W4's 12 starting patients. It is text, not an input.
+The pill next to the select shows the seed. The pill of "Critical group" ends with ` · chosen group`. A named scenario with its own seeds shows the hospital seed and, when it differs, the vitals seed, for example `Seed 101 / 20260903`. After Shuffle, or with `seed` in the address, it shows that one number, which is used for both seeds and draws ward W4's 12 starting patients. It is text, not an input.
 
 ## Shuffle
 
 Shuffle draws a whole number from 1 to 2147483647 with `crypto.getRandomValues`, and restarts the world with the current scenario file and that number as both the hospital seed and the vitals seed. The simulation's own random streams are not touched.
 
-A shuffled seed draws 12 new ward W4 patients. The same seed gives the same 12 people, so a copied address repeats them. The named scenarios with no seed show the same 12 fixture patients as before.
+A shuffled seed draws 12 new ward W4 patients. The same seed gives the same 12 people, so a copied address repeats them. The named scenarios with no seed show the same 12 fixture patients as before, except "Critical group", which always draws.
 
 How the 12 are drawn: each one is drawn by the same code that draws an arriving patient (sex, bed, case, stay, baseline vitals, rhythm, name and age), from random streams of their own named `cohort:1` to `cohort:12`. They never use the arrival stream, so with one seed the arrivals after minute 0 are the same whether the 12 are drawn or fixture. Their ids are `c-001` to `c-012`. They are seated at minute 0 part-way through a stay, like the fixture 12. Their story line says they are synthetic patients drawn for this run. They have no invented history.
 
