@@ -51,6 +51,11 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   const pulling = { actions: false, commands: false };
   let dropped = 0;
   let stopped: StopReason | null = null;
+  // What the API has acknowledged for the current registration. Read-only for callers: see `acked`.
+  let ackedMinute: number | null = null;
+  const ackedPatients = new Set<string>();
+  let registered: string[] = []; // the ids the registration carries
+  let generation = 0; // counts register() calls: an answer for an older one acknowledges nothing
 
   async function post(path: string, body: object) {
     const response = await send(`${apiUrl}${path}`, {
@@ -92,6 +97,8 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       const departures = out.departures.splice(0, BATCH.moves);
       const minute = minuteOf(sim);
       const ended = sim.ended && !pending();
+      const tookAll = !pending(); // this batch holds everything queued when it was cut
+      const generationSent = generation;
       try {
         await post(`/sim/runs/${runId}/batch`, {
           minute,
@@ -118,6 +125,10 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
         throw error;
       }
       if (s !== sim) return; // start() gave the sync another world meanwhile: this one's rows are not sent
+      if (generation === generationSent) {
+        for (const a of admissions) ackedPatients.add(a.id);
+        if (tookAll) ackedMinute = minute;
+      }
       sentEnded = ended;
     } while (pending() || sim.ended !== sentEnded);
   }
@@ -134,6 +145,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
           const id = ((await (await post("/sim/runs", registration!)).json()) as { run_id: number }).run_id;
           if (s !== world) return; // start() began another run while this one registered: the next flush registers that one
           runId = id;
+          for (const p of registered) ackedPatients.add(p);
         } catch (error) {
           if (s !== world) return; // as below: an answer for a world the sync has since left
           if (error instanceof HttpError && error.status === 409) return stop("other_live");
@@ -158,6 +170,10 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
   function register(world: Sim) {
     const minute = minuteOf(world);
     runId = null;
+    generation += 1;
+    ackedMinute = null;
+    ackedPatients.clear();
+    registered = world.patients.map((p) => p.id);
     cursor.actions = cursor.commands = 0;
     world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
     for (const p of world.patients) record(world, p, minute);
@@ -192,6 +208,12 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     if (run.runId === null || !world.outbox) register(world); // saved before the API ever answered
     else {
       runId = run.runId;
+      // The run knows every patient whose admission is not still queued. No minute is known until a batch is acknowledged.
+      const queued = new Set(world.outbox.admissions.map((a) => a.id));
+      generation += 1;
+      ackedMinute = null;
+      ackedPatients.clear();
+      for (const p of world.patients) if (!queued.has(p.id)) ackedPatients.add(p.id);
       cursor.actions = run.cursor;
       cursor.commands = run.commandCursor;
     }
@@ -247,6 +269,14 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     /** What a saved ward needs to continue this run. */
     get run() {
       return { runId, origin, cursor: cursor.actions, commandCursor: cursor.commands };
+    },
+    /** What the API has acknowledged: the minute of the last batch that took the whole queue, and the patients it knows. Read-only. */
+    get acked(): { minute: number | null; patients: ReadonlySet<string> } {
+      return { minute: ackedMinute, patients: ackedPatients };
+    },
+    /** Counts registrations and resumes: the same run id with another number is another registration. Read-only. */
+    get generation() {
+      return generation;
     },
     get stopped() {
       return stopped;
