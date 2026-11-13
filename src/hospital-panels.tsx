@@ -10,6 +10,9 @@ import { noticedLateMin, overdueRounds } from "./sim/hospital/step";
 import type { EventKind, Hospital, Person } from "./sim/hospital/types";
 import type { Patient, Sim } from "./sim/sim";
 import { Flip } from "./flip";
+import { NotRankedRow, RankedRow, RISK_WORDS, VitalCards } from "./vital-cards";
+import { unitRank, vitalsOf, type HospitalVitals, type PersonVitals } from "./sim/hospital/vitals";
+import { SYNTHETIC_RULES } from "./sim/source";
 
 const START = PARAMS.clock.startMinuteOfDay.value;
 const DAY = 1440;
@@ -152,6 +155,93 @@ function whereNow(h: Hospital, p: Person): string {
   }
 }
 
+// ---- vitals (display only: nothing here reaches care, a move or a task) ----
+
+/** The plan's labels, by unit. W4 is listed for the docs and the tests; the page keeps W4's own panels as they were. */
+export const UNIT_LABEL: Partial<Record<UnitId, string>> = {
+  W4: "Synthetic. Generator fitted to ICU data at ward-like baselines.",
+  MED3A: "Synthetic. Same generator as W4.",
+  MED3B: "Synthetic. Same generator as W4.",
+  SURG5A: "Synthetic. Adult generator, not fitted to surgical patients.",
+  ER: "Synthetic. Not ER data: ward generator.",
+  ICU: "Synthetic. ICU vitals are not modelled: ward generator values.",
+};
+export const ICU_NOT_RANKED = "Not ranked: NEWS2 is a ward score.";
+export const DISPLAY_ONLY = "Display only. Care in the model does not read this score.";
+export const FIRST_DAY = "First day: everyone starts as a new admission, so scores run high.";
+export const RECOVERY_NOTE = "Simulated recovery, not modelled.";
+
+/** Where a person is, in the unit's own words. */
+function placeOf(h: Hospital, q: Person): string {
+  if (q.where === "waiting") return "Waiting room";
+  if (q.where === "boarding" && q.slot === null) return "Boarding";
+  if (q.slot === null) return "";
+  const u = h.units.find((x) => x.id === q.unit)!;
+  return slotName(q.unit, u.beds, u.stretchers, q.slot);
+}
+
+/** The label, the ranked list in the ward's own order, and who is not ranked. Intensive care: vitals, no rank. */
+function UnitVitals({ h, id, vitals, onSelect }: { h: Hospital; id: UnitId; vitals: HospitalVitals | null; onSelect: (id: string) => void }) {
+  const label = UNIT_LABEL[id];
+  if (!vitals || !label || id === "W4" || id === "MORGUE") return null;
+  const minute = now(h);
+  const byId = new Map(h.people.map((q) => [q.id, q]));
+  const row = (pv: PersonVitals) => { const q = byId.get(pv.id)!; return { p: pv.p, key: pv.id, sel: `h:${q.n}`, name: q.name, place: placeOf(h, q) }; };
+  const rows = (xs: PersonVitals[]) => xs.map(row);
+  if (id === "ICU") {
+    const here = h.people.flatMap((q) => { const pv = q.unit === "ICU" ? vitals.live.get(q.id) : undefined; return pv && pv.visit === q.visit ? [pv] : []; });
+    return (
+      <>
+        <h3>Vital signs</h3>
+        <p className="story">{label}</p>
+        <p className="story">{ICU_NOT_RANKED}</p>
+        <p className="tiny">{DISPLAY_ONLY}</p>
+        {minute < DAY && <p className="tiny">{FIRST_DAY}</p>}
+        {here.length === 0 ? <p className="story">Nobody here.</p> : (
+          <ul className="list">{rows(here).map((r) => <NotRankedRow key={r.key} p={r.p} sel={r.sel} name={r.name} place={r.place} minute={minute} onSelect={onSelect} selected={false} />)}</ul>
+        )}
+      </>
+    );
+  }
+  const ur = unitRank(vitals, h, id);
+  if (!ur) return null;
+  return (
+    <>
+      <h3>Vital signs</h3>
+      <p className="story">{label}</p>
+      <p className="tiny">{DISPLAY_ONLY}</p>
+      {minute < DAY && <p className="tiny">{FIRST_DAY}</p>}
+      {ur.ranked.length === 0 ? <p className="story">Nobody ranked.</p> : (
+        <ol className="list">
+          {rows(ur.ranked).map((r, i) => <RankedRow key={r.key} p={r.p} rank={i + 1} sel={r.sel} name={r.name} place={r.place} minute={minute} onSelect={onSelect} selected={false} />)}
+        </ol>
+      )}
+      {ur.notRanked.length > 0 && <h3>Not ranked</h3>}
+      <ul className="list">
+        {rows(ur.notRanked).map((r) => <NotRankedRow key={r.key} p={r.p} sel={r.sel} name={r.name} place={r.place} onSelect={onSelect} selected={false} />)}
+      </ul>
+    </>
+  );
+}
+
+/** One person outside W4: the label, the score (or why none), five cards and the stated inputs. */
+function PersonVitalsView({ h, p, pv }: { h: Hospital; p: Person; pv: PersonVitals }) {
+  const d = pv.p.decision;
+  const icu = p.unit === "ICU";
+  return (
+    <>
+      <h3>Vital signs</h3>
+      <p className="story">{UNIT_LABEL[p.unit]}</p>
+      <p className="mono">{icu ? ICU_NOT_RANKED : d.kind === "ranked" ? `NEWS2 ${d.news2.total} · ${RISK_WORDS[d.news2.risk]}` : `Not ranked: ${d.reason}.`}</p>
+      <VitalCards p={pv.p} minute={now(h)} charted={SYNTHETIC_RULES.charted} origin="synthetic" when={(at) => (at === null ? "no reading" : clock(at))} />
+      <p className="tiny">Consciousness: alert (not modelled). Oxygen: generator&apos;s draw. BP: {icu ? "at arrival only, no rounds here" : "at arrival and each round"}.</p>
+      <p className="tiny">{DISPLAY_ONLY}</p>
+      {now(h) < DAY && <p className="tiny">{FIRST_DAY}</p>}
+      {pv.spans.some((x) => x.recovery === "not_modelled") && <p className="tiny">{RECOVERY_NOTE}</p>}
+    </>
+  );
+}
+
 // ---- small views ----
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -187,8 +277,9 @@ export function personStatus(h: Hospital, p: Person): { pill: string; line: stri
   return { pill: "Left", line: unseen ? "Outcome not observed: left the record before any stay ended." : lines.at(-1)?.text ?? "Left the record." };
 }
 
-function PersonPanel({ h, p, onSelect }: { h: Hospital; p: Person; onSelect: (id: string) => void }) {
+function PersonPanel({ h, p, onSelect, vitals }: { h: Hospital; p: Person; onSelect: (id: string) => void; vitals: HospitalVitals | null }) {
   const alive = h.people.includes(p);
+  const pv = vitals && alive && p.unit !== "W4" && !isBody(p) ? vitalsOf(vitals, p.id, p.visit) : null;
   const status = personStatus(h, p);
   const comps = complications(h, p);
   const late = noticedLateLine(p);
@@ -214,6 +305,7 @@ function PersonPanel({ h, p, onSelect }: { h: Hospital; p: Person; onSelect: (id
       <h3>Where now</h3>
       <p className="story">{whereNow(h, p)}.</p>
       {status.line && <p className="story">{status.line}</p>}
+      {pv && <PersonVitalsView h={h} p={p} pv={pv} />}
       {late && <p className="story">{late}</p>}
       <h3>Complications</h3>
       {comps.length === 0 ? <p className="story">None recorded.</p> : <ul className="plist">{comps.map((c) => <li key={c}>{c}</li>)}</ul>}
@@ -237,7 +329,7 @@ function BedPanel({ h, unit, slot, onSelect }: { h: Hospital; unit: UnitId; slot
   );
 }
 
-function UnitPanel({ h, id, floors }: { h: Hospital; id: UnitId; floors: FloorSummary[] }) {
+function UnitPanel({ h, id, floors, vitals, onSelect }: { h: Hospital; id: UnitId; floors: FloorSummary[]; vitals: HospitalVitals | null; onSelect: (id: string) => void }) {
   const u = h.units.find((x) => x.id === id);
   const sum: UnitSummary | undefined = floors.flatMap((f) => f.units).find((x) => x.id === id);
   // Scans every person: once per sim minute, not per render.
@@ -272,12 +364,13 @@ function UnitPanel({ h, id, floors }: { h: Hospital; id: UnitId; floors: FloorSu
       )}
       {rounds && <><p className="story">{rounds}</p><p className="tiny">{ROUNDS_CAPTION}</p></>}
       {sum.bodies > 0 && <p className="story">{sum.bodies} awaiting transfer to the morgue (hold a bed, not counted).</p>}
+      <UnitVitals h={h} id={id} vitals={vitals} onSelect={onSelect} />
       <p className="story">Hospital layer: synthetic.{display && " Staffing outside W4 drives observation rounds only; care there is not modelled."}</p>
     </>
   );
 }
 
-function QueuePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => void }) {
+function QueuePanel({ h, onSelect, vitals }: { h: Hospital; onSelect: (id: string) => void; vitals: HospitalVitals | null }) {
   const waiting = seeingOrder(h);
   const er = h.people.filter((p) => p.unit === "ER");
   const boarders = er.filter((p) => p.where === "boarding");
@@ -308,6 +401,7 @@ function QueuePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => vo
           {boarders.map((p) => <li key={p.n}><PersonLink p={p} onSelect={onSelect} /> · for {p.wants ? unitName(h, p.wants) : "?"} · {Math.floor((now(h) - p.sinceMin) / 60)} h</li>)}
         </ul>
       )}
+      <UnitVitals h={h} id="ER" vitals={vitals} onSelect={onSelect} />
     </>
   );
 }
@@ -351,17 +445,17 @@ export function floorOf(h: Hospital, id: string): number | null {
   return h.units.find((u) => u.id === unit)?.floor ?? null;
 }
 
-export function HospitalPanel({ h, id, onSelect, floors }: { h: Hospital; id: string; onSelect: (id: string) => void; floors: FloorSummary[] }) {
+export function HospitalPanel({ h, id, onSelect, floors, vitals = null }: { h: Hospital; id: string; onSelect: (id: string) => void; floors: FloorSummary[]; vitals?: HospitalVitals | null }) {
   const known = (x: string) => h.units.some((u) => u.id === x);
   const [kind, a, b] = id.split(":");
   if (kind === "h") {
     const p = findPerson(h, Number(a));
-    return p ? <PersonPanel h={h} p={p} onSelect={onSelect} /> : <p className="empty">This person is too old to be on record.</p>;
+    return p ? <PersonPanel h={h} p={p} onSelect={onSelect} vitals={vitals} /> : <p className="empty">This person is too old to be on record.</p>;
   }
   if (kind === "hbed" && known(a)) return <BedPanel h={h} unit={a as UnitId} slot={Number(b)} onSelect={onSelect} />;
-  if (kind === "queue" || (kind === "unit" && a === "ER")) return <QueuePanel h={h} onSelect={onSelect} />;
+  if (kind === "queue" || (kind === "unit" && a === "ER")) return <QueuePanel h={h} onSelect={onSelect} vitals={vitals} />;
   if (kind === "morgue" || (kind === "unit" && a === "MORGUE")) return <MorguePanel h={h} onSelect={onSelect} />;
-  if (kind === "unit" && known(a)) return <UnitPanel h={h} id={a as UnitId} floors={floors} />;
+  if (kind === "unit" && known(a)) return <UnitPanel h={h} id={a as UnitId} floors={floors} vitals={vitals} onSelect={onSelect} />;
   return <p className="empty">Nothing here.</p>;
 }
 

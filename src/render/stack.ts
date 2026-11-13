@@ -44,8 +44,8 @@ export function nextLevel(l: Level, e: LevelEvent): Level {
   return { view: e.floor, selected: e.thing };
 }
 
-/** `getView` is App's floor (null for the building). Same surface as createRenderer, so App drives either. */
-export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null): Renderer {
+/** `getView` is App's floor (null for the building). `getRisk`: NEWS2 risk by `h:${n}`, read once a minute with the scenes. Same surface as createRenderer, so App drives either. */
+export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null, getRisk: () => Record<string, string | null> = () => ({})): Renderer {
   const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
   const w4 = createW4();
   const slabs = FLOORS.map((spec) => (spec === W4 ? null : createFloor(spec)));
@@ -56,7 +56,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     const h = s.hospital;
     if (!h) return { floors: null, scenes: FLOORS.map(() => EMPTY) };
     if (memo?.h !== h || memo.minute !== h.lastMinute) {
-      const floors = floorSummary(h);
+      const floors = floorSummary(h, getRisk());
       const next = FLOORS.map((spec) => floorScene(h, spec, floors));
       const now = placesOf(next);
       const still = new Map(h.people.map((p) => [`h:${p.n}`, p]));

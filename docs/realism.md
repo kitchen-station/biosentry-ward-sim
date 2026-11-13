@@ -150,7 +150,7 @@ A known miss that starts passing makes the command exit 1, as the test suite's e
 - **Held-out checks use fixture patients.** A and B use one patient (p-002); C uses ten patients over three days. Deterioration episodes, how the vitals move together, and the spread between patients are not compared with held-out data.
 - **Diastolic pressure** follows systolic by a fitted relation and is not tested.
 - **Blood pressure is a cuff reading** taken by a nurse. The patch does not measure it.
-- **Only ward W4 has vitals.** The other hospital units have people, beds and staff, but no vital signs.
+- **Vitals are generated for every hospital unit by the same generator, fitted to ICU data at ward-like baselines.** No unit has a fit of its own. The checks above test the generator as ward W4 uses it. See [hospital-vitals.md](hospital-vitals.md).
 - **No infection or fever episode** is modelled.
 - **Deterioration episodes** are vital-sign changes defined by this project's own rule on ICU data. No open dataset labels deterioration.
 - **Realism only.** None of this says how well BioSentry predicts. No model result may be reported from this synthetic data.

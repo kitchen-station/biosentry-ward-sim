@@ -195,6 +195,8 @@ The top bar has two links, Simulation and Analytics. Analytics shows charts for 
 
 The standalone hospital page has a select of four named scenarios (Pitch ward is the default and is the run the page always opened on), a Shuffle button and a seed pill. Shuffle draws a new seed for the hospital and the vitals; ward W4's first 12 patients stay the same people, and their noise, how long they stay and who arrives later change. `?scenario=<id>&seed=<n>` in the address repeats a run. A viewer build and the ward-only build do not show them. See [docs/scenarios.md](docs/scenarios.md).
 
+In the standalone hospital page every unit shows synthetic vital signs and a NEWS2 colour for its people, and each ward and the ER has a ranked list. Intensive care shows vitals but no rank, because NEWS2 is a ward score. A person outside ward W4 has the same vital cards as a W4 patient. Each unit says what its numbers are: the same generator as W4, not fitted to that unit. It is display only: care in the model does not read it. A viewer build and the ward-only build do not show it. See [docs/hospital-vitals.md](docs/hospital-vitals.md).
+
 ## What you can do
 
 - Set the speed: pause, 1x, 10x or 60x. Staff movement is capped at 6x so walks stay visible.

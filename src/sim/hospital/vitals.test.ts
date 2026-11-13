@@ -452,9 +452,9 @@ describe("scans", () => {
   const all = files("src");
 
   const imports = (f: string) => /from\s+["'][^"']*\bvitals["']/.test(readFileSync(f, "utf8"));
-  it("is imported by no file under src other than tests in this slice (the page wiring is next)", () => {
+  it("is imported only by the page: App.tsx and the two panel files (display only)", () => {
     const importers = all.filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.endsWith("hospital/vitals.ts") && imports(f));
-    expect(importers).toEqual([]);
+    expect(importers).toEqual(["src/App.tsx", "src/hospital-panels.tsx", "src/panels.tsx"]);
     for (const named of ["src/headless.ts", "src/trial.ts", "src/hospital-trial.ts", "src/compare.ts", "src/lab-worker.ts", "src/sim/trial.ts", "src/sim/hospital/trial.ts"]) {
       expect(all).toContain(named);
       expect(imports(named)).toBe(false);

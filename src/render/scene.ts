@@ -1,6 +1,6 @@
 // What a hospital floor shows this minute: who is in which bed, stretcher, trolley, chair or drawer, and the "+N"s.
 // Pure: the hospital state in, tiles and ids out. The cells (initials, group, dead, icu) are building.ts's own, so the
-// floor and the panels follow the same rules. Outside W4 nothing drawn suggests a clinical score.
+// floor and the panels follow the same rules. A cell outside W4 and intensive care may carry a NEWS2 risk (from the vitals engine, display only); the waiting room keeps its triage colours.
 import { floorSummary, TRIAGE_COLOURS, type Cell, type FloorSummary } from "../building";
 import type { Bed, Tile } from "../sim/map";
 import type { UnitId } from "../sim/hospital/params";

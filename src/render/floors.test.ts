@@ -206,6 +206,16 @@ describe("from the hospital to what is drawn", () => {
     expect([over.unit, over.tile]).toEqual(["MORGUE", spec.units![1].spots[1]]);
   });
 
+  it("GF: the waiting room keeps its triage colours even when a risk is given for a waiting person", () => {
+    const { h, queue } = hospital();
+    const calm = seeingOrder(h).slice(0, 40).find((p) => p.triage === "non_urgent")!; // one of the 40 drawn
+    expect(queue).toContain(calm);
+    const gf = floorScene(h, FLOORS[slabIndex(0)], floorSummary(h, { [`h:${calm.n}`]: "high" }));
+    const q = gf.queue.find((x) => x.id === `h:${calm.n}`)!;
+    expect(q.cell.risk).toBe("high"); // the cell carries it
+    expect(q.colour).toBe("#6BCF7F"); // the drawn colour is the triage colour, not the risk red
+  });
+
   it("the slab tags say one short live line", () => {
     const { h } = hospital();
     const floors = floorSummary(h);

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Flip } from "./flip";
 import { Sparkline } from "./chart";
+import { NotRankedRow, RankedRow, RISK_WORDS, VITAL_CARD, VitalCards } from "./vital-cards";
 import { EcgStrip } from "./ecg";
 import { explain } from "./explain";
 import { floorSummary, type FloorSummary } from "./building";
+import type { HospitalVitals } from "./sim/hospital/vitals";
 import { HospitalPanel, isHospitalId, W4HospitalSections } from "./hospital-panels";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
@@ -28,7 +30,9 @@ import {
   type Stay,
   type StayOutcome,
 } from "./sim/sim";
-import type { Vital, VitalsSource } from "./sim/source";
+import type { VitalsSource } from "./sim/source";
+
+export { VITAL_CARD }; // the Analytics page prints the vitals the same way
 
 /** The build draws the headless runner's ward from this API and changes nothing on it. */
 export const VIEW_API: string | undefined = import.meta.env.VITE_VIEW_API_URL;
@@ -64,21 +68,6 @@ const stayLength = (stay: Stay, minute: number) =>
   `${stay.inMin === 0 ? "at least " : ""}${duration((stay.outMin ?? minute) - stay.inMin)}`;
 
 const OUTCOME: Record<StayOutcome, string> = { discharged: "Discharged", higher_care: "Moved to higher care" };
-
-/** How the vital cards name and print each vital; the Analytics page prints them the same way. */
-export const VITAL_CARD = {
-  heart_rate: { label: "Heart rate", unit: "/min", digits: 0 },
-  respiratory_rate: { label: "Resp. rate", unit: "/min", digits: 0 },
-  spo2: { label: "SpO2", unit: "%", digits: 0 },
-  temperature: { label: "Temperature", unit: "°C", digits: 1 },
-} as const;
-
-function vitalText(p: Patient, v: Vital, minute: number, digits = 0) {
-  const held = p.held[v];
-  return held === null || vitalQuality(p, v, minute) === "missing" ? "--" : held.toFixed(digits);
-}
-
-const bpText = (p: Patient) => (p.bp ? `${p.bp.systolic}/${p.bp.diastolic}` : "--");
 
 /** Sets the whole second each frame. Only this component re-renders. Seconds never flip; the date and hour do.
  *  The minute flips only at 10x or slower: at 60x it changes every second. */
@@ -208,40 +197,6 @@ export function ZoomBar({ pct, onZoom, disabled }: { pct: number; onZoom: (actio
   );
 }
 
-function RankedRow({
-  p,
-  minute,
-  onSelect,
-  selected,
-}: {
-  p: Patient;
-  minute: number;
-  onSelect: (id: string) => void;
-  selected: boolean;
-}) {
-  const d = p.decision;
-  if (d.kind !== "ranked") return null;
-  return (
-    <li>
-      <button className={`row${selected ? " sel" : ""}`} onClick={() => onSelect(p.id)}>
-        <span className="rank"><Flip value={p.rank ?? ""} /></span>
-        <span className="who">
-          <b>{p.name}</b> <span className="mono">{p.bed}</span>
-        </span>
-        <span className="score">
-          <Flip value={d.news2.total} />
-          <small>{p.trend === "insufficient" ? "" : p.trend}</small>
-        </span>
-        <span className="mini">
-          HR {vitalText(p, "heart_rate", minute)} RR {vitalText(p, "respiratory_rate", minute)} SpO2{" "}
-          {vitalText(p, "spo2", minute)} T {vitalText(p, "temperature", minute, 1)} BP {bpText(p)}
-        </span>
-        {d.reasons.length > 0 && <span className="why">{d.reasons.join(". ")}</span>}
-      </button>
-    </li>
-  );
-}
-
 function RankedList({
   s,
   selected,
@@ -266,55 +221,10 @@ function RankedList({
       {notRanked.length > 0 && <h3>Not ranked</h3>}
       <ul className="list">
         {notRanked.map((p) => (
-          <li key={p.id}>
-            <button className={`row${p.id === selected ? " sel" : ""}`} onClick={() => onSelect(p.id)}>
-              <span className="rank">--</span>
-              <span className="who">
-                <b>{p.name}</b> <span className="mono">{p.bed}</span>
-              </span>
-              {p.decision.kind === "not_ranked" && (
-                <span className="why">
-                  {p.decision.reason}. {p.decision.instruction}.
-                </span>
-              )}
-            </button>
-          </li>
+          <NotRankedRow key={p.id} p={p} onSelect={onSelect} selected={p.id === selected} />
         ))}
       </ul>
     </>
-  );
-}
-
-function VitalCard({
-  label,
-  value,
-  unit,
-  source,
-  at,
-  quality,
-  data,
-}: {
-  label: string;
-  value: string;
-  unit: string;
-  source: string;
-  at: string;
-  quality: string;
-  data: (number | null)[];
-}) {
-  return (
-    <div className="vital" title={source}>
-      <div className="vhead">
-        <span>{label}</span>
-        {quality !== "ok" && <span className="pill"><Flip value={quality} /></span>}
-      </div>
-      <span className="vnum">
-        <Flip value={value} />
-        <small>{unit}</small>
-      </span>
-      <Sparkline data={data} height={22} />
-      <div className="prov">{at}</div>
-    </div>
   );
 }
 
@@ -387,13 +297,6 @@ function StayRows({
   );
 }
 
-const RISK_WORDS: Record<string, string> = {
-  low: "Low risk",
-  low_medium: "Low-medium risk",
-  medium: "Medium risk",
-  high: "High risk",
-};
-
 function BpForm({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
   const cuff = src.cuff(p.id, minuteOf(s));
   const [systolic, setSystolic] = useState(String(cuff?.systolic ?? ""));
@@ -441,17 +344,6 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
   const d = p.decision;
   const origin = src.synthetic ? "synthetic" : "dataset";
   const when = (at: number | null) => (at === null ? "no reading" : clockText(src, at));
-  const device = (v: Vital, label: string, unit: string, digits = 0) => (
-    <VitalCard
-      label={label}
-      value={vitalText(p, v, minute, digits)}
-      unit={unit}
-      source={`${src.rules.charted.includes(v) ? "charted" : "device"} · ${origin}`}
-      at={when(p.heldAt[v])}
-      quality={vitalQuality(p, v, minute)}
-      data={p.history[v]}
-    />
-  );
   const patchRequested = s.tasks.some((t) => t.patient === id && t.kind === "apply_patch") ||
     s.staff.some((m) => m.task?.patient === id && m.task.kind === "apply_patch");
   // Viewer mode with control: each button asks the runner and shows the ward as it publishes it.
@@ -479,21 +371,7 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
       </div>
       <p className="story">{p.context}. {p.story}.</p>
       <StayScores stay={p.stay} />
-      <div className="vitals">
-        {device("heart_rate", VITAL_CARD.heart_rate.label, VITAL_CARD.heart_rate.unit, VITAL_CARD.heart_rate.digits)}
-        {device("respiratory_rate", VITAL_CARD.respiratory_rate.label, VITAL_CARD.respiratory_rate.unit, VITAL_CARD.respiratory_rate.digits)}
-        {device("spo2", VITAL_CARD.spo2.label, VITAL_CARD.spo2.unit, VITAL_CARD.spo2.digits)}
-        {device("temperature", VITAL_CARD.temperature.label, VITAL_CARD.temperature.unit, VITAL_CARD.temperature.digits)}
-        <VitalCard
-          label="Blood pressure"
-          value={bpText(p)}
-          unit="mmHg"
-          source={`nurse · ${origin}`}
-          at={when(p.bpAt)}
-          quality={p.bp ? "ok" : "missing"}
-          data={p.bpHistory}
-        />
-      </div>
+      <VitalCards p={p} minute={minute} charted={src.rules.charted} origin={origin} when={when} />
       <div className="actions">
         {(src.inject || send) && (
           <button disabled={p.injected} onClick={ask("inject_deterioration", () => injectDeterioration(s, src, id))}>
@@ -731,11 +609,12 @@ function EntrancePanel({
       <div className="actions">
         <button onClick={onTimeline}>Bed timeline</button>
         {/* A day at once would overflow the queue to the database. */}
-        {src.admit && !s.outbox && <button onClick={() => skipDay(s, src)}>Skip 1 day</button>}
+        {/* A hospital world is fed after every step, and skipDay steps with no feed: the top bar's +1 day does it. */}
+        {src.admit && !s.outbox && !s.hospital && <button onClick={() => skipDay(s, src)}>Skip 1 day</button>}
       </div>
       <h3>Who came and went</h3>
       {recent.length === 0 ? (
-        <p className="empty">Nobody yet.{VIEW_API ? "" : " Stays last days: try Skip 1 day."}</p>
+        <p className="empty">Nobody yet.{VIEW_API || s.hospital ? "" : " Stays last days: try Skip 1 day."}</p>
       ) : (
         <StayRows s={s} src={src} stays={recent} onSelect={onSelect} />
       )}
@@ -854,6 +733,7 @@ export function Inspector({
   building = false,
   send,
   watching = false,
+  vitals = null,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -864,6 +744,7 @@ export function Inspector({
   building?: boolean; // the hospital seen from outside: no floor is out yet
   send?: (body: CommandBody) => void; // viewer mode with control: a patient's buttons ask the runner
   watching?: boolean; // no token: the legend only
+  vitals?: HospitalVitals | null; // hospital world: the vitals engine, beside the world
 }) {
   if (selected === null) {
     return (
@@ -896,6 +777,7 @@ export function Inspector({
             </li>
           )}
         </ul>
+        {s.hospital && <p className="tiny">ICU: no NEWS2 colour. Waiting room: triage colour.</p>}
       </aside>
     );
   }
@@ -909,7 +791,7 @@ export function Inspector({
       <button onClick={() => onSelect(null)}>{s.hospital ? "Back to floor" : "Back to full ward"}</button>
       <div className="scroll">
         {s.hospital && isHospitalId(selected) ? (
-          <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} />
+          <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} vitals={vitals} />
         ) : patient ? (
           <>
             <PatientPanel s={s} src={src} p={patient} send={send} />
