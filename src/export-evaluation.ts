@@ -140,7 +140,7 @@ function copy(v: unknown, shape: Shape, path: string): unknown {
 
 const BANNED = ["ai predicts deterioration", "reinforcement learning", "self-learning", "conformal guarantee", "fewer false alarms than news2"];
 // A path that starts at the root or the home folder, or a Windows drive. A slash inside a word (src/sim, 10.1186/s13054) is not one.
-const ABSOLUTE = /(^|[\s"'=(:])(\/[^\s/]|~\/)|[A-Za-z]:\\/;
+const ABSOLUTE = /(^|[\s"'`=(:[,;<|])(\/[^\s/]|~\w*\/)|file:\/\/|\\\\|[A-Za-z]:\\/;
 
 /** Every key and string of x: no banned phrase, no absolute path. "validated" is banned only in a string and only when not "not validated". */
 function scan(x: unknown, path: string): void {
@@ -167,10 +167,10 @@ function matchSource(source: string, c: { seeds: number[]; days: number; baselin
   const t = all.filter((x) => x !== "--outcome-model");
   const got: Record<string, string> = {};
   for (let i = 0; i < t.length; i += 2) {
-    if (!SOURCE_FLAGS.includes(t[i]) || t[i] in got || t[i + 1] === undefined) refuse("--source is not a compare command line: a flag is unknown, repeated or has no value");
+    if (!SOURCE_FLAGS.includes(t[i]) || t[i] in got || t[i + 1] === undefined) refuse("--source is not a compare command line: a flag is unknown, repeated, missing or has no value");
     got[t[i]] = t[i + 1];
   }
-  if (all.length - t.length > 1) refuse("--source is not a compare command line: a flag is unknown, repeated or has no value");
+  if (all.length - t.length > 1 || !("--out" in got)) refuse("--source is not a compare command line: a flag is unknown, repeated, missing or has no value");
   const wrong = (flag: string) => refuse(`--source does not match compare.json: ${flag}`);
   if (got["--seed"] !== String(c.seeds[0])) wrong("--seed");
   if (got["--seeds"] !== String(c.seeds.length) || c.seeds.some((s, i) => s !== c.seeds[0] + i)) wrong("--seeds");

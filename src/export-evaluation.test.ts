@@ -186,7 +186,8 @@ describe("refusals", () => {
   });
 
   it("the source must be a line compare would accept: its flags, each once", () => {
-    const NOT = "--source is not a compare command line: a flag is unknown, repeated or has no value";
+    const NOT = "--source is not a compare command line: a flag is unknown, repeated, missing or has no value";
+    expect(refusal(() => build(undefined, SOURCE.replace(" --out trials/compare-outcome", ""))), "no --out").toBe(NOT);
     for (const extra of [" --seeds 5", " --hospital x", " --ward W5", " --outcome-model", " --days", " stray"]) expect(refusal(() => build(undefined, SOURCE + extra)), extra).toBe(NOT);
     expect(refusal(() => compareBlocks(JSON.stringify(fixture), "npm run realism", NODE))).toBe("--source is not a compare command line");
   });
@@ -305,7 +306,7 @@ describe("refusals", () => {
     expect(() => note("synthetic, not validated")).not.toThrow();
     expect(() => note("Not Validated")).not.toThrow();
     expect(refusal(() => build(undefined, SOURCE, { ...realism, notes: ["self-learning"] }))).toBe('banned phrase "self-learning" in body.realism.notes[0]');
-    for (const p of ["/Users/a", "/private/x", "/home/a", "/tmp/a", "/var/a", "/opt/x", "/Volumes/x/y", "~/x", "C:\\a"]) expect(refusal(() => note(`see ${p}`)), p).toBe("an absolute path in body.compare.notes[0]");
+    for (const p of ["/Users/a", "/private/x", "/home/a", "/tmp/a", "/var/a", "/opt/x", "/Volumes/x/y", "~/x", "~user/x", "`/Users/a`", "[/Users/a]", ",/tmp/x", ";/etc/x", "</tmp/x>", "|/tmp/x", "file:///Users/a/x", "\\\\server\\share", "C:\\a"]) expect(refusal(() => note(`see ${p}`)), p).toBe("an absolute path in body.compare.notes[0]");
     expect(refusal(() => note("/etc/x at the start"))).toBe("an absolute path in body.compare.notes[0]");
     for (const ok of ["trials/tmp/x", "src/sim/fitted.json", "doi:10.1186/s13054-021-03650-1", "173 / 632", "https://doi.org/10.1186/x"]) expect(() => note(`see ${ok}`), ok).not.toThrow();
     // the source is scanned with the compare-side checks, before the slow run

@@ -42,8 +42,8 @@ Each flag is given once. The same inputs give the same bytes.
 One line on stderr, exit 2, and nothing is written, when:
 
 - a flag is missing, repeated or unknown; the date is not a real date; the commit is not 40 lower-case hex characters;
-- `--source` is not a compare command line, has a flag compare does not know or a flag twice, or does not match the compare file (seed, seeds, days, rules, outcome flag);
-- `--out` exists, or its folder does not, or its parent is not a folder;
+- `--source` is not a compare command line, has a flag compare does not know, a flag twice or no `--out`, or does not match the compare file (seed, seeds, days, rules, outcome flag);
+- `--out` exists (a symlink that points nowhere counts), its parent folder does not exist, or its parent is not a folder;
 - the compare file cannot be read, is not a regular file, or is over 1024 KB;
 - the compare file is not a synthetic many-seed W4 compare of two rules (`compare_format` 1), lacks a key, has an unknown key, or holds a number that does not fit its kind (a whole number, or at most 4 decimals; both small enough to be exact);
 - the outcome block's label is not the exact label;
@@ -57,7 +57,7 @@ The checks on the flags, on `--source` and on the compare file run before the th
 
 The number check works on the parsed value, not on the text. Compare writes its numbers in their shortest form, so the two are the same for any file compare wrote.
 
-Any other error prints `export: failed: <message>`, exits 1, and writes nothing.
+Any other error prints `export: failed: <message>` and exits 1; an error before the write leaves no file.
 
 With an `UNEXPECTED` realism row the file is still written and the command exits 1, as `npm run realism` does. Hiding a drift would be worse than showing it.
 
