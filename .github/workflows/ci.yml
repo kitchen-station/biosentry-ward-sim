@@ -29,6 +29,16 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # Builds the runner's image the way the server does. Nothing is pushed: a Dockerfile that cannot build fails the pull request.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build --tag biosentry-ward-sim:ci .
+      # The image holds the three built programs and the scenario files it is started with.
+      - run: docker run --rm biosentry-ward-sim:ci sh -c 'test -f dist/ward/headless.js && test -f dist/compare/compare.js && test -f dist/lab/lab-worker.js && test -d scenarios/hospital'
+
   # Builds on GitHub and uploads the finished files, so Cloudflare does not run its own build.
   # A missing CLOUDFLARE_API_TOKEN fails this job; it does not skip quietly.
   deploy:
