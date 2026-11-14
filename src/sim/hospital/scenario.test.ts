@@ -355,9 +355,8 @@ describe("determinism by grep", () => {
     ["crypto.randomUUID", /crypto\s*\.\s*randomUUID/],
     ["performance.now", /performance\s*\.\s*now/],
   ];
-  // sync.ts stamps the API outbox with the real time when a run starts; it is not part of the seeded ward.
-  // Exactly this one line, once: a second copy of it is reported like any other hit.
-  const ALLOWED: Record<string, string[]> = { "/src/sim/sync.ts": ["origin = new Date().toISOString();"] };
+  // No allowance is left: sync.ts used to stamp a run's origin with the real time; it now uses the ward's own start.
+  const ALLOWED: Record<string, string[]> = {};
 
   const hits = () =>
     Object.entries(files).flatMap(([file, text]) => {
@@ -376,7 +375,7 @@ describe("determinism by grep", () => {
   it("scans the sim's source files, hospital files among them", () => {
     expect(Object.keys(files).length).toBeGreaterThan(10);
     expect(Object.keys(files)).toEqual(expect.arrayContaining(["/src/sim/hospital/rng.ts", "/src/sim/hospital/params.ts", "/src/sim/source.ts"]));
-    expect(files["/src/sim/sync.ts"]).toContain("origin = new Date().toISOString();"); // the allowance still points at a real line
+    expect(files["/src/sim/sync.ts"]).toBeDefined(); // sync.ts is scanned like the rest, with no allowance
   });
 
   it("finds no clock and no unseeded random under src/sim", () => {
