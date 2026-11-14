@@ -8,6 +8,7 @@
     "dev": "vite",
     "dev:view": "vite --config vite.dev.config.ts",
     "build": "tsc --noEmit && vite build",
+    "build:hospital": "tsc --noEmit && vite build --base /hospital/ --outDir dist/hospital",
     "build:dev": "tsc --noEmit && vite build --config vite.dev.config.ts",
     "test": "vitest run",
     "sync:evaluation": "node scripts/sync-evaluation.mjs",

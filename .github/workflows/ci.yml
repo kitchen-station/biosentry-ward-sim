@@ -64,4 +64,7 @@ jobs:
       - run: npm run build
         env:
           VITE_VIEW_API_URL: ${{ vars.VITE_VIEW_API_URL }}
+      # The standalone hospital page, at /hospital/ beside the ward page. It is built with no VITE_ value at all:
+      # it must not know the API address, and it has no key to leak.
+      - run: npm run build:hospital
       - run: npx --yes wrangler@4.155.0 pages deploy dist --project-name=biosentry-ward-sim --branch=main --commit-hash=${{ github.sha }}
