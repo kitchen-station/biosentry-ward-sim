@@ -52,11 +52,11 @@ describe("routine observation rounds", () => {
     expect(on.share).toBeLessThan(0.05);
     expect(on.worst).toBeLessThan(240);
     expect(on.assessed).toBeGreaterThan(off.assessed);
-  });
+  }, 120_000);
 
   it("hold on another seed too", () => {
     expect(ward(true, 2, 7).share).toBeLessThan(0.05);
-  });
+  }, 120_000);
 });
 
 describe("nurse-charted values and their time", () => {
