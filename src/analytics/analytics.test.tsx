@@ -253,21 +253,26 @@ describe("states", () => {
 
   it("says synthetic, not validated six times in every state", () => {
     const bad = Object.fromEntries(Object.keys(all()).map((p) => [p, "{"]));
-    for (const files of [{}, all(), bad, TODAY]) expect(count(html(files), "synthetic, not validated")).toBe(6);
+    for (const files of [{}, all(), bad]) expect(count(html(files), "synthetic, not validated")).toBe(6);
+    // Today's simulator.json holds the phrase itself, in the realism report's own notes, and the page prints each note once.
+    expect(count(html(TODAY), "synthetic, not validated")).toBe(6 + count(TODAY["simulator.json"] ?? "", "synthetic, not validated"));
   });
 
-  it("today's copies: some sections have data, some say not on main yet", () => {
+  it("today's copies: every section has data", () => {
+    // Copies synced from the dashboard's main on 2026-11-14 (see src/data/evaluation/sync.json). Before that day
+    // simulator.json, evaluations.json and registry.json were not on main, and three sections said so.
     const secs = Object.fromEntries(sections(html(TODAY)).map((s) => [/<h2>([^<]*)</.exec(s)![1], text(s)]));
+    expect(Object.keys(secs)).toEqual(["Pipeline", "Models", "Evaluations", "Simulator", "Registry", "Research agent"]);
+    for (const s of Object.values(secs)) expect(s).not.toContain("not on main yet");
     expect(secs.Pipeline).toContain("Stages");
     expect(count(sections(html(TODAY))[0], "<tr>")).toBe(1 + 8); // the real pipeline.json: eight stages
-    expect(secs.Simulator).toMatch(/not on main yet\s*$/);
-    expect(secs.Evaluations).toContain("Context: not on main yet");
-    expect(secs.Evaluations).toContain("Generations");
+    for (const w of ["Realism", "Pooled", "Spread over seeds", "Paired episodes", "Sensitivity", LABEL]) expect(secs.Simulator).toContain(w);
+    for (const w of ["Rules", "Confidence check", "Generations"]) expect(secs.Evaluations).toContain(w);
     expect(secs.Models).toContain("tier_c/student_vitals");
     expect(secs.Models).toContain("train loss, last");
-    expect(secs.Registry).toContain("Model files");
+    for (const w of ["Datasets", "Open weights", "Model files"]) expect(secs.Registry).toContain(w);
     expect(secs["Research agent"]).toContain("ledger records");
-    expect(secs["Research agent"]).toContain("Scores: not on main yet");
+    expect(secs["Research agent"]).toContain("Before and after");
   });
 
   it("today's copies and the fixtures show no number that is not in a file", () => {
