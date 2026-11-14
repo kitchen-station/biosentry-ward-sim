@@ -14,7 +14,7 @@ import { parseScenario } from "./scenario";
 import { runHospitalTrial } from "./trial";
 import type { Hospital, Person, UnitId } from "./types";
 import {
-  CAPS, CLEAR_EPISODE_AT_ICU_STEP_DOWN, createVitals, feedVitals, RANKED_UNITS, riskBySel, summary, unitRank, vitalsOf,
+  CAPS, CLEAR_EPISODE_AT_ICU_STEP_DOWN, createVitals, feedVitals, RANKED_UNITS, pageView, riskBySel, summary, unitRank, vitalsOf,
   type HospitalVitals,
 } from "./vitals";
 
@@ -111,6 +111,36 @@ describe("read-only", () => {
     const other = createVitals();
     run(102, 60, DAY, (s) => feedVitals(other, s.hospital!, s.clockS));
     expect(summary(other)).not.toEqual(summary(v));
+  });
+
+  it("gives the same pageView for the same seed, and a different one for another seed", () => {
+    const again = createVitals();
+    run(101, 60, DAY, (s) => feedVitals(again, s.hospital!, s.clockS));
+    expect(pageView(again)).toEqual(pageView(v));
+    expect(pageView(v).hourly).not.toBe(v.hourly); // a copy: the page cannot change the engine's rows
+    expect(pageView(v).hourly[0]).not.toBe(v.hourly[0]);
+    const other = createVitals();
+    run(102, 60, DAY, (s) => feedVitals(other, s.hospital!, s.clockS));
+    expect(pageView(other)).not.toEqual(pageView(v));
+  });
+
+  it("counts every read in an hour row: the levels sum to read in a ranked unit, and intensive care holds no level", () => {
+    const view = pageView(v);
+    expect(view.created).toBe(v.created);
+    expect(view.reads).toBe(v.reads);
+    expect(view.hourly).toHaveLength(25 * 5); // hours 0 to 24, five units
+    expect(view.hourly.reduce((a, r) => a + r.read, 0)).toBeLessThanOrEqual(v.reads);
+    expect(summary(v).finished).toBeLessThan(CAPS.finished); // every stream is kept, so scores can be counted
+    const streams = [...v.live.values(), ...v.finished];
+    for (const r of view.hourly) {
+      if (r.unit === "ICU") expect([r.low, r.low_medium, r.medium, r.high, r.not_ranked]).toEqual([0, 0, 0, 0, 0]);
+      else expect(r.low + r.low_medium + r.medium + r.high + r.not_ranked).toBe(r.read);
+      // read: streams whose scores got a push at this hour, in this unit. A stream moved mid-hour counts where it was at the push, so check the day's total.
+      expect(r.read).toBeGreaterThanOrEqual(0);
+    }
+    expect(view.hourly.reduce((a, r) => a + r.read, 0)).toBe(streams.reduce((a, pv) => a + pv.scores.length, 0));
+    expect(view.hourly.some((r) => r.unit === "ICU" && r.read > 0)).toBe(true);
+    expect(view.hourly.some((r) => r.unit === "ER" && r.high + r.medium > 0)).toBe(true);
   });
 
   it("opens people outside W4 only, and gives every unit with people some vitals", () => {

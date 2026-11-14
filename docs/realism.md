@@ -124,7 +124,7 @@ calibration rows: stays held out from src/sim/calibration.json only, not from th
 published: Welch 2015 (US monitored wards) and RCP 2012, never used for fitting
 fitted target: the simulator was set from this number, so agreement is by construction
 fitted from: adult ICU (eICU-CRD Demo, BIDMC) and Holter and AF (MIT-BIH, AFDB, LTAFDB) recordings; not a general ward, not the Philippines
-only ward W4 has vitals; summary statistics only; fitted and calibration data ODbL v1.0, see NOTICE.md
+vitals in every hospital unit but the morgue come from this one generator, display only outside ward W4; these checks test it as ward W4 uses it; summary statistics only; fitted and calibration data ODbL v1.0, see NOTICE.md
 ```
 
 ## The six known misses
@@ -151,6 +151,20 @@ A known miss that starts passing makes the command exit 1, as the test suite's e
 - **Diastolic pressure** follows systolic by a fitted relation and is not tested.
 - **Blood pressure is a cuff reading** taken by a nurse. The patch does not measure it.
 - **Vitals are generated for every hospital unit by the same generator, fitted to ICU data at ward-like baselines.** No unit has a fit of its own. The checks above test the generator as ward W4 uses it. See [hospital-vitals.md](hospital-vitals.md).
+
+  | Unit | Generated | Fitted from | Not modelled | On-screen label |
+  |---|---|---|---|---|
+  | W4 | Heart rate, breathing, SpO2 and temperature each minute; cuff systolic; AF; NEWS2 ranked (W4's own record) | eICU (drift, baselines, BP), BIDMC (minute noise), MIT-BIH, AFDB and LTAFDB (rhythm), van Goor 2022 (size of the heart rate and breathing 24-hour swing); temperature minute noise and daily swing are hand-set | See the known misses on this page | None on screen: W4's own panels are unchanged |
+  | MED3A, MED3B | The same signals, one stream per person visit; cuff at arrival and at each recorded round; NEWS2 ranked | The same. Nothing per unit | No unit baseline. Age, sex and group change no vital. Consciousness is always A. Oxygen uses W4's rates. An episode starts only at the hospital's recorded onset. No recovery | "Synthetic. Same generator as W4." |
+  | SURG5A | The same | The same | As above. Not surgical patients | "Synthetic. Adult generator, not fitted to surgical patients." |
+  | ER (waiting room too) | The same, from arrival | The same | As above. No ER data | "Synthetic. Not ER data: ward generator." |
+  | ICU | The same signals. Cuff is the last one before arrival (no rounds). No NEWS2 rank | The same | ICU physiology. At step-down the episode is cleared and marked "not modelled" | "Synthetic. ICU vitals are not modelled: ward generator values." |
+  | Morgue | None | None | None | None |
+
+  Other units use the same generator; no check compares their output with real data.
+  - A1-A4, B1-B2 and F1-F2 call the generator on one fixture patient (p-002), and C1-C12 on ten fixture patients. They cover the signal dynamics, not the people the hospital admits.
+  - D1-D4 and E1-E2 run ward W4 only. They say nothing about the other units, the first-day high scores, episodes or AF outside W4.
+  - B3 and R1 have no real comparison anywhere.
 - **No infection or fever episode** is modelled.
 - **Deterioration episodes** are vital-sign changes defined by this project's own rule on ICU data. No open dataset labels deterioration.
 - **Realism only.** None of this says how well BioSentry predicts. No model result may be reported from this synthetic data.

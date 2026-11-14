@@ -12,7 +12,13 @@ Hospital (standalone hospital world only)
 - Beds in use: per unit, per hour, census against beds, grouped by floor. The morgue is labelled in places, not beds.
 - In and out: per unit, per day, admitted, discharged, transferred in, transferred out. The ER also shows arrivals. The page draws these counts and prints no sums.
 
-Ward W4 (NEWS2 exists on W4 only)
+Every unit (standalone hospital world only; synthetic vitals, display only)
+- NEWS2 levels, every unit: four small charts (ER, MED3A, MED3B, SURG5A), people at each level at each whole hour, drawn with the same chart pieces, level list and colours as W4's chart. Source: `pageView()` of the vitals engine (`src/sim/hospital/vitals.ts`), the capped table `hourly` (840 rows: 168 hours of 5 units, oldest dropped). Complete hours only: the hour still filling is not drawn. Under each chart is the unit's own label (`UNIT_LABEL`, shared in `src/hospital-labels.ts`); the ER adds "Includes the waiting room."
+- Intensive care: people read at each whole hour: a line of the ICU rows. No NEWS2: it is a ward score, so ICU rows hold only the count read.
+- One line: "Vital-sign streams opened outside ward W4: N (one per person per visit). Readings: M." Both numbers come from the engine as given.
+- Display only: care in the model does not read any of it. While the run is under 24 hours the first-day note shows ("First day: everyone starts as a new admission, so scores run high."). Before the first complete hour the charts say "No data yet". A ward-only or viewer build shows none of this section.
+
+Ward W4 (everything in this section is W4's own record)
 - NEWS2 levels: patients at each level in the bin read at each whole hour, with "not ranked" kept apart. The levels are the ones in `src/sim/news2.ts`.
 - Alerts per patient per shift: one bar per 12 h shift, shifts start at 07:00 and 19:00. A part shift is faded.
 - Beds in use: patients read in the bin at each whole hour.
@@ -43,8 +49,8 @@ Owner decision `sim-lab-4`: the page lists each simulated deterioration episode,
 
 - Where it comes from: the simulator's own saved truth for each patient (`injectAt`, the episode kind and `rampMin`, which stays inside the accumulator), read once per 15-minute bin, as `src/sim/trial.ts` reads it for `episodes.csv`. A real ward never has it.
 - A start is recorded and shown only after the clock has reached it. A scheduled start in the future is never shown.
-- Which episodes: the compare runner's set. The stay began after minute 0, and the start is inside the stay.
-- Window: start to fully in (start plus ramp), plus 120 min (`WINDOW_AFTER_FULL_MIN`, shared with `src/compare.ts`). First alert is the first new alert of that patient in the window, by the alert rule below. If none came, the row says "none in the window", or "window still open" while it can still come. An alert that was already active before the start is not new, as in compare, so Minutes between is never negative. Minutes between is rounded to a whole minute.
+- Which episodes: every episode whose start is inside the stay. That is the compare runner's set, plus patients who were on the ward at minute 0, which compare leaves out. The hand-written 12 have no episode unless "Start deterioration" is clicked; a drawn group can have its own, and "Critical group" has its chosen patients (4 in every seed checked).
+- Window: start to fully in (start plus ramp), plus 120 min (`WINDOW_AFTER_FULL_MIN`, shared with `src/compare.ts`). First alert is the first new alert of that patient in the window, by the alert rule below. If none came, the row says "none in the window", or "window still open" while it can still come. An alert that was already active before the start is not new, as in compare, so Minutes between is never negative. Minutes between is rounded to a whole minute. The first bin closes at minute 15, so for a start at minute 0 an alert already present at the opening shows as 15 minutes.
 - The summary entry holds only `start`, `kind`, `alertMin`, `minutesBetween` and `windowOpen`. It holds no ramp length, no end of window and no patient id, so nothing in it is ahead of the clock. `windowOpen` turns false at the first alert, when the patient leaves, or when the window ends; only the last shows the ramp length, and only after the fact. A test checks the keys and that no minute is ahead of the clock after every bin.
 - Known limit: an episode whose patient leaves before the next 15-minute bin closes is not listed. In seeds 1 to 40 over 7 days this did not happen (38 evaluated episodes, none missed).
 - It is the simulator's own knowledge. No outcome is shown, and the page prints no summary figure for the column.

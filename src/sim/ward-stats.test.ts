@@ -236,7 +236,17 @@ describe("alerts", () => {
     expect(st.ep!.map((e) => e.id)).toEqual(patients.slice(50).map((p) => p.id));
   });
 
-  it("does not record a patient admitted at minute 0, or a start before the admit or after the patient left", () => {
+  it("knows from the first feed whether the truth can be read, before any bin closes", () => {
+    const s = { clockS: 30, patients: [], stays: [] } as unknown as Sim;
+    const st = createWardStats();
+    feed(st, s, { save: () => ({ streams: {} }) } as unknown as VitalsSource);
+    expect(summary(st).episodes).toEqual([]);
+    const bare = createWardStats();
+    feed(bare, s);
+    expect(summary(bare).episodes).toBeNull();
+  });
+
+  it("records a patient who was on the ward at minute 0, and not a start before the admit or after the patient left", () => {
     const mk = (id: string, inMin: number) => ({ id, nextMinute: 61, rules: { sampleEveryMin: 1 }, decision: { kind: "not_ranked" }, stay: { inMin } });
     const here = [mk("start0", 0), mk("before", 50), mk("ok", 10)];
     const streams = {
@@ -247,7 +257,7 @@ describe("alerts", () => {
     };
     const st = createWardStats();
     for (const c of [3600, 3800]) feed(st, { clockS: c, patients: here, stays: [] } as unknown as Sim, { save: () => ({ streams }) } as unknown as VitalsSource);
-    expect(st.ep!.map((e) => e.id)).toEqual(["ok"]);
+    expect(st.ep!.map((e) => e.id)).toEqual(["start0", "ok"]);
   });
 
   it("counts a first alert in the last of the 120 minutes after fully in, and not one a bin later", () => {

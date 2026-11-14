@@ -42,6 +42,14 @@ describe("App.tsx", () => {
     expect(app).toContain("!VIEW_API && !skippingRef.current");
   });
 
+  it("hands the page vitals only from vitalsRef and the current world, and the page never imports the engine", () => {
+    expect(app).toContain("vitals={vitalsRef.current?.world === world.s ? pageView(vitalsRef.current.v) : null}");
+    expect(/import \{([^}]*)\} from "\.\/sim\/hospital\/vitals"/.exec(app)![1]).not.toMatch(/\bsummary\b/); // summary() stringifies every bin: not on a render
+    const page = readFileSync("src/insights/Insights.tsx", "utf8");
+    expect(page).not.toMatch(/hospital\/vitals|from "\.\.\/sim\/hospital/);
+    expect(page).not.toMatch(/\bsummary\(/);
+  });
+
   it("shows a watcher only the sign-in line", () => {
     const at = app.indexOf("{watch ? (");
     expect(app.slice(at, at + 150)).toContain("Sign in to see ward analytics");

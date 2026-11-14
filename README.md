@@ -2,7 +2,7 @@
 
 **Live demo:** <https://biosentry-ward-sim.pages.dev> (synthetic patients; deploys from `main`)
 
-An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond.
+An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond. The standalone hospital page shows a whole synthetic hospital around it: an emergency room, wards and intensive care, each with synthetic vital signs (display only outside W4).
 
 It runs on synthetic patients wearing chest patches. Their movement is fitted to real open datasets; see [Fitted to real data](#fitted-to-real-data). A real de-identified dataset is planned and will plug in at the vitals source (see "Adding another dataset").
 
@@ -189,11 +189,11 @@ VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
 
 ## Analytics page
 
-The top bar has two links, Simulation and Analytics. Analytics shows charts for the hospital, for ward W4 and for one person, from the run in the page. The data is synthetic and the page makes no outcome claim. In a viewer build the Hospital section says "The runner runs ward W4 only." and the ward charts say "Not available from the runner yet". Under the ward charts a table lists each simulated deterioration episode (true start, first alert, minutes between) as the simulator's ground truth, with no outcome. See [docs/ward-analytics.md](docs/ward-analytics.md).
+The top bar has two links, Simulation and Analytics. Analytics shows charts for the hospital, for every unit's synthetic vitals (display only), for ward W4 and for one W4 patient, from the run in the page. The data is synthetic and the page makes no outcome claim. In a viewer build the Hospital section says "The runner runs ward W4 only." and the ward charts say "Not available from the runner yet". Under the ward charts a table lists each simulated deterioration episode (true start, first alert, minutes between) as the simulator's ground truth, with no outcome. See [docs/ward-analytics.md](docs/ward-analytics.md).
 
 ## Scenarios, Shuffle and the seed
 
-The standalone hospital page has a select of four named scenarios (Pitch ward is the default and is the run the page always opened on), a Shuffle button and a seed pill. Shuffle draws a new seed for the hospital and the vitals; ward W4's first 12 patients stay the same people, and their noise, how long they stay and who arrives later change. `?scenario=<id>&seed=<n>` in the address repeats a run. A viewer build and the ward-only build do not show them. See [docs/scenarios.md](docs/scenarios.md).
+The standalone hospital page has a select of four named scenarios (Pitch ward is the default and is the run the page always opened on), a Shuffle button and a seed pill. Shuffle draws a new seed for the hospital and the vitals, and ward W4 starts with 12 newly drawn synthetic patients; the same seed gives the same 12, and a named scenario with no seed shows the fixture 12. `?scenario=<id>&seed=<n>` in the address repeats a run. A viewer build and the ward-only build do not show them. See [docs/scenarios.md](docs/scenarios.md).
 
 In the standalone hospital page every unit shows synthetic vital signs and a NEWS2 colour for its people, and each ward and the ER has a ranked list. Intensive care shows vitals but no rank, because NEWS2 is a ward score. A person outside ward W4 has the same vital cards as a W4 patient. Each unit says what its numbers are: the same generator as W4, not fitted to that unit. It is display only: care in the model does not read it. A viewer build and the ward-only build do not show it. See [docs/hospital-vitals.md](docs/hospital-vitals.md). A person outside ward W4 also shows their whole stay as unit bands and charts, with a link to the W4 stay, and each unit panel shows how many moves happened today (for the ER: how many people left it, split by how).
 

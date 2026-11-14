@@ -1,6 +1,7 @@
 // The Analytics page: charts first, short labels. It draws only the summary and the patients it is given.
 // Every string from data is React text. Nothing from data goes in a link, a style or a class name.
 import { useState } from "react";
+import { FIRST_DAY, UNIT_LABEL } from "../hospital-labels";
 import { VITAL_CARD } from "../panels";
 import { RISK_LIGHT } from "../render/draw";
 import type { Patient } from "../sim/sim";
@@ -10,6 +11,13 @@ import { LineChart, StackedBars, Strip, type Slot } from "./charts";
 export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history">;
 /** hospital: the standalone hospital world. ward: a standalone W4 only. viewer: the runner's ward, whose totals this page does not have. */
 export type Mode = "hospital" | "ward" | "viewer";
+
+/** What the engine's pageView() gives the page: two counts and the capped hourly rows. Typed here so the page imports nothing from the engine. */
+export interface VitalsView {
+  created: number;
+  reads: number;
+  hourly: { hour: number; unit: string; low: number; low_medium: number; medium: number; high: number; not_ranked: number; read: number }[];
+}
 
 const NO_DATA = "No data yet";
 const NO_STAY = "No finished stay yet (stays that began before the run are not counted)";
@@ -116,6 +124,47 @@ function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
             </div>
           );
         })}
+      </Fig>
+    </>
+  );
+}
+
+const EVERY_UNIT = ["ER", "MED3A", "MED3B", "SURG5A"] as const;
+
+/** The vitals engine's units, one chart each. Complete hours only: the newest hour in the data is still filling. */
+function EveryUnit({ sum, vitals }: { sum: WardSummary | null; vitals: VitalsView | null | undefined }) {
+  const all = arr(vitals?.hourly).filter((r) => fin(r?.hour));
+  const current = Math.max(-1, ...all.map((r) => r.hour));
+  const rowsOf = (unit: string) => all.filter((r) => r.unit === unit && r.hour < current).sort((a, b) => a.hour - b.hour);
+  const name = (id: string) => arr(sum?.hospital?.units).find((u) => u.id === id)?.name ?? id;
+  const lines = rowsOf("ICU");
+  return (
+    <>
+      <Fig
+        name="NEWS2 levels, every unit"
+        caption="Per unit, at each whole hour: people at each NEWS2 level. Same generator as W4, not fitted to each unit. Display only: care does not read it."
+        note={rowsOf("ER").length === 0 ? NO_DATA : undefined}
+      >
+        <Legend names={LEVELS.map((k) => LEVEL_NAME[k])} colors={LEVEL_COLOR} />
+        {current < 24 ? <span>{FIRST_DAY}</span> : null}
+        {EVERY_UNIT.map((id) => (
+          <div key={id} className="unit">
+            <span>{name(id)}</span>
+            <StackedBars
+              bars={withGaps(rowsOf(id), (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : { parts: LEVELS.map((k) => r[k]), title: LEVELS.map((k) => `${LEVEL_NAME[k]} ${n(r[k])}`).join(", ") }))}
+              colors={LEVEL_COLOR}
+              label={`${name(id)} NEWS2 levels per hour`}
+              height={50}
+            />
+            <span>
+              {UNIT_LABEL[id]}
+              {id === "ER" ? " Includes the waiting room." : ""}
+            </span>
+          </div>
+        ))}
+      </Fig>
+      <Fig name="Intensive care: people read at each whole hour" caption={`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`} note={lines.length === 0 ? NO_DATA : undefined}>
+        <LineChart values={withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read))} label="Intensive care people read at each whole hour" />
       </Fig>
     </>
   );
@@ -283,7 +332,7 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
   );
 }
 
-export default function Insights({ mode, summary, patients, label }: { mode: Mode; summary: WardSummary | null; patients: Person[]; label: (minute: number) => string }) {
+export default function Insights({ mode, summary, patients, label, vitals }: { mode: Mode; summary: WardSummary | null; patients: Person[]; label: (minute: number) => string; vitals?: VitalsView | null }) {
   return (
     <section className="insights" aria-label="Analytics">
       <h2>Analytics</h2>
@@ -292,8 +341,17 @@ export default function Insights({ mode, summary, patients, label }: { mode: Mod
       <div className="figs">
         <Hospital mode={mode} sum={summary} />
       </div>
+      {mode === "hospital" ? (
+        <>
+          <h3>Every unit</h3>
+          <div className="figs">
+            <EveryUnit sum={summary} vitals={vitals} />
+          </div>
+          {vitals ? <p>Vital-sign streams opened outside ward W4: {n(vitals.created)} (one per person per visit). Readings: {n(vitals.reads)}.</p> : null}
+        </>
+      ) : null}
       <h3>Ward W4</h3>
-      <p>NEWS2 exists on W4 only</p>
+      <p>Everything in this section is ward W4's own record.</p>
       <div className="figs">
         <Ward mode={mode} sum={summary} />
       </div>

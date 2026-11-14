@@ -68,6 +68,9 @@ Only the standalone hospital build makes the engine. A viewer build, a watcher a
 - **Legend.** "ICU: no NEWS2 colour. Waiting room: triage colour."
 - **Entrance panel.** Its "Skip 1 day" button is hidden in a hospital world, because that jump steps with no feed. The top bar's "+1 day" stays and is fed.
 
+## Hourly counts for the Analytics page
+`HospitalVitals.hourly` holds one row per unit (ER, MED3A, MED3B, SURG5A, ICU) per hour: people read, by NEWS2 level (`low`, `low_medium`, `medium`, `high`, `not_ranked`) and `read`. Intensive care rows hold `read` only. A row is added when the hour starts (zeros, so an empty unit is 0, not a gap) and filled when a person's hourly score is taken. At most 840 rows are kept (`CAPS.hourRows`, 168 hours). `pageView(v)` returns `created`, `reads` and a copy of the rows. It is pure, draws no random number and does not touch `summary()` or its digest. The page must not call `summary()`: it stringifies every bin.
+
 ## One person across moves
 Code: `src/person-timeline.tsx`. The person panel (outside W4) shows "Whole stay" under the path:
 - A strip of unit bands from the engine's spans, each with the unit's id. Below it, small line charts for heart rate, respiratory rate, SpO2, temperature, systolic pressure and NEWS2 on a 15-minute grid. Each chart scales to its own data. NEWS2 is blank in intensive-care bands: "NEWS2 is a ward score".

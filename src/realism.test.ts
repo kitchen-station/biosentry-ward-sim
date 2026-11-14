@@ -196,7 +196,13 @@ describe("the printed table is pinned", () => {
     // First taken at 7137e8d, before tableRows was split out of formatRealism (ec5ab81c..., with an H1 row in HAND).
     // H1 left the report when temperature got check A4, so the hand-made row became B3. This value was read with that
     // row under the formatter of 247fd48, before A4, and again after: the same bytes both times.
-    expect(createHash("sha256").update(text).digest("hex")).toBe("1085587c156c52e10c2914541767e149e9a753258aed38c84fc50a771a55cd44");
+    // Every line but the last, pinned at bb70dbd before the footer's last line changed. It stands first, so it is read even
+    // when the full pin fails. (The text has no final newline; this cut keeps the newline that ends the second-to-last line.)
+    const butLast = text.slice(0, text.lastIndexOf("\n") + 1);
+    expect(createHash("sha256").update(butLast).digest("hex")).toBe("42fd4a0892a177d95c5ddeb4fc9fed5bdf26829a2dc6cff95d8ccf71a23ba0c4");
+    // The whole text. It was 1085587c156c52e10c2914541767e149e9a753258aed38c84fc50a771a55cd44 until the footer's last line
+    // said that every unit has vitals; only that line changed, as the pin above shows.
+    expect(createHash("sha256").update(text).digest("hex")).toBe("69ac0854da053af405c5011b4250f8ede9d78590ae14155298d6f942323814cd");
   });
 
   it("realismBlock holds the cells tableRows prints, and the footer", () => {

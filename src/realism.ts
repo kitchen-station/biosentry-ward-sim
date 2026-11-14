@@ -300,7 +300,7 @@ const FOOTER = [
   "published: Welch 2015 (US monitored wards) and RCP 2012, never used for fitting",
   "fitted target: the simulator was set from this number, so agreement is by construction",
   "fitted from: adult ICU (eICU-CRD Demo, BIDMC) and Holter and AF (MIT-BIH, AFDB, LTAFDB) recordings; not a general ward, not the Philippines",
-  "only ward W4 has vitals; summary statistics only; fitted and calibration data ODbL v1.0, see NOTICE.md",
+  "vitals in every hospital unit but the morgue come from this one generator, display only outside ward W4; these checks test it as ward W4 uses it; summary statistics only; fitted and calibration data ODbL v1.0, see NOTICE.md",
 ];
 
 /** The printed cells of every row, in printed order, without the header. */
