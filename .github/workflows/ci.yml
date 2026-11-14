@@ -59,6 +59,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Do not set VITE_API_URL or VITE_INGEST_KEY here: VITE_ values end up in the public JS.
+      # VITE_ values end up in the public JS. VITE_VIEW_API_URL is the public address of the API, which is
+      # not a secret. Never set VITE_INGEST_KEY or any passphrase here. Unset, the site is the standalone demo.
       - run: npm run build
+        env:
+          VITE_VIEW_API_URL: ${{ vars.VITE_VIEW_API_URL }}
       - run: npx --yes wrangler@4.155.0 pages deploy dist --project-name=biosentry-ward-sim --branch=main --commit-hash=${{ github.sha }}
