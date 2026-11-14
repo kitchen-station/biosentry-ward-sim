@@ -43,6 +43,14 @@ export interface LiveView {
   shared: Shared | null;
   patients: PatientEntry[];
   can_control?: boolean;
+  /** The API's time base for this answer (ISO, ward time): every served time is compared with it. Absent from an older API. */
+  now?: string;
+}
+
+/** The served `now` in epoch ms, or `fallbackMs` (the real clock) when the answer has none or it does not parse. */
+export function servedNowMs(live: { now?: unknown }, fallbackMs: number): number {
+  const ms = typeof live.now === "string" ? Date.parse(live.now) : NaN;
+  return Number.isFinite(ms) ? ms : fallbackMs;
 }
 
 // A requested BP is a patient's reading: it stays out of `shared`.
@@ -155,7 +163,8 @@ export interface StayRow {
  * give (context, nurse, physician, peak, scores, events) stays empty: nothing is made up.
  */
 export function finishedStays(rows: StayRow[], s: Sim, nowMs: number): Stay[] {
-  // Approximate: served ward time tracks the sim clock, so "that long ago" is counted back from the sim's minute.
+  // "That long before now" is counted back from the sim's minute. `nowMs` is the API's own `now` from the same poll round when it
+  // serves one (ward time), else the real clock, which is right only while the API shifts served times onto it.
   const at = (iso: string) => Math.max(0, Math.round(minuteOf(s) - (nowMs - Date.parse(iso)) / 60000));
   return rows
     .filter((row) => row.left_at !== null && BEDS.some((bed) => bed.label === row.bed)) // the ward draws only its own beds

@@ -15,7 +15,7 @@ import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { AnalyticsBoundary } from "./insights/Boundary";
 import { createWardStats, feed, summary } from "./sim/ward-stats";
-import { createReader, ease, finishedStays, type LiveView, type StayRow } from "./sim/view";
+import { createReader, ease, finishedStays, servedNowMs, type LiveView, type StayRow } from "./sim/view";
 import { createViewClock, frameDt, frameTicks } from "./clock";
 import { createPerf, perfLine, whileVisible } from "./perf";
 
@@ -241,10 +241,10 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     let off = false;
     let finished: Stay[] = [];
     let staysAt = -Infinity;
-    const pollStays = async (sim: Sim) => {
+    const pollStays = async (sim: Sim, nowMs: number) => {
       try {
         const response = await fetch(`${VIEW_API}/wards/W4/stays`, { headers: { Authorization: `Bearer ${token}` } });
-        if (response.ok) finished = finishedStays((await response.json()) as StayRow[], sim, Date.now());
+        if (response.ok) finished = finishedStays((await response.json()) as StayRow[], sim, nowMs);
       } catch {
         // the last list stays
       }
@@ -262,7 +262,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         // Not awaited: the stays show from the next answer, and a slow read never holds the ward back.
         if (live.shared && performance.now() - staysAt >= STAYS_MS) {
           staysAt = performance.now();
-          void pollStays(sim);
+          void pollStays(sim, servedNowMs(live, Date.now()));
         }
         sim.stays = [...finished.filter((x) => !sim.patients.some((p) => p.id === x.id)), ...sim.stays];
         const glide = glideRef.current;

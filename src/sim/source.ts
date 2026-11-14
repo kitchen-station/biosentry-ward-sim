@@ -310,6 +310,8 @@ const wanderSd = (v: Vital) => Math.sqrt(Math.max(0, fit.vitals[v].sd ** 2 - fit
 
 const DAY_MIN = 1440;
 export const START_CLOCK_MIN = 15 * 60; // the sim starts at 15:00
+/** Minute 0 of every synthetic run, as an instant: 3 Sept 2026, 15:00 in Manila. The ward's one calendar: the pages print it and the API is sent it as the run's origin. */
+export const WARD_START_ISO = "2026-09-03T07:00:00.000Z";
 
 // Philippine length of stay in days, lognormal from PhilHealth medians and spreads.
 // shortcut: the mix between conditions is a judgement, no published whole-ward case mix exists.

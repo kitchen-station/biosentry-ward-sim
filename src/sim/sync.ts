@@ -7,7 +7,7 @@ import type { Action } from "./actions";
 import type { Command } from "./commands";
 import type { Run } from "./persist";
 import { minuteOf, patientRow, record, signalQuality, type Patient, type Sim } from "./sim";
-import { FIXTURE_SEED, type VitalsSource } from "./source";
+import { FIXTURE_SEED, WARD_START_ISO, type VitalsSource } from "./source";
 
 // The API's limits per batch, and the most rows kept while it is unreachable.
 const BATCH = { observations: 20_000, bins: 20_000, events: 2_000, moves: 200 };
@@ -193,7 +193,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     if (!s) return;
     sentEnded = false;
     stopped = null;
-    origin = new Date().toISOString();
+    origin = WARD_START_ISO; // ward time, not the real clock: a stored time is then what the ward's clock shows (audit gap 1)
     register(world);
     await flush();
   }
