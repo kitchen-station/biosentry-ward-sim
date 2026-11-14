@@ -117,13 +117,24 @@ describe("sync, with a fake fetch", () => {
     expect(gone.absent_reason).toMatch(/^No usable reading for \d+ min$/);
     expect(gone.num).toBeUndefined();
 
-    // Nothing the chart holds changed, so only device rows repeat; and no row repeats its last value.
-    expect((body.observations as Obs[]).filter((o) => ["consciousness", "spo2_scale", "supplemental_o2"].includes(o.code))).toEqual([]);
+    // Nothing the chart holds changed. A nurse-charted value is sent again only when a nurse re-took the set: at the minute of
+    // an assessment of that patient (the dashboard reads the age of the nurse's set). No other row repeats its last value.
+    // Before the audit fix of 2026-11-14 this test pinned "no nurse-charted row at all", which left the set's age frozen.
+    const assessed = new Set<string>();
+    for (const e of body.events as { minute: number; text: string }[]) {
+      const p = s.patients.find((q) => e.text.includes(` assessed ${q.name},`));
+      if (p) assessed.add(`${p.id}@${e.minute}`);
+    }
+    const retaken = (o: { patient_id: string; minute: number; source: string }) => o.source === "nurse" && assessed.has(`${o.patient_id}@${o.minute}`);
+    const charted = (body.observations as Obs[]).filter((o) => ["consciousness", "spo2_scale", "supplemental_o2"].includes(o.code));
+    expect(charted.length).toBeGreaterThan(0); // a nurse did assess someone in these 40 minutes
+    for (const o of charted) expect(retaken(o), `${o.patient_id}/${o.code}@${o.minute}`).toBe(true);
     const last = new Map<string, string>();
-    for (const { minute: _m, absent_reason, ...o } of body.observations as Obs[]) {
+    for (const row of body.observations as Obs[]) {
+      const { minute: _m, absent_reason, ...o } = row;
       const key = `${o.patient_id}/${o.code}`;
       const value = JSON.stringify({ ...o, absent: absent_reason !== undefined });
-      expect(last.get(key), key).not.toBe(value);
+      if (!retaken(row)) expect(last.get(key), key).not.toBe(value);
       last.set(key, value);
     }
 

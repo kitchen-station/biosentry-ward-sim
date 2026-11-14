@@ -25,6 +25,13 @@ export type Trend = "rising" | "falling" | "stable" | "insufficient";
 
 const WINDOW_MINUTES = 15;
 const REASSESS_AFTER = 60; // demo value
+// Routine observation rounds (only with `Sim.rounds`, which the API runner sets). Minimum frequency of observations by NEWS2,
+// RCP 2017 Chart 3: score 0, 12-hourly; 1 to 4, 4 to 6-hourly (the stricter 4 h); a single parameter at 3, or 5 and above, hourly.
+// The dashboard's "Obs due" rule uses the same minutes.
+const ROUND_EVERY_MIN = { zero: 720, low: 240, raised: 60 };
+const ROUND_UNSCORED_MIN = 240; // shortcut: judgement, a patient with no score (no usable device data) is seen 4-hourly; the chart gives no figure for that case
+// shortcut: judgement, the nurse sets out this long before the set is due, or a quarter of the interval if that is shorter (15 min for an hourly set); change it with a cited ward practice
+const ROUND_LEAD_MIN = 30;
 const ACTOR_SPEED_CAP = 6; // staff would cross the ward in a quarter second at 60x
 const WALK_TILES_PER_S = 1;
 const MESSAGE_S = 2;
@@ -173,6 +180,8 @@ export interface Outbox {
   admissions: (PatientRow & { minute: number })[];
   departures: { patient_id: string; minute: number; outcome: StayOutcome }[];
   sent: Map<string, string>; // patient/code to the value and quality last queued
+  /** Set by the API sync. A nurse-charted value is then queued again at every assessment, also when it did not change, so its age is true. */
+  nurseTimes?: boolean;
 }
 
 export interface Sim {
@@ -189,6 +198,8 @@ export interface Sim {
   flow: { lastMinute: number; admitted: number; everOnOxygen: number; discharged: number; transferred: number; turnedAway: number };
   ended: boolean;
   outbox?: Outbox;
+  /** Nurses re-take each patient's observations on the NEWS2 schedule. Off by default: the seeded results and the golden value are without it. */
+  rounds?: boolean;
   occupied?: string[]; // viewer only: beds someone else's patient is in, labels and nothing more
   hospital?: Hospital; // hospital mode only (src/sim/hospital/attach.ts): W4 is one unit of it
 }
@@ -285,11 +296,13 @@ export function record(s: Sim, p: Patient, minute: number) {
     if (held === null) put(v, "device", "missing", null, { absent_reason: reason });
     else put(v, "device", quality, [held, quality], { num: held });
   }
-  if (p.bp) put("blood_pressure", "nurse", "ok", p.bp, { num: p.bp.systolic, num2: p.bp.diastolic });
+  // With nurseTimes the minute the nurse took the value is part of what was sent, so the same value taken again is sent again.
+  const taken = <T,>(value: T, at: number | null) => (out.nurseTimes ? [value, at] : value);
+  if (p.bp) put("blood_pressure", "nurse", "ok", taken(p.bp, p.bpAt), { num: p.bp.systolic, num2: p.bp.diastolic });
   else put("blood_pressure", "nurse", "missing", null, { absent_reason: "No blood pressure recorded" });
-  put("consciousness", "nurse", "ok", p.consciousness, { txt: p.consciousness });
-  put("supplemental_o2", "nurse", "ok", p.onOxygen, { num: p.onOxygen ? 1 : 0 });
-  put("spo2_scale", "nurse", "ok", p.spo2Scale, { num: p.spo2Scale });
+  put("consciousness", "nurse", "ok", taken(p.consciousness, p.nurseAt), { txt: p.consciousness });
+  put("supplemental_o2", "nurse", "ok", taken(p.onOxygen, p.nurseAt), { num: p.onOxygen ? 1 : 0 });
+  put("spo2_scale", "nurse", "ok", taken(p.spo2Scale, p.nurseAt), { num: p.spo2Scale });
 }
 
 export function gate(p: Patient, reading: Record<Vital, number | null> | null, minute: number) {
@@ -361,7 +374,13 @@ function maybeQueueAssessment(s: Sim, p: Patient, minute: number) {
     level >= 1 &&
     minute - p.lastAssessed >= REASSESS_AFTER &&
     (level > p.ackLevel || level >= 2); // demo rule: medium and high are seen at least hourly
-  if (due && !pending) {
+  // The age of the nurse's set is the age of its oldest part, as the dashboard reads it.
+  const setAt = p.bp && p.bpAt !== null ? Math.min(p.nurseAt, p.bpAt) : p.nurseAt;
+  const every = p.decision.kind !== "ranked" ? ROUND_UNSCORED_MIN : level >= 1 ? ROUND_EVERY_MIN.raised : p.decision.news2.total === 0 ? ROUND_EVERY_MIN.zero : ROUND_EVERY_MIN.low;
+  const setOut = every - Math.min(ROUND_LEAD_MIN, every / 4);
+  // The second test stops a loop if the set's age could not be renewed: never sooner than one set-out time after the last visit.
+  const round = s.rounds === true && minute - setAt >= setOut && minute - p.lastAssessed >= Math.min(REASSESS_AFTER, setOut);
+  if ((due || round) && !pending) {
     s.tasks.push({ kind: "assess", patient: p.id, rn: p.rn });
   }
 }

@@ -175,7 +175,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     ackedPatients.clear();
     registered = world.patients.map((p) => p.id);
     cursor.actions = cursor.commands = 0;
-    world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
+    world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map(), nurseTimes: true };
     for (const p of world.patients) record(world, p, minute);
     const initial = world.outbox.observations.splice(0);
     registration = {
@@ -208,6 +208,21 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     if (run.runId === null || !world.outbox) register(world); // saved before the API ever answered
     else {
       runId = run.runId;
+      // A ward saved before nurse times existed: what it last sent is remembered by value alone. Remember it with its time,
+      // or the first minute after the resume would send every nurse-charted value again as if just taken.
+      if (!world.outbox.nurseTimes) {
+        const sent = world.outbox.sent;
+        for (const p of world.patients) {
+          const timed = (code: string, value: unknown, at: number | null) => {
+            if (sent.get(`${p.id}/${code}`) === JSON.stringify(value)) sent.set(`${p.id}/${code}`, JSON.stringify([value, at]));
+          };
+          if (p.bp) timed("blood_pressure", p.bp, p.bpAt);
+          timed("consciousness", p.consciousness, p.nurseAt);
+          timed("supplemental_o2", p.onOxygen, p.nurseAt);
+          timed("spo2_scale", p.spo2Scale, p.nurseAt);
+        }
+        world.outbox.nurseTimes = true;
+      }
       // The run knows every patient whose admission is not still queued. No minute is known until a batch is acknowledged.
       const queued = new Set(world.outbox.admissions.map((a) => a.id));
       generation += 1;

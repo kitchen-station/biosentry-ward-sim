@@ -79,7 +79,7 @@ With `VITE_API_URL` unset, nothing is sent. The ingest key is read only from `VI
 
 Each page load picks one random `client_id` (32 hex characters from `crypto.getRandomValues`, which works without a secure context) and keeps it. Each world (first load, Reset) registers a run with `source: "synthetic"`, its 12 patients, their minute-0 state and the last 3 hours of history. A restart replaces the page's own earlier run. About once a second the page then sends a batch of what changed, and sends one even when nothing changed, including while paused, because the server treats a run that sends no batch for 30 seconds as stale and lets anyone take it. When a sim ends it sends `ended: true`.
 
-- **Observations:** the four device vitals, and the nurse-charted blood pressure, consciousness, oxygen and SpO2 scale. A value is sent only when it or its quality changes. A vital with no usable reading is sent as absent, with the reason, never as a made-up value.
+- **Observations:** the four device vitals, and the nurse-charted blood pressure, consciousness, oxygen and SpO2 scale. A device value is sent only when it or its quality changes. A nurse-charted value is also sent again each time a nurse re-takes it, with that minute, so the dashboard can tell how old the set is. A vital with no usable reading is sent as absent, with the reason, never as a made-up value.
 - **Bins:** the 15-minute medians behind the trend charts.
 - **Events:** the sim's log lines.
 - **Patients:** trend, signal quality and the minute of the last sample.
@@ -335,6 +335,7 @@ BioSentry only ranks and displays. A human decides. These parts were invented fo
 
 - **Staff response loop:** the product has no alert or acknowledgement flow. Messages, walks, assessments and physician calls are demo design.
 - **Reassessment:** medium and high risk patients are seen at least every 60 sim-minutes.
+- **Routine observation rounds (the API runner only):** nurses re-take each patient's observations on the NEWS2 minimum schedule (RCP 2017, Chart 3): 12-hourly at score 0, 4-hourly at 1 to 4, hourly above that or with a single parameter at 3. The nurse sets out 30 minutes before the set is due (15 minutes for an hourly set); that lead is a judgement, and so is seeing a patient with no score 4-hourly. The page, the trials and the compare runner run without rounds, so their seeded results are unchanged.
 - **Physician calls:** at NEWS2 5 or more the nurse calls the patient's physician, following the Kitchen page and RCP 2017 ("immediately inform the medical team"). Below 5, including a single parameter at 3, the nurse handles it.
 - **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes.
 - **NOT RANKED cutoff:** 30 stale minutes.
