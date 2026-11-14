@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY src ./src
 COPY scenarios ./scenarios
-COPY tsconfig.json vite.config.ts ./
+COPY tsconfig.json vite.config.ts build-guard.ts ./
 RUN npx vite build --ssr src/headless.ts --outDir dist/ward
 RUN npx vite build --ssr src/compare.ts --outDir dist/compare && npx vite build --ssr src/lab-worker.ts --outDir dist/lab
 
