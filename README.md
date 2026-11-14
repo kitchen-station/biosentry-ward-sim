@@ -1,6 +1,19 @@
 # BioSentry ward simulation
 
-**Live demo:** <https://biosentry-ward-sim.pages.dev> (synthetic patients; deploys from `main`)
+## Use it now
+
+The simulation is deployed. You do not need to install anything to see it.
+
+| App | Address | What it is |
+|---|---|---|
+| Ward simulation | <https://biosentry-ward-sim.pages.dev> | This simulation, in the browser. No sign-in. |
+| Dashboard | <https://biosentry-dashboard.pages.dev> | The BioSentry clinician's list on a sample ward. Any passphrase is accepted. |
+
+Both public sites deploy from `main` and show synthetic patients. They have no server behind them, so each runs alone.
+
+The connected version (this simulation writes to the BioSentry API and the dashboard reads the same ward, live) runs on the team's server and is private to the team. The dashboard repository's `deploy/README.md` says how it is built.
+
+To run or change the code yourself, see [Run it yourself](#run-it-yourself-developers).
 
 An interactive demo of how BioSentry Intelligence would behave on a live ward. Twelve patients sit on ward W4, covered by two staff nurses, a charge nurse and two physicians. Samples travel through the pipeline, the ranked list changes, and nurses and physicians respond. The standalone hospital page shows a whole synthetic hospital around it: an emergency room, wards and intensive care, each with synthetic vital signs (display only outside W4).
 
@@ -8,7 +21,9 @@ It runs on synthetic patients wearing chest patches. Their movement is fitted to
 
 Advisory only. BioSentry does not replace a monitor alarm. This demo makes no clinical claim.
 
-## Run it
+## Run it yourself (developers)
+
+You do not need this to see the simulation: the deployed apps are under [Use it now](#use-it-now).
 
 ```bash
 npm install
