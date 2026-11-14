@@ -106,6 +106,7 @@ export function TopBar({
   notice,
   onSignIn,
   hospitalHref,
+  onSignOut,
   onReset,
   onSpeed,
   hospital,
@@ -121,6 +122,8 @@ export function TopBar({
   onSignIn?: () => void;
   /** Viewer build: a link to the standalone hospital page, which runs in the visitor's browser. */
   hospitalHref?: string;
+  /** Viewer mode, signed in: drops the token and asks the open route again. */
+  onSignOut?: () => void;
   /** Left out in viewer mode unless the clinician may control the runner's ward, which has no clock of its own here. */
   onReset?: () => void;
   /** Viewer mode: the speed is asked of the runner, not set here. */
@@ -158,6 +161,7 @@ export function TopBar({
           <button onClick={onSignIn}>Sign in to control</button>
         </>
       )}
+      {onSignOut && <button onClick={onSignOut}>Sign out</button>}
       {hospital && (
         <>
           <select aria-label="Scenario" title={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
