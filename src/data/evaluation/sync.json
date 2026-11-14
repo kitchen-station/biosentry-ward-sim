@@ -1,16 +1,31 @@
 {
- "commit": "a39659fa77c8ade43a7234d6168a737be5adf854",
- "commit_date": "2026-11-13",
+ "commit": "bf39b4633ea8d4b16b6801e02942b89ef8613191",
+ "commit_date": "2026-11-14",
  "files": [
   {
-   "bytes": 2793,
-   "path": "frontend/src/data/evaluation/pipeline.json",
-   "sha256": "519ebc5cd3e574e3760e63e28b46002da53ab71654c600a05ab1b3f864d2bce2"
+   "bytes": 18807,
+   "path": "frontend/src/data/evaluation/evaluations.json",
+   "sha256": "811485d00c954abe0087e6f8c17b17b822ef9dbf736dcce7b963528c6fc2e385"
   },
   {
-   "bytes": 5966,
+   "bytes": 2877,
+   "path": "frontend/src/data/evaluation/pipeline.json",
+   "sha256": "2858a75638ac30c2098c0796a01e56b1711240836a5e3a6d0a0dedb9955c808f"
+  },
+  {
+   "bytes": 1415,
+   "path": "frontend/src/data/evaluation/registry.json",
+   "sha256": "6f6f7359961330c5edf8dbd41fdd012c386c3b8a2c4bb47ef6e9445976b9840f"
+  },
+  {
+   "bytes": 6996,
    "path": "frontend/src/data/evaluation/research-agent.json",
-   "sha256": "d9a10c9fc35e9a4eeac1e0049ab28960db31abc0158f167a38a6189e652baa24"
+   "sha256": "d316f2f2c854dd37a88c5e843ab4ba6ddc26b9750ed4ce411996dee299a1ea13"
+  },
+  {
+   "bytes": 29205,
+   "path": "frontend/src/data/evaluation/simulator.json",
+   "sha256": "0b7ff1dca80cabd4cf21535308779b3403ba86afada68eebe0ee23c355acb373"
   },
   {
    "bytes": 6706,
@@ -43,9 +58,29 @@
    "sha256": "4a3de9544cce7e6cc838837bb2c1646261d85d1f41bef35f84135509fa0729bb"
   },
   {
+   "bytes": 15238,
+   "path": "models/tier_c/confidence_check/heldout.json",
+   "sha256": "fcdb33af74c565a73f8572d004d23133f85e3558f651e92af6c7cd9ae533aa5d"
+  },
+  {
+   "bytes": 14861,
+   "path": "models/tier_c/student_vitals/held_out.json",
+   "sha256": "4b941cc07298436c4a8a18f815894d4d6dd3e002d1396b22a380ec3f52cf9bb1"
+  },
+  {
    "bytes": 28290,
    "path": "models/tier_c/student_vitals/metadata.json",
    "sha256": "4ef6898ca6e9e2ca81b90377586642a3556ff7343bdd1c8f66dbad324ad25094"
+  },
+  {
+   "bytes": 67937,
+   "path": "training/agent/runs/run1.json",
+   "sha256": "a8adce9bc4f22d09a91c3a7526b993d01d4bba703d4593141c7c645b4cb68765"
+  },
+  {
+   "bytes": 1043,
+   "path": "training/agent/runs/run1.scores.json",
+   "sha256": "5af60d4101166233a820f29904878570a72d5cd0dc56fdd1a65248800760e50d"
   },
   {
    "bytes": 13129,
