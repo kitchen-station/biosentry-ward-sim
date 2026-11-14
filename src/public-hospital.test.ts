@@ -5,28 +5,54 @@ import { describe, expect, it } from "vitest";
 import { createSim } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
 
-const { TopBar } = await import("./panels");
+const { Inspector, TopBar } = await import("./panels");
 const s = createSim(createSyntheticSource(FIXTURE_SEED, true));
 const src = createSyntheticSource(FIXTURE_SEED, true);
 const bar = (props: object) => renderToStaticMarkup(createElement(TopBar, { s, src, notice: null, ...props } as never));
 const hospital = { skipping: false, onSkip: () => {}, scenario: "pitch", scenarios: [], onScenario: () => {}, seedText: "seed" };
 
-describe("the public page's link to the hospital", () => {
-  it("shows a Hospital link only when given an address", () => {
-    expect(bar({ hospitalHref: "/hospital/" })).toContain('<a href="/hospital/">Hospital</a>');
-    expect(bar({})).not.toContain("<a href");
+describe("the public page's switch between the two worlds", () => {
+  const worlds = { here: "ward", ward: "/", hospital: "/hospital/" } as const;
+  it("shows a two-way switch with each world named, the one on screen pressed", () => {
+    const html = bar({ worlds });
+    expect(html).toContain("Live ward W4 (server)");
+    expect(html).toContain("Whole hospital (demo in your browser)");
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Live ward W4 \(server\)/);
+    expect(bar({ worlds: { ...worlds, here: "hospital" } })).toMatch(/aria-pressed="true"[^>]*>Whole hospital/);
+    expect(bar({})).not.toContain("Live ward W4 (server)");
   });
-  it("App passes the address to a viewer build only", () => {
-    expect(readFileSync("src/App.tsx", "utf8")).toContain("hospitalHref={VIEW_API ? `${import.meta.env.BASE_URL}hospital/` : undefined}");
+  it("each world has its own clock label", () => {
+    expect(bar({ worlds })).toContain("Server ward clock");
+    expect(bar({ worlds: { ...worlds, here: "hospital" } })).toContain("Demo hospital clock");
   });
-  it("the hospital page as deployed has a link back to the ward page, and no other page does", () => {
-    expect(bar({ backHref: "/" })).toContain('<a href="/">Back to ward W4</a>');
-    expect(bar({})).not.toContain("Back to ward W4");
-    expect(readFileSync("src/App.tsx", "utf8")).toContain('backHref={HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? "/" : undefined}');
+  it("App gives the switch to the viewer build and to the hospital page as deployed, and to no other page", () => {
+    const app = readFileSync("src/App.tsx", "utf8");
+    expect(app).toContain('worlds={VIEW_API ? { here: "ward", ward: import.meta.env.BASE_URL, hospital: `${import.meta.env.BASE_URL}hospital/` } : HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? { here: "hospital", ward: "/", hospital: import.meta.env.BASE_URL } : undefined}');
   });
   it("the hospital page says it is simulated in the browser, not the server's ward", () => {
     expect(bar({ hospital })).toContain("Simulated in your browser, not the server&#x27;s ward W4");
     expect(bar({})).not.toContain("Simulated in your browser");
+  });
+});
+
+describe("the side panel when watching", () => {
+  const panel = (sim: typeof s, selected: string | null) => renderToStaticMarkup(createElement(Inspector, { s: sim, src, selected, onSelect: () => {}, onTimeline: () => {}, watching: true }));
+  it("lists the beds highest rank first, and says what the page is, the speed in words, and where the dashboard is", () => {
+    const n = s.patients.length;
+    const sim = { ...s, speed: 10 as const, patients: s.patients.map((p, i) => ({ ...p, rank: n - i })) };
+    const html = panel(sim, null);
+    const order = [...html.matchAll(/Bed (\S+?)( ·|<)/g)].map((m) => m[1]);
+    expect(order).toEqual([...s.patients].reverse().map((p) => p.bed)); // rank n-i: the last patient is rank 1
+    expect(html).toContain("running live on the team server at 10x: 1 minute here is 10 ward minutes");
+    expect(html).toContain("walk a loop. That loop is demo design");
+  });
+  it("a chosen bed shows its risk and rank and no name or vitals, with a way back", () => {
+    const p = s.patients[0];
+    const html = panel(s, `bed:${p.bed}`);
+    expect(html).toContain(`Bed ${p.bed}`);
+    expect(html).toContain("Back to the list");
+    expect(html).toContain("Sign in to see this patient&#x27;s vitals.");
+    expect(html).not.toContain(p.name);
   });
 });
 
