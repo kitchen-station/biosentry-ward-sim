@@ -11,6 +11,10 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 - A bed is tagged only when both rank and risk are set. It is grey when risk is null. So a not-ranked bed shows no NR tag. The side panel has no "Not ranked (NR)" line. Figures are coloured by role only.
 - With a token present, no open-view request is made at all. A build without `VITE_VIEW_API_URL` is unchanged.
 
+## The link to the hospital
+
+In a viewer build the top bar has a "Hospital" link to `{BASE_URL}hospital/`. That page is the standalone hospital build (no API address, no key), uploaded by the deploy job beside the ward page. It runs in the visitor's browser and is labelled "Simulated in your browser, not the server's ward W4". It reads nothing from the API. Tests: `src/public-hospital.test.ts`.
+
 ## The nine rules (wire contract, section 9.1), and where they are tested
 
 1. No credential to the open route: `credentials: "omit"`, no `headers` key at all (a simple GET), `redirect: "error"`.

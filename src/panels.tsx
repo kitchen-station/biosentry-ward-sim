@@ -105,6 +105,7 @@ export function TopBar({
   src,
   notice,
   onSignIn,
+  hospitalHref,
   onReset,
   onSpeed,
   hospital,
@@ -118,6 +119,8 @@ export function TopBar({
   notice: string | null;
   /** Watching with no token: a pill and a button that opens the sign-in form. */
   onSignIn?: () => void;
+  /** Viewer build: a link to the standalone hospital page, which runs in the visitor's browser. */
+  hospitalHref?: string;
   /** Left out in viewer mode unless the clinician may control the runner's ward, which has no clock of its own here. */
   onReset?: () => void;
   /** Viewer mode: the speed is asked of the runner, not set here. */
@@ -131,6 +134,8 @@ export function TopBar({
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
+      {hospital && <span className="pill" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
+      {hospitalHref && <a href={hospitalHref}>Hospital</a>}
       {page && (
         <nav aria-label="View">
           <a href="#simulation" aria-current={page === "simulation" ? "page" : undefined}>Simulation</a>
