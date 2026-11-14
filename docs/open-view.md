@@ -13,7 +13,7 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 
 ## The link to the hospital
 
-In a viewer build the top bar has a "Hospital" link to `{BASE_URL}hospital/`. That page is the standalone hospital build (no API address, no key), uploaded by the deploy job beside the ward page. It runs in the visitor's browser and is labelled "Simulated in your browser, not the server's ward W4". It reads nothing from the API. Tests: `src/public-hospital.test.ts`.
+In a viewer build the top bar has a "Hospital" link to `{BASE_URL}hospital/`. That page is the standalone hospital build (no API address, no key), uploaded by the deploy job beside the ward page. It runs in the visitor's browser and is labelled "Simulated in your browser, not the server's ward W4". It reads nothing from the API. It has a "Back to ward W4" link to `/`, shown only when the page is served under `/hospital/`. Tests: `src/public-hospital.test.ts`.
 
 ## The nine rules (wire contract, section 9.1), and where they are tested
 

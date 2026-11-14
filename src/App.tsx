@@ -547,6 +547,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onSignIn={watch?.onLeave}
+        backHref={HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? "/" : undefined}
         hospitalHref={VIEW_API ? `${import.meta.env.BASE_URL}hospital/` : undefined}
         onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}
         readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}

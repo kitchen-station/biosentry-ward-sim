@@ -19,6 +19,11 @@ describe("the public page's link to the hospital", () => {
   it("App passes the address to a viewer build only", () => {
     expect(readFileSync("src/App.tsx", "utf8")).toContain("hospitalHref={VIEW_API ? `${import.meta.env.BASE_URL}hospital/` : undefined}");
   });
+  it("the hospital page as deployed has a link back to the ward page, and no other page does", () => {
+    expect(bar({ backHref: "/" })).toContain('<a href="/">Back to ward W4</a>');
+    expect(bar({})).not.toContain("Back to ward W4");
+    expect(readFileSync("src/App.tsx", "utf8")).toContain('backHref={HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? "/" : undefined}');
+  });
   it("the hospital page says it is simulated in the browser, not the server's ward", () => {
     expect(bar({ hospital })).toContain("Simulated in your browser, not the server&#x27;s ward W4");
     expect(bar({})).not.toContain("Simulated in your browser");
