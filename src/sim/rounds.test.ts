@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { loadWard, saveWard } from "./persist";
 import { createSim, minuteOf, record, setSpeed, step, type Patient } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./source";
 import { createSync } from "./sync";
@@ -89,6 +90,29 @@ describe("nurse-charted values and their time", () => {
     record(s, p, 100);
     expect(s.outbox!.observations.filter((o) => NURSE.includes(o.code))).toEqual([]);
   });
+
+  it("a ward saved before nurse times existed resumes without sending old values as new", async () => {
+    // An old ward: a day of running with an outbox that has no flag, then saved.
+    const src0 = createSyntheticSource(FIXTURE_SEED, true);
+    const s0 = createSim(src0);
+    setSpeed(s0, 60);
+    s0.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
+    for (const p of s0.patients) record(s0, p, 0);
+    for (let i = 0; i < DAY; i += 1) step(s0, src0);
+    s0.outbox.observations.length = 0;
+    const { s, src } = loadWard(saveWard(s0, src0, { runId: 7, origin: "2026-11-11T00:00:00.000Z", cursor: 0, commandCursor: 0 }));
+    expect(s.outbox!.nurseTimes).toBeUndefined();
+    const sync = createSync({ apiUrl: "http://api.test", key: "k", clientId: "c", fetch: async () => Promise.reject(new Error("offline")) });
+    await sync.resume(s, src, { runId: 7, origin: "2026-11-11T00:00:00.000Z", cursor: 0, commandCursor: 0 });
+    expect(s.outbox!.nurseTimes).toBe(true);
+    const minute = minuteOf(s);
+    for (const p of s.patients) record(s, p, minute);
+    expect(s.outbox!.observations.filter((o) => NURSE.includes(o.code))).toEqual([]); // nothing was re-taken: nothing is sent
+    const p = s.patients[0];
+    p.nurseAt = p.bpAt = minute + 1; // now a nurse re-takes one set
+    record(s, p, minute + 1);
+    expect(s.outbox!.observations.filter((o) => NURSE.includes(o.code)).map((o) => [o.patient_id, o.minute])).toEqual(NURSE.map(() => [p.id, minute + 1]));
+  }, 120_000);
 
   it("the API sync asks for it, and the runner asks for rounds", async () => {
     const src = createSyntheticSource(FIXTURE_SEED, true);

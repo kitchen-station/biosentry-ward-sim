@@ -334,7 +334,7 @@ BioSentry only ranks and displays. A human decides. These parts were invented fo
 
 - **Staff response loop:** the product has no alert or acknowledgement flow. Messages, walks, assessments and physician calls are demo design.
 - **Reassessment:** medium and high risk patients are seen at least every 60 sim-minutes.
-- **Routine observation rounds (the API runner only):** nurses re-take each patient's observations on the NEWS2 minimum schedule (RCP 2017, Chart 3): 12-hourly at score 0, 4-hourly at 1 to 4, hourly above that. The nurse sets out 30 minutes before the set is due; that lead is a judgement. The page, the trials and the compare runner run without rounds, so their seeded results are unchanged.
+- **Routine observation rounds (the API runner only):** nurses re-take each patient's observations on the NEWS2 minimum schedule (RCP 2017, Chart 3): 12-hourly at score 0, 4-hourly at 1 to 4, hourly above that or with a single parameter at 3. The nurse sets out 30 minutes before the set is due (15 minutes for an hourly set); that lead is a judgement, and so is seeing a patient with no score 4-hourly. The page, the trials and the compare runner run without rounds, so their seeded results are unchanged.
 - **Physician calls:** at NEWS2 5 or more the nurse calls the patient's physician, following the Kitchen page and RCP 2017 ("immediately inform the medical team"). Below 5, including a single parameter at 3, the nurse handles it.
 - **Quality gate:** a 15-minute median of 8 or more usable readings, degraded after 15 stale minutes.
 - **NOT RANKED cutoff:** 30 stale minutes.
