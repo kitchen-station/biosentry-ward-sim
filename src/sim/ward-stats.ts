@@ -9,13 +9,14 @@ import { START_CLOCK_MIN, type VitalsSource } from "./source";
 export const BIN_MIN = 15;
 export const ALERT_AT = 5; // the demo line: NEWS2 total 5 or more, as compare's rule news2_total_ge_5
 export const REARM_BINS = 16; // quiet bins (4 h) before a patient can alert again; also read by src/compare.ts
+export const WINDOW_AFTER_FULL_MIN = 120; // an episode's window ends this long after the offset is fully in; also read by src/compare.ts
 export const SHIFT_MIN = 720; // 12 h shifts that start at 07:00 and 19:00
 const SHIFT_START_CLOCK_MIN = 7 * 60;
 // A patient's sample for a bin minute lands up to 5 s per bed after it (Patient.offsetS). The window is the trial runner's own
 // (src/sim/trial.ts): a bin is read in the 60 + 5 x beds seconds after its minute, and closed after.
 const WINDOW_S = 60 + 5 * BEDS.length;
 
-export const CAPS = { levels: 672, shifts: 14, stays: 200, hoursPerUnit: 168 } as const; // 7 days of bins, 7 days of shifts, 7 days of hours
+export const CAPS = { levels: 672, shifts: 14, stays: 200, hoursPerUnit: 168, episodes: 200 } as const; // 7 days of bins, 7 days of shifts, 7 days of hours
 
 export interface WardSummary {
   version: 1;
@@ -27,7 +28,11 @@ export interface WardSummary {
   levels: { m: number; low: number; low_medium: number; medium: number; high: number; not_ranked: number; beds: number }[];
   shifts: { start: number; alerts: number; patientMin: number; partial: boolean }[];
   stays: { inMin: number; outMin: number; outcome: "discharged" | "higher_care" }[];
-  episodes: { start: number; rampMin: number; alertMin: number | null }[] | null; // not computed in version 1
+  // The simulator's own truth (owner decision sim-lab-4). Null with no source that can save. No patient id, no outcome, and no
+  // ramp or end of window: nothing here gives a time that is still ahead of the clock.
+  episodes:
+    | { start: number; kind: string; alertMin: number | null; minutesBetween: number | null; windowOpen: boolean }[]
+    | null;
   staff: { hour: number; rn: number; charge_rn: number; md: number }[] | null; // not computed in version 1
   hospital: {
     units: { id: string; name: string; floor: number; beds: number }[];
@@ -48,10 +53,12 @@ export interface WardStats {
   lastOut: number; // finished stays are taken once, by the minute they left
   alert: Record<string, [armed: boolean, quiet: number, last: number]>; // per patient in the ward: compare's re-arm rule
   hospital: WardSummary["hospital"];
+  ep: { id: string; start: number; rampMin: number; kind: string; alertMin: number | null; done: boolean }[] | null; // null: no truth to read
+  epSeen: string[]; // ids of patients in the ward whose episode was recorded, kept when the list is capped, so an evicted one does not come back
 }
 
 export function createWardStats(): WardStats {
-  return { from: null, to: 0, next: BIN_MIN, at: 0, stage: null, levels: [], shifts: [], stays: [], lastOut: 0, alert: {}, hospital: null };
+  return { from: null, to: 0, next: BIN_MIN, at: 0, stage: null, levels: [], shifts: [], stays: [], lastOut: 0, alert: {}, hospital: null, ep: null, epSeen: [] };
 }
 
 const shiftStartOf = (m: number) => m - ((START_CLOCK_MIN + m - SHIFT_START_CLOCK_MIN) % SHIFT_MIN);
@@ -61,7 +68,7 @@ const shiftStartOf = (m: number) => m - ((START_CLOCK_MIN + m - SHIFT_START_CLOC
  * sample for the bin minute (`nextMinute - sampleEveryMin` is that minute), with its total and level at that moment.
  * A patient placed after the minute is never counted. Cheap except in the window after a bin minute, where it is O(patients).
  */
-export function feed(st: WardStats, s: Sim, _src?: VitalsSource): void {
+export function feed(st: WardStats, s: Sim, src?: VitalsSource): void {
   const minute = minuteOf(s);
   st.from ??= minute;
   st.to = minute;
@@ -76,7 +83,7 @@ export function feed(st: WardStats, s: Sim, _src?: VitalsSource): void {
     st.at = bin;
     st.next = bin + BIN_MIN;
   }
-  if (into > WINDOW_S) return close(st, s, bin);
+  if (into > WINDOW_S) return close(st, s, bin, src);
   for (const p of s.patients) {
     if (p.nextMinute - p.rules.sampleEveryMin !== bin || st.stage.some((x) => x[0] === p.id)) continue;
     const d = p.decision;
@@ -84,10 +91,23 @@ export function feed(st: WardStats, s: Sim, _src?: VitalsSource): void {
   }
 }
 
-function close(st: WardStats, s: Sim, m: number) {
+function close(st: WardStats, s: Sim, m: number, src?: VitalsSource) {
   const rows = st.stage!;
   st.stage = null;
   const row = { m, low: 0, low_medium: 0, medium: 0, high: 0, not_ranked: 0, beds: rows.length };
+  // The truth, read once per bin. A start is recorded only once the bin minute has reached it, never before.
+  // Compare's evaluated set: a stay that began after minute 0, an episode that starts inside it.
+  if (typeof src?.save === "function") {
+    st.ep ??= [];
+    const saved = src.save(s.patients.map((p) => p.id));
+    for (const p of s.patients) {
+      const t = saved.streams[p.id] as { episode: { kind: string } | null; injectAt: number | null; rampMin: number } | undefined;
+      if (!t || t.episode === null || t.injectAt === null || t.injectAt > m || p.stay.inMin <= 0 || t.injectAt < p.stay.inMin || st.epSeen.includes(p.id)) continue;
+      st.epSeen.push(p.id);
+      st.ep.push({ id: p.id, start: t.injectAt, rampMin: t.rampMin, kind: t.episode.kind, alertMin: null, done: false });
+    }
+    if (st.ep.length > CAPS.episodes) st.ep.splice(0, st.ep.length - CAPS.episodes);
+  }
   const start = shiftStartOf(m);
   if (st.shifts.at(-1)?.start !== start) st.shifts.push({ start, alerts: 0, patientMin: 0, partial: false });
   const shift = st.shifts.at(-1)!;
@@ -102,12 +122,19 @@ function close(st: WardStats, s: Sim, m: number) {
     if (a[2] >= 0) for (let g = (m - a[2]) / BIN_MIN - 1; g > 0; g -= 1) quiet();
     a[2] = m;
     if (total !== null && total >= ALERT_AT) {
-      if (a[0]) shift.alerts += 1;
+      if (a[0]) {
+        shift.alerts += 1;
+        // The first new alert in the window, as compare's w4Arm takes it.
+        const e = st.ep?.find((x) => x.id === id && !x.done); // a closed row never changes
+        if (e && e.alertMin === null && m >= e.start && m <= e.start + e.rampMin + WINDOW_AFTER_FULL_MIN) e.alertMin = m;
+      }
       a[0] = false;
       a[1] = 0;
     } else quiet();
   }
   const here = new Set(s.patients.map((p) => p.id));
+  for (const e of st.ep ?? []) if (!e.done && (e.alertMin !== null || m >= e.start + e.rampMin + WINDOW_AFTER_FULL_MIN || !here.has(e.id))) e.done = true;
+  st.epSeen = st.epSeen.filter((id) => here.has(id)); // a patient who left cannot come back: ids are per admission
   for (const id of Object.keys(st.alert)) if (!here.has(id)) delete st.alert[id];
   st.levels.push(row);
   if (st.levels.length > CAPS.levels) st.levels.shift();
@@ -132,6 +159,8 @@ function close(st: WardStats, s: Sim, m: number) {
 /** A copy. The caps already hold. */
 export function summary(st: WardStats): WardSummary {
   const copy = structuredClone({ levels: st.levels, shifts: st.shifts, stays: st.stays, hospital: st.hospital });
+  // minutesBetween is whole minutes; compare keeps the fraction. A new alert is never before the start, so it is never negative.
+  const episodes = st.ep && st.ep.map((e) => ({ start: e.start, kind: e.kind, alertMin: e.alertMin, minutesBetween: e.alertMin === null ? null : Math.round(e.alertMin - e.start), windowOpen: !e.done }));
   const from = st.from ?? 0;
   return {
     version: 1,
@@ -143,7 +172,7 @@ export function summary(st: WardStats): WardSummary {
     levels: copy.levels,
     shifts: copy.shifts.map((x) => ({ ...x, partial: x.start < from || x.start + SHIFT_MIN > st.to })),
     stays: copy.stays,
-    episodes: null,
+    episodes,
     staff: null,
     hospital: copy.hospital,
   };

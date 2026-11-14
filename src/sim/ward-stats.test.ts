@@ -5,9 +5,9 @@ import { createHospitalSim } from "./hospital/attach";
 import { parseScenario } from "./hospital/scenario";
 import { scoreNews2 } from "./news2";
 import { createSim, minuteOf, setSpeed, step, type Sim } from "./sim";
-import { createSyntheticSource, FIXTURE_SEED } from "./source";
+import { createSyntheticSource, FIXTURE_SEED, type VitalsSource } from "./source";
 import { runTrial, SCENARIO_V1 } from "./trial";
-import { ALERT_AT, CAPS, createWardStats, feed, REARM_BINS, SHIFT_MIN, summary } from "./ward-stats";
+import { ALERT_AT, CAPS, WINDOW_AFTER_FULL_MIN, createWardStats, feed, REARM_BINS, SHIFT_MIN, summary } from "./ward-stats";
 
 const DAY = 1440 * 60; // steps in a day at 60x: one tick is one sim second
 
@@ -16,13 +16,35 @@ function run(seed: number, days: number, fed: boolean) {
   const s = createSim(src);
   setSpeed(s, 60);
   const stats = createWardStats();
+  let seen = 0;
+  let lastBin = -1;
   for (let i = 0; i < days * DAY; i += 1) {
     step(s, src);
-    if (fed) feed(stats, s, src);
+    if (fed) {
+      feed(stats, s, src);
+      // An episode is never recorded before its start has been reached.
+      if (stats.ep && stats.ep.length !== seen) {
+        for (const e of stats.ep.slice(seen)) expect(e.start).toBeLessThanOrEqual(minuteOf(s));
+        seen = stats.ep.length;
+      }
+      // After every bin close: no minute in a summary episode is ahead of the clock, and the keys are the allowed ones.
+      const bin = stats.levels.at(-1)?.m ?? -1;
+      if (bin !== lastBin) {
+        lastBin = bin;
+        // The seen list holds only patients on the ward now, so it cannot grow past the beds.
+        expect(stats.epSeen.filter((id) => !s.patients.some((p) => p.id === id))).toEqual([]);
+        for (const e of summary(stats).episodes ?? []) {
+          expect(Object.keys(e).sort()).toEqual(ALLOWED);
+          expect(e.start).toBeLessThanOrEqual(minuteOf(s));
+          if (e.alertMin !== null) expect(e.alertMin).toBeLessThanOrEqual(minuteOf(s));
+        }
+      }
+    }
   }
   return { s, stats };
 }
 // Everything the Sim holds, as text (functions in the rules are left out by JSON): a feed that wrote anything would show here.
+const ALLOWED = ["alertMin", "kind", "minutesBetween", "start", "windowOpen"]; // exactly what a summary episode may hold: no ramp, no id
 const state = (s: Sim) => JSON.stringify(s);
 
 describe("ward stats", () => {
@@ -36,7 +58,8 @@ describe("ward stats", () => {
     expect(sm.levels.length).toBeGreaterThan(150); // 2 days is 192 bins
     expect(sm.fromMin).toBe(0);
     expect(sm.toMin).toBe(minuteOf(a.s));
-    expect(sm.episodes).toBeNull();
+    expect(sm.episodes).not.toBeNull(); // was pinned to null before the episodes table
+    expect(sm.episodes!.length).toBeGreaterThan(0);
     expect(sm.staff).toBeNull();
     expect(sm.hospital).toBeNull();
     expect(sm.levels.every((r) => r.low + r.low_medium + r.medium + r.high + r.not_ranked === r.beds)).toBe(true);
@@ -91,6 +114,7 @@ describe("ward stats", () => {
     expect(sm.levels).toHaveLength(CAPS.levels);
     expect(sm.shifts.length).toBeLessThanOrEqual(CAPS.shifts);
     expect(sm.stays.length).toBeLessThanOrEqual(CAPS.stays);
+    expect(sm.episodes!.length).toBeLessThanOrEqual(CAPS.episodes);
     expect(sm.levels[0].m).toBeGreaterThan(0);
     expect(Object.keys(stats.alert).length).toBeLessThanOrEqual(12);
   }, 240_000);
@@ -110,6 +134,49 @@ describe("hospital world", () => {
     expect(Object.keys(h.hours[0]).sort()).toEqual(["admitted_in", "arrivals", "census", "discharged", "hour", "transferred_in", "transferred_out", "unit"]);
   }, 120_000);
 });
+
+describe("episodes", () => {
+  // Seeds 4, 6 and 7 have episodes in 7 days; most seeds have none in 3 days. Seed 4 has first alerts after the ramp, inside the +120.
+  for (const seed of [4, 6, 7]) {
+    it(`equals the truth runTrial writes and compare's first new alerts, seed ${seed}, 7 days`, () => {
+      const days = 7;
+      const trial = runTrial({ scenario: { ...SCENARIO_V1, format_version: 1, name: "default" }, seed, days, scenarioSha256: "0".repeat(64), simCommit: "unknown", nodeMajor: 0 });
+      const byPatient = new Map<string, ReturnType<typeof rescore>>();
+      for (const r of rescore(trial["cohort.csv"])) byPatient.set(r.id, [...(byPatient.get(r.id) ?? []), r]);
+      const episodes = trial["episodes.csv"].trimEnd().split("\n").slice(1).map((l) => l.split(","));
+      const patientDays = (JSON.parse(trial["summary.json"]) as { patient_days: number }).patient_days;
+      const { stats } = run(seed, days, true);
+      const sm = summary(stats);
+      // Compare evaluates a stay that began after minute 0 with an episode that starts inside it and before the run's end.
+      // The page records those whose start a closed bin has reached; a start after the last closed bin is not yet known.
+      const lastBin = sm.levels.at(-1)!.m;
+      const evaluated = episodes.filter((e) => Number(e[1]) > 0 && e[5] !== "" && Number(e[5]) >= Number(e[1]) && (e[2] === "" || Number(e[5]) < Number(e[2])) && Number(e[5]) < days * 1440);
+      const reached = evaluated.filter((e) => Number(e[5]) <= lastBin);
+      const first = new Map<string, number>();
+      const arm = w4Arm(byPatient, parseRule("news2_total_ge_5"), episodes, patientDays, days, first);
+      expect(evaluated.length).toBe(arm.episodes_evaluated);
+      expect(reached.length).toBeGreaterThan(0);
+      const rec = stats.ep!;
+      expect(rec.map((e) => e.id).sort()).toEqual(reached.map((e) => e[0]).sort());
+      for (const e of reached) {
+        const m = rec.find((x) => x.id === e[0])!;
+        expect([m.start, m.rampMin, m.kind]).toEqual([Number(e[5]), Number(e[6]), e[4]]);
+        expect(Object.keys(sm.episodes!.find((x) => x.start === m.start)!).sort()).toEqual(ALLOWED);
+        expect(m.alertMin).toBe(first.get(e[0]) ?? null);
+      }
+      if (seed === 4) expect(rec.some((x) => x.alertMin !== null && x.alertMin > x.start + x.rampMin)).toBe(true);
+      // compare exposes each first new alert minute (firstOut), so the match is per episode, and by count:
+      expect(rec.filter((x) => x.alertMin !== null).length).toBe(reached.filter((e) => first.has(e[0])).length);
+      expect(sm.episodes!.every((x) => x.minutesBetween === null || x.minutesBetween === Math.round(x.alertMin! - x.start))).toBe(true);
+    }, 300_000);
+  }
+});
+
+/** Closes one 15-minute bin of a hand-made ward. */
+function closeBin(st: ReturnType<typeof createWardStats>, src: VitalsSource, patients: { nextMinute: number }[], bin: number) {
+  const ps = patients.map((p) => ({ ...p, nextMinute: bin + 1 }));
+  for (const c of [bin * 60, bin * 60 + 200]) feed(st, { clockS: c, patients: ps, stays: [] } as unknown as Sim, src);
+}
 
 describe("alerts", () => {
   // One recount per seed from the trial runner's own cohort rows, scored again with scoreNews2, set against the page's stats.
@@ -147,6 +214,54 @@ describe("alerts", () => {
       expect(sm.shifts.reduce((k, x) => k + x.alerts, 0)).toBe(expected);
     }, 300_000);
   }
+
+  it("keeps at most 200 episodes, oldest dropped; no source keeps episodes null", () => {
+    const patients = Array.from({ length: 250 }, (_, i) => ({ id: `p${i}`, nextMinute: 61, rules: { sampleEveryMin: 1 }, decision: { kind: "not_ranked" }, stay: { inMin: 1 } }));
+    const streams = Object.fromEntries(patients.map((p, i) => [p.id, { episode: { kind: "k" }, injectAt: 1 + (i % 60), rampMin: 10 }]));
+    const src = { save: () => ({ streams }) } as unknown as VitalsSource;
+    const st = createWardStats();
+    const bare = createWardStats();
+    for (const c of [3600, 3600 + 200]) {
+      const s = { clockS: c, patients, stays: [] } as unknown as Sim;
+      feed(st, s, src);
+      feed(bare, s);
+    }
+    // The last 50 patients leave; the evicted first 50 stay on the ward, and none of them comes back.
+    for (const bin of [75, 90, 105]) closeBin(st, src, patients.slice(0, 200), bin);
+    expect(CAPS.episodes).toBe(200);
+    // all 250 starts are reached by bin 60: the 50 oldest recorded are dropped
+    expect(summary(st).episodes).toHaveLength(200);
+    expect(st.ep!.map((e) => e.id)).toEqual(patients.slice(50).map((p) => p.id));
+    expect(summary(bare).episodes).toBeNull();
+    expect(st.ep!.map((e) => e.id)).toEqual(patients.slice(50).map((p) => p.id));
+  });
+
+  it("does not record a patient admitted at minute 0, or a start before the admit or after the patient left", () => {
+    const mk = (id: string, inMin: number) => ({ id, nextMinute: 61, rules: { sampleEveryMin: 1 }, decision: { kind: "not_ranked" }, stay: { inMin } });
+    const here = [mk("start0", 0), mk("before", 50), mk("ok", 10)];
+    const streams = {
+      start0: { episode: { kind: "k" }, injectAt: 20, rampMin: 10 },
+      before: { episode: { kind: "k" }, injectAt: 40, rampMin: 10 }, // before its admit at 50
+      gone: { episode: { kind: "k" }, injectAt: 30, rampMin: 10 }, // left the ward before the start: not a patient any more
+      ok: { episode: { kind: "k" }, injectAt: 30, rampMin: 10 },
+    };
+    const st = createWardStats();
+    for (const c of [3600, 3800]) feed(st, { clockS: c, patients: here, stays: [] } as unknown as Sim, { save: () => ({ streams }) } as unknown as VitalsSource);
+    expect(st.ep!.map((e) => e.id)).toEqual(["ok"]);
+  });
+
+  it("counts a first alert in the last of the 120 minutes after fully in, and not one a bin later", () => {
+    // start 100, ramp 35: the window ends at 255
+    const src = { save: () => ({ streams: { a: { episode: { kind: "k" }, injectAt: 100, rampMin: 35 }, b: { episode: { kind: "k" }, injectAt: 100, rampMin: 35 } } }) } as unknown as VitalsSource;
+    const st = createWardStats();
+    for (let bin = 4; bin <= 18; bin += 1) {
+      const total = (id: string) => (id === "a" ? (bin * 15 === 255 ? 5 : 0) : bin * 15 === 270 ? 5 : 0);
+      const ps = ["a", "b"].map((id) => ({ id, nextMinute: bin * 15 + 1, rules: { sampleEveryMin: 1 }, decision: { kind: "ranked", news2: { total: total(id), risk: "low" } }, stay: { inMin: 10 } }));
+      for (const c of [bin * 900, bin * 900 + 200]) feed(st, { clockS: c, patients: ps, stays: [] } as unknown as Sim, src);
+    }
+    expect(Object.fromEntries(st.ep!.map((e) => [e.id, e.alertMin]))).toEqual({ a: 255, b: null });
+    expect(WINDOW_AFTER_FULL_MIN).toBe(120);
+  });
 
   it("keeps at most 168 hours per unit and 200 finished stays", () => {
     const units = ["ER", "ICU", "MED3A", "MED3B", "W4", "SURG5A", "MORGUE"].map((id, i) => ({ id, name: id, floor: i, beds: 4 }));

@@ -17,6 +17,7 @@ Ward W4 (NEWS2 exists on W4 only)
 - Alerts per patient per shift: one bar per 12 h shift, shifts start at 07:00 and 19:00. A part shift is faded.
 - Beds in use: patients read in the bin at each whole hour.
 - Length of stay: one dot per finished stay, coloured by how the stay ended. A stay that began before the run (`inMin` 0) is left out. With none yet it says "No finished stay yet (stays that began before the run are not counted)".
+- Simulated episodes: a table under these charts, from the simulator's own truth. See Simulated episodes below.
 
 Person (pick one)
 - NEWS2 by hour: the stay's hourly scores.
@@ -36,6 +37,20 @@ The ward builds a summary while it runs: `src/sim/ward-stats.ts`. It is pure. It
 
 An alert here is the demo line: NEWS2 total 5 or more, with the compare runner's re-arm rule (`news2_total_ge_5`). After an alert a patient can alert again only after 16 quiet 15-minute bins (4 h). A missing bin counts as quiet. `REARM_BINS` is defined in `ward-stats.ts` and `src/compare.ts` imports it. A test checks the count equals the compare runner's on the same seeded run. It is a demo line, not a clinical threshold.
 
+## Simulated episodes
+
+Owner decision `sim-lab-4`: the page lists each simulated deterioration episode, with no outcome. Under the Ward W4 charts, a table "Simulated episodes" has one row per episode, newest first: Start, Kind, First alert and Minutes between. Above it: "Simulated episode, the simulator's ground truth. A real ward never knows this. No outcome shown."
+
+- Where it comes from: the simulator's own saved truth for each patient (`injectAt`, the episode kind and `rampMin`, which stays inside the accumulator), read once per 15-minute bin, as `src/sim/trial.ts` reads it for `episodes.csv`. A real ward never has it.
+- A start is recorded and shown only after the clock has reached it. A scheduled start in the future is never shown.
+- Which episodes: the compare runner's set. The stay began after minute 0, and the start is inside the stay.
+- Window: start to fully in (start plus ramp), plus 120 min (`WINDOW_AFTER_FULL_MIN`, shared with `src/compare.ts`). First alert is the first new alert of that patient in the window, by the alert rule below. If none came, the row says "none in the window", or "window still open" while it can still come. An alert that was already active before the start is not new, as in compare, so Minutes between is never negative. Minutes between is rounded to a whole minute.
+- The summary entry holds only `start`, `kind`, `alertMin`, `minutesBetween` and `windowOpen`. It holds no ramp length, no end of window and no patient id, so nothing in it is ahead of the clock. `windowOpen` turns false at the first alert, when the patient leaves, or when the window ends; only the last shows the ramp length, and only after the fact. A test checks the keys and that no minute is ahead of the clock after every bin.
+- Known limit: an episode whose patient leaves before the next 15-minute bin closes is not listed. In seeds 1 to 40 over 7 days this did not happen (38 evaluated episodes, none missed).
+- It is the simulator's own knowledge. No outcome is shown, and the page prints no summary figure for the column.
+- Caps: 200 episodes kept (oldest dropped), the newest 50 shown with "Showing the newest 50 of N". A patient's episode stays after the patient leaves.
+- With no source that can save, `episodes` is `null` and the page says "Not available here." The viewer build shows no table.
+
 ## Skipped spans
 
 If the clock jumps and the page is not fed (the Entrance panel's Skip 1 day), the bins in that span are not recorded. The charts draw a hatched gap labelled "skipped".
@@ -53,4 +68,4 @@ The Analytics view is drawn inside the ward component. The ward is hidden, not r
 
 ## Not in version 1
 
-Simulated episodes, staff time away from base, late recognition and vitals against the person's own start are not shown. `episodes` and `staff` in the summary are `null`.
+Staff time away from base, late recognition and vitals against the person's own start are not shown. `staff` in the summary is `null`.

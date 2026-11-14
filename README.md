@@ -189,7 +189,7 @@ VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
 
 ## Analytics page
 
-The top bar has two links, Simulation and Analytics. Analytics shows charts for the hospital, for ward W4 and for one person, from the run in the page. The data is synthetic and the page makes no outcome claim. In a viewer build the Hospital section says "The runner runs ward W4 only." and the ward charts say "Not available from the runner yet". See [docs/ward-analytics.md](docs/ward-analytics.md).
+The top bar has two links, Simulation and Analytics. Analytics shows charts for the hospital, for ward W4 and for one person, from the run in the page. The data is synthetic and the page makes no outcome claim. In a viewer build the Hospital section says "The runner runs ward W4 only." and the ward charts say "Not available from the runner yet". Under the ward charts a table lists each simulated deterioration episode (true start, first alert, minutes between) as the simulator's ground truth, with no outcome. See [docs/ward-analytics.md](docs/ward-analytics.md).
 
 ## Scenarios, Shuffle and the seed
 
