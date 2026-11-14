@@ -296,6 +296,25 @@ describe("the drawn ward (rules 2, 6)", () => {
   });
 });
 
+describe("sign out", () => {
+  const src: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
+  const s = createSim(createSyntheticSource(FIXTURE_SEED, true));
+  it("the top bar shows Sign out only when given the handler, and the button calls it", () => {
+    expect(renderToStaticMarkup(createElement(TopBar, { s, src, notice: null }))).not.toContain("Sign out");
+    expect(renderToStaticMarkup(createElement(TopBar, { s, src, notice: null, onSignIn: () => {} }))).not.toContain("Sign out");
+    const el = TopBar({ s, src, notice: null, onSignOut: () => {} });
+    expect(renderToStaticMarkup(el)).toContain("<button>Sign out</button>");
+  });
+  it("a sign-out tries the open route again; sign-in once shown is kept", () => {
+    expect(nextGate("signin", "signed_out")).toBe("trying");
+    expect(nextGate("trying", "probe_ok")).toBe("watch");
+    expect(nextGate("trying", "probe_fail")).toBe("signin");
+  });
+  it("App passes the handler only to a signed-in viewer", () => {
+    expect(readFileSync("src/App.tsx", "utf8")).toContain("onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}");
+  });
+});
+
 describe("no control, no storage, no console (rules 3, 4, 9)", () => {
   const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
   const s = createSim(createSyntheticSource(FIXTURE_SEED, true));
