@@ -13,14 +13,14 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 
 ## The link to the hospital
 
-In a viewer build the top bar has a "Hospital" link to `{BASE_URL}hospital/`. That page is the standalone hospital build (no API address, no key), uploaded by the deploy job beside the ward page. It runs in the visitor's browser and is labelled "Simulated in your browser, not the server's ward W4". It reads nothing from the API. It has a "Back to ward W4" link to `/`, shown only when the page is served under `/hospital/`. Tests: `src/public-hospital.test.ts`.
+In a viewer build the top bar has a two-way switch: "Live ward W4 (server)" and "Whole hospital (demo in your browser)", with a clock label for each. The second goes to `{BASE_URL}hospital/`. That page is the standalone hospital build (no API address, no key), uploaded by the deploy job beside the ward page. It runs in the visitor's browser and is labelled "Simulated in your browser, not the server's ward W4". It reads nothing from the API. Served under `/hospital/` it has the same switch, so the way back is the first button. Tests: `src/public-hospital.test.ts`.
 
 ## The nine rules (wire contract, section 9.1), and where they are tested
 
 1. No credential to the open route: `credentials: "omit"`, no `headers` key at all (a simple GET), `redirect: "error"`.
 2. No name or title for a figure: staff are named only "Nurse", "Charge nurse", "Physician".
 3. Nothing is stored: no browser storage and no cookie. `cache: "no-store"`. Checked by a source scan of `src/open-view.ts` and `src/App.tsx` only.
-4. No control without a token: the top bar has no speed button or Reset (the speed shows as text, read-only), the side panel has no buttons, and `/live` is not read.
+4. No control without a token: the top bar has no speed button or Reset (the speed shows as text, read-only), the side panel has no control button (its only buttons are the bed rows, which select a bed on this page and send nothing), and `/live` is not read.
 5. No other API call without a token.
 6. No string from the answer reaches markup. Bed labels must match `[A-Za-z0-9][A-Za-z0-9 ._-]{0,19}` and are only matched against the map's `BEDS`.
 7. Unknown keys are ignored and never read.

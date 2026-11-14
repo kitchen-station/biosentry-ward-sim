@@ -24,7 +24,7 @@ describe("the top bar", () => {
 
   it("shows the runner's speed as read-only text in viewer, and the clock with seconds", () => {
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />);
-    expect(html).toContain('<span class="pill" title="Simulation speed">60x</span>');
+    expect(html).toContain('<span class="pill" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
     expect(html.replace(/<[^>]+>/g, "")).toContain("3 Sept 2026, 15:00:00 Manila");
   });
 

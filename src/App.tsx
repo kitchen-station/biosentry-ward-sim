@@ -547,8 +547,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onSignIn={watch?.onLeave}
-        backHref={HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? "/" : undefined}
-        hospitalHref={VIEW_API ? `${import.meta.env.BASE_URL}hospital/` : undefined}
+        worlds={VIEW_API ? { here: "ward", ward: import.meta.env.BASE_URL, hospital: `${import.meta.env.BASE_URL}hospital/` } : HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? { here: "hospital", ward: "/", hospital: import.meta.env.BASE_URL } : undefined}
         onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}
         readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
         onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
@@ -655,7 +654,6 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
-        <span>Staff loop: demo design, not a product feature.</span>
         {world.s.hospital && <span>Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled.</span>}
       </footer>
     </div>

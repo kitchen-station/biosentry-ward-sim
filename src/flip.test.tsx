@@ -54,7 +54,7 @@ describe("the top bar", () => {
       const html = renderToStaticMarkup(<TopBar s={s} src={src} notice={null} {...props} />);
       expect(html).toMatch(/class="clock"/);
       expect(html.replace(/<[^>]+>/g, "")).toMatch(/3 Sept 2026, 15:00:00 Manila/);
-      expect(html).toContain('<span class="pill" title="Simulation speed">60x</span>');
+      expect(html).toContain('<span class="pill" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
       expect(html).not.toContain('class="flip"');
     });
   }

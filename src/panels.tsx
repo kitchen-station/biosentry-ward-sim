@@ -100,13 +100,17 @@ function Clock({ src, read, speed }: { src: VitalsSource; read: () => number; sp
   );
 }
 
+const WORLDS = [
+  ["ward", "Live ward W4 (server)"],
+  ["hospital", "Whole hospital (demo in your browser)"],
+] as const;
+
 export function TopBar({
   s,
   src,
   notice,
   onSignIn,
-  hospitalHref,
-  backHref,
+  worlds,
   onSignOut,
   onReset,
   onSpeed,
@@ -121,10 +125,8 @@ export function TopBar({
   notice: string | null;
   /** Watching with no token: a pill and a button that opens the sign-in form. */
   onSignIn?: () => void;
-  /** Viewer build: a link to the standalone hospital page, which runs in the visitor's browser. */
-  hospitalHref?: string;
-  /** The hospital page as deployed beside the ward page: a link back to the ward page. */
-  backHref?: string;
+  /** The deployed site's two worlds: the server's ward W4 and the hospital demo that runs in the visitor's browser. `here` is the one on screen. */
+  worlds?: { here: "ward" | "hospital"; ward: string; hospital: string };
   /** Viewer mode, signed in: drops the token and asks the open route again. */
   onSignOut?: () => void;
   /** Left out in viewer mode unless the clinician may control the runner's ward, which has no clock of its own here. */
@@ -141,8 +143,16 @@ export function TopBar({
       <h1>BioSentry ward sim</h1>
       <span className="pill">{hospital ? "Hospital" : "W4"}</span>
       {hospital && <span className="pill" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
-      {hospitalHref && <a href={hospitalHref}>Hospital</a>}
-      {backHref && <a href={backHref}>Back to ward W4</a>}
+      {worlds && (
+        <div className="speeds" role="group" aria-label="World">
+          {WORLDS.map(([key, text]) => (
+            <button key={key} className={worlds.here === key ? "on" : ""} aria-pressed={worlds.here === key} onClick={() => worlds.here === key || window.location.assign(worlds[key])}>
+              {text}
+            </button>
+          ))}
+        </div>
+      )}
+      {worlds && <span className="tiny">{worlds.here === "ward" ? "Server ward clock" : "Demo hospital clock"}</span>}
       {page && (
         <nav aria-label="View">
           <a href="#simulation" aria-current={page === "simulation" ? "page" : undefined}>Simulation</a>
@@ -150,7 +160,7 @@ export function TopBar({
         </nav>
       )}
       <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
-      <span className="pill" title="Simulation speed">
+      <span className="pill" title={s.speed === 0 ? "Simulation speed" : `Simulation speed: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}`}>
         {s.speed === 0 ? "Paused" : `${s.speed}x`}
       </span>
       {notice && (
@@ -732,6 +742,7 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
         <Stat label="Tasks queued" value={queued} />
       </div>
       <Activity src={src} lines={s.log.filter((line) => line.text.includes(m.name)).slice(-5).reverse()} />
+      <p className="tiny">Staff loop: demo design, not a product feature.</p>
     </>
   );
 }
@@ -765,7 +776,11 @@ export function Inspector({
         {watching ? (
           <>
             <h2 className="ptitle">Watching W4</h2>
-            <p className="story">Read-only. Sign in to control.</p>
+            <p className="story">
+              This is ward W4, running live on the team server{s.speed > 0 ? ` at ${s.speed}x: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}` : ""}. Pick a bed in the list. The same ward is on the dashboard:{" "}
+              <a href="https://biosentry-dashboard.pages.dev" target="_blank" rel="noopener noreferrer">open the dashboard</a>. Read-only. Sign in to control.
+            </p>
+            <BedList s={s} onSelect={onSelect} />
           </>
         ) : building ? (
           <>
@@ -790,7 +805,25 @@ export function Inspector({
             </li>
           )}
         </ul>
+        {watching && <p className="tiny">Staff (nurse, charge nurse, physician) walk a loop. That loop is demo design, not a product feature.</p>}
         {s.hospital && <p className="tiny">ICU: no NEWS2 colour. Waiting room: triage colour.</p>}
+      </aside>
+    );
+  }
+  if (watching) {
+    // No token: the bed's colour and rank from the open answer, and nothing else. No name, no vitals.
+    const bed = selected.startsWith("bed:") ? selected.slice(4) : null;
+    const p = s.patients.find((x) => x.bed === bed);
+    const d = p?.decision;
+    return (
+      <aside className="panel command">
+        <button onClick={() => onSelect(null)}>Back to the list</button>
+        <div className="chead">
+          <h2>Bed {bed}</h2>
+          <span className="pill">{d?.kind === "ranked" ? RISK_WORDS[d.news2.risk] : "Not ranked"}</span>
+        </div>
+        {p?.rank != null && <p className="story">Rank {p.rank} on the ward.</p>}
+        <p className="story">Sign in to see this patient's vitals.</p>
       </aside>
     );
   }
@@ -833,6 +866,26 @@ export function Inspector({
         )}
       </div>
     </aside>
+  );
+}
+
+/** Watching with no token: the beds as the open answer gives them, highest rank first. Colour, rank and the risk word only. */
+function BedList({ s, onSelect }: { s: Sim; onSelect: (id: string) => void }) {
+  const rows = s.patients
+    .map((p) => ({ bed: p.bed, rank: p.rank, d: p.decision }))
+    .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.bed.localeCompare(b.bed));
+  if (rows.length === 0) return null;
+  return (
+    <ul className="beds" aria-label="Beds, highest rank first">
+      {rows.map((r) => (
+        <li key={r.bed}>
+          <button onClick={() => onSelect(`bed:${r.bed}`)}>
+            <i style={{ background: r.d.kind === "ranked" ? RISK_LIGHT[r.d.news2.risk] : "#A899B5" }} /> Bed {r.bed}
+            {r.rank !== null && r.d.kind === "ranked" ? ` · Rank ${r.rank}` : ""} · {r.d.kind === "ranked" ? RISK_WORDS[r.d.news2.risk] : "Not ranked"}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -327,15 +327,22 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     // The speed shows as read-only text. A speed button or the speed group must not appear.
     for (const word of ["1x", "10x", "60x"]) expect(bar).not.toContain(`>${word}</button>`);
     expect(bar).not.toContain('aria-label="Simulation speed"');
-    expect(bar).toMatch(/<span class="pill" title="Simulation speed">60x<\/span>/);
+    expect(bar).toMatch(/<span class="pill" title="Simulation speed: 1 minute here is 60 ward minutes">60x<\/span>/);
     expect(bar.match(/<button/g)).toHaveLength(1); // the sign-in button only
     for (const x of ["<select", "<input", 'role="button"', 'role="radio"', 'role="slider"']) expect(bar).not.toContain(x);
     // The pill is not inside a button.
     expect([...bar.matchAll(/<button[\s\S]*?<\/button>/g)].map((m) => m[0]).join("")).not.toMatch(/\d+x|Paused/);
     const panel = renderToStaticMarkup(createElement(Inspector, { s, src: VIEW_SOURCE, selected: null, onSelect: () => {}, onTimeline: () => {}, watching: true }));
     expect(panel).toContain("Watching W4");
-    expect(panel).not.toContain("<button");
+    // The only buttons are the bed rows: each selects a bed on this page and sends nothing.
+    const buttons = [...panel.matchAll(/<button[\s\S]*?<\/button>/g)].map((m) => m[0]);
+    expect(buttons).toHaveLength(s.patients.length);
+    for (const b of buttons) expect(b).toMatch(/Bed \S+/);
+    for (const word of ["Pause", "Reset", "Sign in", "Inject", "Discharge"]) expect(buttons.join("")).not.toContain(word);
     expect(panel).not.toContain("NR"); // a watcher never sees an NR tag
+    for (const p of s.patients) expect(panel).not.toContain(p.name); // no name reaches the list
+    expect(panel).toContain("https://biosentry-dashboard.pages.dev");
+    expect(panel).toContain("Pick a bed in the list");
   });
 
   it("App.tsx and open-view.ts hold no browser storage, and open-view.ts never logs", () => {
