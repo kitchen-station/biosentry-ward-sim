@@ -35,6 +35,7 @@ if (refused) {
 }
 // WARD_SPEED is the starting speed: a saved ward resumes at the speed it had, which a clinician may have changed.
 let { s, src } = saved ?? freshWard(speed);
+s.rounds = true; // the deployed ward: nurses re-take observations on the NEWS2 schedule (also for a ward saved before this existed)
 // A fixed client id: a runner that begins a new ward replaces its own run at once instead of waiting out the old one.
 const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch });
 const view = createPublisher();
@@ -104,6 +105,7 @@ setInterval(() => void sync.publish(view(s)), 2000);
 // A new ward at the current speed, in a new run. start() registers it before this returns to the timers, so no tick or save sees the old world with the new run.
 async function reset(by: string) {
   const fresh = freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
+  fresh.s.rounds = true;
   const starting = sync.start(fresh.s, fresh.src);
   [s, src] = [fresh.s, fresh.src];
   say(s, `${clinicianName(by)} reset the ward`);

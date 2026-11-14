@@ -175,7 +175,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     ackedPatients.clear();
     registered = world.patients.map((p) => p.id);
     cursor.actions = cursor.commands = 0;
-    world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() };
+    world.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map(), nurseTimes: true };
     for (const p of world.patients) record(world, p, minute);
     const initial = world.outbox.observations.splice(0);
     registration = {
@@ -208,6 +208,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     if (run.runId === null || !world.outbox) register(world); // saved before the API ever answered
     else {
       runId = run.runId;
+      world.outbox.nurseTimes = true; // a ward saved before this flag existed
       // The run knows every patient whose admission is not still queued. No minute is known until a batch is acknowledged.
       const queued = new Set(world.outbox.admissions.map((a) => a.id));
       generation += 1;
