@@ -8,7 +8,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { applyAction } from "./sim/actions";
 import { applyCommand, clinicianName, freshWard } from "./sim/commands";
 import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
-import { freshHospital } from "./sim/hospital/fresh";
+import { freshHospital, HOSPITAL_SCENARIOS } from "./sim/hospital/fresh";
 import { publishHospital } from "./sim/hospital/publish";
 import { createVitals, feedVitals } from "./sim/hospital/vitals";
 import { loadWard, saveWard } from "./sim/persist";
@@ -18,16 +18,18 @@ import { createTruthPoster, startedEpisodes } from "./sim/truth";
 import { createPublisher } from "./sim/view";
 
 const TICK = 1 / 60;
-// WARD_MODE=hospital runs the whole hospital, saves it, and writes ward W4 and its moves to the API in a run that lists every
-// unit. The other units' patients are not sent yet. The default mode is the ward-only runner, unchanged.
+// WARD_MODE=hospital runs the whole hospital, saves it, and writes every unit's patients to the API in a run that lists the
+// units. The default mode is the ward-only runner, unchanged. WARD_SCENARIO picks the hospital a new run starts: the typical
+// hospital by default (owner decision orch-h4), or a named scenario such as pitch. A saved hospital continues as it is.
 const mode = process.env.WARD_MODE ?? "ward";
 const hospital = mode === "hospital";
+const scenario = process.env.WARD_SCENARIO ?? "typical";
 const apiUrl = process.env.BIOSENTRY_API_URL;
 const key = process.env.BIOSENTRY_INGEST_KEY;
 // Real time by default: at 60x one ward writes about 7 million observations a day.
 const speed = Number(process.env.WARD_SPEED ?? 1) as Speed;
-if (!apiUrl || !key || ![1, 10, 60].includes(speed) || !["ward", "hospital"].includes(mode)) {
-  console.error("Set BIOSENTRY_API_URL and BIOSENTRY_INGEST_KEY. WARD_SPEED may be 1, 10 or 60. WARD_MODE may be ward or hospital.");
+if (!apiUrl || !key || ![1, 10, 60].includes(speed) || !["ward", "hospital"].includes(mode) || (hospital && !HOSPITAL_SCENARIOS.includes(scenario))) {
+  console.error(`Set BIOSENTRY_API_URL and BIOSENTRY_INGEST_KEY. WARD_SPEED may be 1, 10 or 60. WARD_MODE may be ward or hospital. WARD_SCENARIO (hospital mode) may be ${HOSPITAL_SCENARIOS.join(", ")}.`);
   process.exit(2);
 }
 
@@ -41,7 +43,7 @@ if (refused) {
   process.exit(2);
 }
 // WARD_SPEED is the starting speed: a saved ward resumes at the speed it had, which a clinician may have changed.
-let { s, src } = saved ?? (hospital ? freshHospital(speed) : freshWard(speed));
+let { s, src } = saved ?? (hospital ? freshHospital(speed, scenario) : freshWard(speed));
 // Hospital mode: the vitals engine for everyone outside W4, display only. It is not saved: a restart builds it again from the hospital.
 let vitals = createVitals();
 s.rounds = true; // the deployed ward: nurses re-take observations on the NEWS2 schedule (also for a ward saved before this existed)
@@ -117,7 +119,7 @@ setInterval(() => {
 setInterval(() => void sync.publish(view(s)), 2000);
 // A new ward at the current speed, in a new run. start() registers it before this returns to the timers, so no tick or save sees the old world with the new run.
 async function reset(by: string) {
-  const fresh = hospital ? freshHospital(s.speed) : freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
+  const fresh = hospital ? freshHospital(s.speed, scenario) : freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
   fresh.s.rounds = true;
   vitals = createVitals(); // an old engine fed a new world would reuse its streams
   const starting = sync.start(fresh.s, fresh.src);
