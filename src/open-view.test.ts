@@ -381,8 +381,8 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     const click = a.slice(a.indexOf("onClick={(e) => {"), a.indexOf("onPointerDown"));
     before(click, "if (watch && !hosp) return", "targetAt(e)");
     // A watcher's hit is cut down to a floor or a bed of the open answers before anything is selected.
-    before(click, 'const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit;', "select(id)");
-    before(click, 'const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit;', "go(");
+    before(click, 'const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit;', "select(id)");
+    before(click, 'const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit;', "go(");
     expect(click).not.toMatch(/send\(|sendCommand|fetch\(/); // selecting only: a click never asks the server for anything
     const move = a.slice(a.indexOf("onMouseMove="), a.indexOf("/>", a.indexOf("onMouseMove=")));
     before(move, "if (watch && !hosp) return", "targetAt(e)");

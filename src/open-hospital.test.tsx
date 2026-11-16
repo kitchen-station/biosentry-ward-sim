@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { floorSummary } from "./building";
-import { bedSel, inOrder, openBedOf, openHospital, openRisk, OPEN_FIRST_MS, OPEN_RETRY_MS, OPEN_UNITS, startUnitsPoll, type OpenViews } from "./open-hospital";
-import { OpenHospitalPanel } from "./open-panels";
-import { OPEN_POLL_MS, type OpenBed, type OpenWard } from "./open-view";
+import { bedSel, drawnUnits, inOrder, openBedOf, openHospital, openRisk, OPEN_FIRST_MS, OPEN_RETRY_MS, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
+import { ago, OpenHospitalPanel, type CardState } from "./open-panels";
+import { fetchOpenCard, fetchOpenUnits, OPEN_POLL_MS, parseOpenCard, parseOpenUnits, type OpenBed, type OpenCard, type OpenWard } from "./open-view";
 
 const ward = (id: string, beds: OpenBed[]): OpenWard => ({ ward: id, synthetic: true, can_control: false, sim: { clockS: 600, speed: 10, ended: false, staff: [], moves: [] }, beds });
 const ranked = (bed: string, rank: number, risk: OpenBed["risk"]): OpenBed => ({ bed, state: "ranked", rank, risk });
@@ -17,6 +17,26 @@ const VIEWS: OpenViews = {
   ICU: ward("ICU", [plain("ICU-9")]),
 };
 const noop = () => {};
+// The server's list (GET /open-view), W4 first as the runner sends it.
+const LIST = {
+  synthetic: true,
+  units: [
+    { id: "W4", name: "Ward W4", floor: 4, kind: "ranked" }, { id: "ER", name: "Emergency Room", floor: 0, kind: "shown" },
+    { id: "ICU", name: "Intensive Care", floor: 2, kind: "unranked" }, { id: "MED3A", name: "Medicine 3A", floor: 3, kind: "ranked" },
+    { id: "MED3B", name: "Medicine 1A", floor: 1, kind: "ranked" }, { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
+  ],
+};
+const UNITS = drawnUnits(parseOpenUnits(JSON.stringify(LIST))!);
+const NOW = Date.parse("2026-09-03T09:00:00.000Z");
+const at = (minAgo: number) => new Date(NOW - minAgo * 60_000).toISOString();
+const CARD = {
+  unit: "MED3A", floor: 3, kind: "ranked", bed: "MED3A-30", synthetic: true, state: "ranked", score: 6, risk: "medium", reason: null, trend: "rising",
+  vitals: {
+    heart_rate: { value: 96, observed_at: at(1), source: "device" }, respiratory_rate: { value: 21, observed_at: at(0), source: "device" },
+    spo2: { value: 94, observed_at: at(2), source: "device" }, temperature: { value: 37.84, observed_at: at(12), source: "device" },
+    blood_pressure: { systolic: 104, diastolic: 62, observed_at: at(95), source: "nurse" },
+  },
+};
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
 
 afterEach(() => vi.useRealTimers());
@@ -40,7 +60,7 @@ describe("the hospital made from the open answers", () => {
   });
 
   it("gives the building a band where the unit is ranked, grey where it is shown, and nothing in intensive care", () => {
-    const risk = openRisk(VIEWS);
+    const risk = openRisk(VIEWS, UNITS);
     const floors = floorSummary(h, risk);
     const cells = (unit: string) => floors.flatMap((f) => f.units).find((u) => u.id === unit)!.beds.filter((c) => c !== null);
     expect(cells("MED3A").map((c) => c.risk)).toEqual(["medium", "low", null]);
@@ -51,10 +71,10 @@ describe("the hospital made from the open answers", () => {
   });
 
   it("finds the unit and bed a click or a row means, and nothing for anything else", () => {
-    expect(openBedOf(VIEWS, bedSel("MED3A", "MED3A-7"))).toMatchObject({ unit: { id: "MED3A" }, bed: { bed: "MED3A-7" } });
-    expect(openBedOf(VIEWS, "open-bed:4A")).toMatchObject({ unit: { id: "W4" }, bed: { bed: "4A" } });
-    expect(openBedOf(VIEWS, "bed:2B")).toMatchObject({ unit: { id: "W4" }, bed: { bed: "2B" } });
-    for (const other of [null, "h:1", "hbed:MED3A:9", "unit:ER", "entrance", "open-3"]) expect(openBedOf(VIEWS, other)).toBeNull();
+    expect(openBedOf(VIEWS, bedSel("MED3A", "MED3A-7"), UNITS)).toMatchObject({ unit: { id: "MED3A" }, bed: { bed: "MED3A-7" } });
+    expect(openBedOf(VIEWS, "open-bed:4A", UNITS)).toMatchObject({ unit: { id: "W4" }, bed: { bed: "4A" } });
+    expect(openBedOf(VIEWS, "bed:2B", UNITS)).toMatchObject({ unit: { id: "W4" }, bed: { bed: "2B" } });
+    for (const other of [null, "h:1", "hbed:MED3A:9", "unit:ER", "entrance", "open-3"]) expect(openBedOf(VIEWS, other, UNITS)).toBeNull();
   });
 });
 
@@ -102,7 +122,10 @@ describe("asking the other units", () => {
 });
 
 describe("the side panel", () => {
-  const panel = (view: number | null, selected: string | null) => renderToStaticMarkup(<OpenHospitalPanel views={VIEWS} view={view} selected={selected} speed={10} onView={noop} onSelect={noop} />);
+  const panel = (view: number | null, selected: string | null, data: CardState["data"] = "loading") =>
+    renderToStaticMarkup(<OpenHospitalPanel units={UNITS} views={VIEWS} view={view} selected={selected} speed={10} card={selected ? { sel: selected, data } : null} nowMs={NOW} onView={noop} onSelect={noop} />);
+  const sel = bedSel("MED3A", "MED3A-30");
+  const card = parseOpenCard(JSON.stringify(CARD), "MED3A", "MED3A-30")!;
 
   it("first says what this is in one sentence, with the speed in words, and lists the floors from the top", () => {
     const html = panel(null, null);
@@ -129,21 +152,139 @@ describe("the side panel", () => {
     expect(text(panel(1, null))).toContain("No answer from the server yet.");
   });
 
-  it("a bed's card holds the band, the rank and where it is, and nothing about the person", () => {
-    const html = panel(3, bedSel("MED3A", "MED3A-30"));
+  it("a ranked bed's card shows what the bed route returned: score, band, trend and five vitals each with source and age", () => {
+    const html = panel(3, sel, card);
     expect(html).toMatch(/<button>Hospital<\/button> › <button>3F Medicine 3A<\/button> › <b aria-current="page">Bed MED3A-30<\/b>/);
-    expect(text(html)).toContain("Bed MED3A-30 Medium risk Medicine 3A, 3F. Rank 1 in this unit. Read-only. Sign in to see this patient's vitals.");
-    expect(html).not.toMatch(/NEWS2 \d|bpm|SpO2|years|heart/i);
-    expect(text(panel(2, bedSel("ICU", "ICU-9")))).toContain("Not ranked Intensive Care, 2F. Not scored");
+    expect(text(html)).toContain("Bed MED3A-30 Medium risk Synthetic data Medicine 3A, 3F. Rank 1 in this unit. NEWS2 6: Medium risk. Trend: rising.");
+    expect([...html.matchAll(/<li>(.*?)<\/li>/g)].map((m) => text(m[1]).trim())).toEqual([
+      "Heart rate: 96 /min · device · 1 min ago",
+      "Resp. rate: 21 /min · device · just now",
+      "SpO2: 94 % · device · 2 min ago",
+      "Temperature: 37.8 °C · device · 12 min ago",
+      "Blood pressure: 104/62 mmHg · nurse · 1 h 35 min ago",
+    ]);
+    expect(html).not.toMatch(/Sign in to see this patient/);
+  });
+
+  it("a bed that is not ranked shows its state and the reason only; an empty bed and a failed request say so; every card says synthetic", () => {
+    const er = parseOpenCard(JSON.stringify({ unit: "ER", floor: 0, kind: "shown", bed: "ER-5", synthetic: true, state: "not_ranked", score: null, risk: null, vitals: null, trend: null, reason: "Emergency Room is shown, not ranked: NEWS2 is a ward score." }), "ER", "ER-5")!;
+    const erHtml = panel(0, bedSel("ER", "ER-5"), er);
+    expect(text(erHtml)).toContain("Bed ER-5 Not ranked Synthetic data Emergency Room, GF. Not ranked. Emergency Room is shown, not ranked: NEWS2 is a ward score. Back to Emergency Room");
+    expect(erHtml).not.toMatch(/<li>|NEWS2 \d|Sign in to see/);
+    expect(text(panel(3, sel, "empty"))).toContain("This bed is empty now.");
+    expect(text(panel(3, sel, "failed"))).toContain("No answer from the server. Pick the bed again to ask once more.");
+    expect(text(panel(3, sel, "loading"))).toContain("Loading this bed");
+    for (const data of [card, er, "empty", "failed", "loading"] as const) expect(text(panel(3, sel, data))).toContain("Synthetic data");
+    // a card for another pick is not shown under this one
+    expect(text(renderToStaticMarkup(<OpenHospitalPanel units={UNITS} views={VIEWS} view={3} selected={sel} speed={10} card={{ sel: "h:1", data: card }} nowMs={NOW} onView={noop} onSelect={noop} />))).toContain("Loading this bed");
     // a pick wins over the open floor: the card is the bed's own unit
     expect(panel(5, "open-bed:4A")).toContain("4F Ward W4");
   });
 
+  it("says how long ago in ward time", () => {
+    expect([0, 59_000, 60_000, 59 * 60_000, 95 * 60_000, 50 * 3600_000].map((d) => ago(NOW - d, NOW))).toEqual(["just now", "just now", "1 min ago", "59 min ago", "1 h 35 min ago", "2 days ago"]);
+    expect(ago(NOW + 5000, NOW)).toBe("just now"); // a time ahead of the ward's clock
+  });
+
   it("never says demo, and names no single ward as the whole page", () => {
-    const all = [panel(null, null), panel(3, null), panel(4, null), panel(3, bedSel("MED3A", "MED3A-30"))].join(" ");
+    const all = [panel(null, null), panel(3, null), panel(4, null), panel(3, sel, card), panel(3, sel, "empty")].join(" ");
     expect(all).not.toMatch(/demo/i);
     expect(all).not.toMatch(/Watching W4|This is ward W4/);
     for (const file of ["src/open-panels.tsx", "src/open-hospital.ts"]) expect(readFileSync(file, "utf8")).not.toMatch(/demo/i);
+  });
+});
+
+describe("the run's units, from the server", () => {
+  it("takes the server's list strictly, keeps only units the building draws, and uses its own floor when the server knows none", () => {
+    expect(UNITS.map((u) => u.id)).toEqual(["W4", "ER", "ICU", "MED3A", "MED3B", "SURG5A"]);
+    const odd = parseOpenUnits(JSON.stringify({ synthetic: true, units: [{ id: "W4", name: "Ward W4", floor: null, kind: "ranked" }, { id: "NICU", name: "Newborn care", floor: 6, kind: "unranked" }, { id: "MORGUE", name: "Morgue", floor: 0, kind: "unranked" }] }))!;
+    expect(drawnUnits(odd)).toEqual([{ id: "W4", name: "Ward W4", floor: 4, kind: "ranked" }]);
+    const bad = (change: object) => parseOpenUnits(JSON.stringify({ ...LIST, ...change }));
+    expect(bad({ synthetic: false })).toBeNull();
+    expect(bad({ units: [] })).toBeNull();
+    expect(bad({ units: [...LIST.units, LIST.units[0]] })).toBeNull(); // an id twice
+    expect(bad({ units: [{ ...LIST.units[0], kind: "secret" }] })).toBeNull();
+    expect(bad({ units: [{ ...LIST.units[0], id: "<b>" }] })).toBeNull();
+    expect(bad({ units: [{ ...LIST.units[0], name: "" }] })).toBeNull();
+    expect(bad({ units: [{ ...LIST.units[0], floor: 1.5 }] })).toBeNull();
+    expect(parseOpenUnits(JSON.stringify({ ...LIST, units: [{ ...LIST.units[0], patients: 9, clinicians: ["x"] }] }))).toEqual([LIST.units[0]]); // extra keys are never kept
+  });
+
+  it("asks for the list at once and then once a minute; a 404 says there is no list; a server that is down says nothing", async () => {
+    vi.useFakeTimers();
+    let status = 200;
+    const urls: string[] = [];
+    const f = vi.fn(async (url: string, init: RequestInit) => {
+      urls.push(url);
+      expect(init).toMatchObject({ credentials: "omit", cache: "no-store", redirect: "error" });
+      expect("headers" in init).toBe(false);
+      return status === 200 ? new Response(JSON.stringify(LIST), { status }) : new Response(null, { status });
+    });
+    const got: (string[] | null)[] = [];
+    const stop = startUnitsList({ fetch: f as unknown as typeof fetch, base: "http://api", onUnits: (u) => got.push(u && u.map((x) => x.id)) });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(urls).toEqual(["http://api/open-view"]);
+    expect(got).toEqual([["W4", "ER", "ICU", "MED3A", "MED3B", "SURG5A"]]);
+    status = 404;
+    await vi.advanceTimersByTimeAsync(OPEN_RETRY_MS);
+    expect(got.at(-1)).toBeNull();
+    status = 503;
+    await vi.advanceTimersByTimeAsync(OPEN_RETRY_MS);
+    expect(got).toHaveLength(2); // down: the last list stays
+    expect(urls).toHaveLength(3);
+    stop();
+    await vi.advanceTimersByTimeAsync(5 * OPEN_RETRY_MS);
+    expect(urls).toHaveLength(3);
+    expect((await fetchOpenUnits({ fetch: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch, base: "http://api" })).ok).toBe(false);
+  });
+});
+
+describe("one bed's card, from the server", () => {
+  const parse = (change: object, unit = "MED3A", bed = "MED3A-30") => parseOpenCard(JSON.stringify({ ...CARD, ...change }), unit, bed);
+
+  it("reads a ranked card whole, and refuses one that is not for the bed asked or is missing a part", () => {
+    const c = parse({}) as Extract<OpenCard, { state: "ranked" }>;
+    expect([c.score, c.risk, c.trend, c.vitals.heart_rate.value, c.vitals.blood_pressure.systolic, c.vitals.blood_pressure.source]).toEqual([6, "medium", "rising", 96, 104, "nurse"]);
+    expect(c.vitals.temperature.atMs).toBe(NOW - 12 * 60_000);
+    expect(parse({}, "MED3A", "MED3A-31")).toBeNull();
+    expect(parse({}, "MED3B")).toBeNull();
+    expect(parse({ synthetic: false })).toBeNull();
+    expect(parse({ score: 21 })).toBeNull();
+    expect(parse({ risk: "severe" })).toBeNull();
+    expect(parse({ trend: "up" })).toBeNull();
+    expect(parse({ vitals: { ...CARD.vitals, spo2: undefined } })).toBeNull();
+    expect(parse({ vitals: { ...CARD.vitals, heart_rate: { ...CARD.vitals.heart_rate, source: "someone" } } })).toBeNull();
+    expect(parse({ vitals: { ...CARD.vitals, heart_rate: { ...CARD.vitals.heart_rate, observed_at: "yesterday" } } })).toBeNull();
+    expect(parse({ vitals: { ...CARD.vitals, blood_pressure: { ...CARD.vitals.blood_pressure, systolic: "104" } } })).toBeNull();
+  });
+
+  it("keeps nothing the contract does not list, and a bed that is not ranked may hold a reason and nothing else", () => {
+    const c = parse({ name: "A Person", age: 70, sex: "F", context: "x", patient_id: "p-1", notes: ["n"] })!;
+    expect(JSON.stringify(c)).not.toMatch(/A Person|patient_id|context|notes|"age"|"sex"/);
+    const nr = { state: "not_ranked", score: null, risk: null, vitals: null, trend: null, reason: "Not enough usable readings." };
+    expect(parse(nr)).toEqual({ unit: "MED3A", bed: "MED3A-30", floor: 3, kind: "ranked", state: "not_ranked", reason: "Not enough usable readings." });
+    expect(parse({ ...nr, reason: null })).toMatchObject({ reason: null });
+    expect(parse({ ...nr, vitals: CARD.vitals })).toBeNull(); // vitals on a bed that is not ranked: refused whole
+    expect(parse({ ...nr, score: 3 })).toBeNull();
+    expect(parse({ ...nr, reason: "x".repeat(301) })).toBeNull();
+  });
+
+  it("asks the bed's own open route once, with no credential, and tells an empty bed from a server that is down", async () => {
+    const urls: string[] = [];
+    const answer = (status: number, body?: object) => (async (url: string, init: RequestInit) => {
+      urls.push(url);
+      expect(init).toMatchObject({ credentials: "omit", cache: "no-store", redirect: "error" });
+      expect("headers" in init).toBe(false);
+      return new Response(body ? JSON.stringify(body) : null, { status });
+    }) as unknown as typeof fetch;
+    const ask = (f: typeof fetch) => fetchOpenCard({ fetch: f, base: "http://api", unit: "MED3A", bed: "MED3A-30" });
+    expect(await ask(answer(200, CARD))).toMatchObject({ ok: true, body: { score: 6 } });
+    expect(await ask(answer(404))).toEqual({ ok: false, kind: "gone" });
+    expect(await ask(answer(503))).toEqual({ ok: false, kind: "down" });
+    expect(await ask(answer(200, { ...CARD, bed: "MED3A-31" }))).toEqual({ ok: false, kind: "gone" });
+    expect(urls).toEqual(Array(4).fill("http://api/wards/MED3A/open-view/beds/MED3A-30")); // one request each: no retry
+    await fetchOpenCard({ fetch: answer(404), base: "http://api", unit: "ER", bed: "ER 5.a" });
+    expect(urls.at(-1)).toBe("http://api/wards/ER/open-view/beds/ER%205.a"); // the label is one path part, encoded
   });
 });
 
@@ -154,8 +295,22 @@ describe("the page's wiring", () => {
     expect(app).toContain("const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);");
     expect(app).toContain("worlds={watch && hosp ? undefined :");
     expect(app).toContain("serverHospital={!!watch && hosp}");
-    expect(app).toContain('const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit;');
-    expect(app).toContain("units: OPEN_UNITS.map((u) => u.id).filter((id) => id !== OPEN_WARD),");
-    expect(OPEN_UNITS[0].id).toBe("W4");
+    expect(app).toContain('const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit;');
+  });
+
+  it("reads the unit list from the server, and with no list asks no other unit", () => {
+    expect(app).toContain("return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => setUnits(list ?? []) });");
+    expect(app).toContain('if (unitIds === "") return;');
+    expect(app).not.toMatch(/RUN_UNITS|OPEN_UNITS/); // the runner's own list is no longer the page's
+  });
+
+  it("asks for a card once per pick: in an effect of the pick alone, never on a timer, and a new pick ends the old request", () => {
+    expect(app.match(/fetchOpenCard\(/g)).toHaveLength(1);
+    const i = app.indexOf("const cardFor = watch && hosp ? selected : null;");
+    const effect = app.slice(i, app.indexOf("}, [cardFor]);", i));
+    expect(i).toBeGreaterThan(-1);
+    expect(effect).toContain("fetchOpenCard(");
+    expect(effect).toContain("return () => ctl.abort();");
+    expect(effect).not.toMatch(/setInterval|setTimeout|while \(|retry/i);
   });
 });
