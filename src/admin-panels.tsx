@@ -17,6 +17,7 @@ const TREND: Record<string, string> = { rising: "rising", falling: "falling", st
 const OUTCOME: Record<string, string> = { discharged: "discharged", higher_care: "moved to higher care", transferred: "moved", died: "died" };
 const KIND_NOTE: Record<AdminUnit["kind"], string | null> = { ranked: null, shown: "Shown, not ranked: NEWS2 is a ward score.", unranked: "Not scored: NEWS2 is a ward score, not an intensive care score." };
 const NOT_SERVED = "Vitals not served yet.";
+const UNREADABLE = "Could not read the vitals in this answer.";
 
 const state = (v: "loading" | "denied" | "failed" | null) =>
   v === "denied" ? "The server refused this for your sign-in." : v === "failed" ? "No answer from the server. It is asked again shortly." : "Loading…";
@@ -25,6 +26,7 @@ const short = (v: AdminValue, digits: number) => (v.value === null ? "none" : v.
 /** One line of a row's vitals: values only. */
 function vitalsLine(r: AdminRow): string {
   const v = r.vitals;
+  if (v === "unreadable") return UNREADABLE;
   if (!v) return NOT_SERVED;
   const bp = v.blood_pressure.systolic === null ? "none" : `${v.blood_pressure.systolic}/${v.blood_pressure.diastolic}`;
   return `HR ${short(v.heart_rate, 0)} · RR ${short(v.respiratory_rate, 0)} · SpO2 ${short(v.spo2, 0)} · T ${short(v.temperature, 1)} · BP ${bp}`;
@@ -59,7 +61,9 @@ function PatientCard({ p }: { p: AdminPatient }) {
         Bed {r.bed}.{r.age !== null ? ` Age ${r.age}.` : ""}{r.sex ? ` ${r.sex}.` : ""} {r.context}
       </p>
       <p className="story">{r.ranked ? `Rank ${r.ranked.rank} in this unit. Trend: ${TREND[r.ranked.trend]}.` : `${r.reason ?? ""}${r.risk ? ` NEWS2 band: ${RISK_WORDS[r.risk]}.` : ""}`}</p>
-      {v ? (
+      {v === "unreadable" ? (
+        <p className="story">{UNREADABLE}</p>
+      ) : v ? (
         <ul className="plist" aria-label="Latest vitals">
           {ADMIN_VITALS.map((code) => (
             <li key={code}>

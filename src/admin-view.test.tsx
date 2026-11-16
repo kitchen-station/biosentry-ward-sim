@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { AdminPanel, adminFloor, type Load } from "./admin-panels";
-import { ADMIN_REFRESH_MS, fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, parseAdminPatient, parseAdminRows, parseAdminStays, parseAdminUnits, type AdminPatient, type AdminRows, type AdminStay, type AdminUnit } from "./admin-view";
+import { ADMIN_REFRESH_MS, fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, parseAdminPatient, parseAdminRows, parseAdminStays, parseAdminUnits, type AdminPatient, type AdminRows, type AdminStay, type AdminUnit, type AdminVitals } from "./admin-view";
+import { noDrawing } from "./open-view";
 import { createSim } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./sim/source";
 
@@ -49,10 +50,10 @@ describe("what the admin's routes return, as the page keeps it", () => {
   it("rows: the ranked in rank order with score, trend and vitals, then those not ranked with their reason; nothing is filled in", () => {
     expect(rows.rows.map((r) => [r.name, r.ranked?.rank ?? null, r.ranked?.score ?? null])).toEqual([["Abad, Ana", 1, 9], ["Cruz, Ben", 2, 4], ["Dizon, Cora", null, null]]);
     expect(rows.nowMs).toBe(NOW);
-    expect(rows.rows[0].vitals!.heart_rate).toEqual({ value: 96, atMs: NOW - 60_000, source: "device" });
-    expect(rows.rows[0].vitals!.blood_pressure).toEqual({ systolic: 104, diastolic: 62, atMs: NOW - 95 * 60_000, source: "nurse" });
+    expect((rows.rows[0].vitals as AdminVitals).heart_rate).toEqual({ value: 96, atMs: NOW - 60_000, source: "device" });
+    expect((rows.rows[0].vitals as AdminVitals).blood_pressure).toEqual({ systolic: 104, diastolic: 62, atMs: NOW - 95 * 60_000, source: "nurse" });
     // A value the server says is absent stays absent: null, with the time and source it gave.
-    expect(rows.rows[2].vitals!.blood_pressure).toEqual({ systolic: null, diastolic: null, atMs: NOW - 200 * 60_000, source: "device" });
+    expect((rows.rows[2].vitals as AdminVitals).blood_pressure).toEqual({ systolic: null, diastolic: null, atMs: NOW - 200 * 60_000, source: "device" });
     expect(rows.rows[2].reason).toBe("Systolic BP missing");
     // The ER today: rows with no vitals at all. They are null, not zeros.
     const er = parseAdminRows(JSON.stringify(ER_ROWS), "ER")!;
@@ -61,6 +62,15 @@ describe("what the admin's routes return, as the page keeps it", () => {
     expect(parseAdminRows(JSON.stringify(ROWS), "ER")).toBeNull(); // not the unit asked for
     expect(parseAdminRows(JSON.stringify({ ...ROWS, ranked: [{ ...ROWS.ranked[0], score: 99 }] }), "MED3A")).toBeNull();
     expect(parseAdminRows(JSON.stringify({ ...ROWS, now: "soon" }), "MED3A")).toBeNull();
+  });
+
+  it("tells vitals that were not served from vitals it could not read", () => {
+    const withSeen = (last_seen: unknown) => parseAdminRows(JSON.stringify({ ...ER_ROWS, abstained: [{ ...ER_ROWS.abstained[0], last_seen }] }), "ER")!.rows[0].vitals;
+    expect(withSeen(undefined)).toBeNull(); // no field: not served
+    expect(withSeen(null)).toBeNull(); // null: not served
+    expect(withSeen({ ...VITALS, heart_rate: "96" })).toBe("unreadable"); // something is there, out of shape: none of it is shown
+    expect(withSeen("soon")).toBe("unreadable");
+    expect(withSeen(VITALS)).toMatchObject({ heart_rate: { value: 96 } }); // served for the ER: read as any other row's
   });
 
   it("stays and a patient's page", () => {
@@ -132,6 +142,17 @@ describe("the admin's panel", () => {
     expect(text(html)).toContain("No stay has ended here yet.");
   });
 
+  it("a row whose vitals could not be read says so, and an ER row with served vitals shows them with no score or rank", () => {
+    const bad = parseAdminRows(JSON.stringify({ ...ER_ROWS, abstained: [{ ...ER_ROWS.abstained[0], last_seen: { ...VITALS, spo2: 5 } }] }), "ER")!;
+    expect(text(panel({ view: 0, rows: bad, stays: [] }))).toContain("Not ranked · Medium risk Could not read the vitals in this answer.");
+    const p = parseAdminPatient(JSON.stringify({ ...ER_ROWS.abstained[0], last_seen: "x", vital_history: {}, now: ROWS.now }), "e-1")!;
+    expect(text(panel({ view: 0, rows: bad, stays: [], picked: bad.rows[0], patient: p }))).toContain("Could not read the vitals in this answer.");
+    const served = parseAdminRows(JSON.stringify({ ...ER_ROWS, abstained: [{ ...ER_ROWS.abstained[0], last_seen: VITALS }] }), "ER")!;
+    const line = text(panel({ view: 0, rows: served, stays: [] }));
+    expect(line).toContain("Flores, Dino · Bed ER-5 · Not ranked · Medium risk HR 96 · RR 21 · SpO2 94 · T 37.8 · BP 104/62");
+    expect(line).not.toMatch(/Flores, Dino[^|]*(Rank \d|NEWS2 \d)/);
+  });
+
   it("a patient's page: the name, the score, the vitals with source and age; a page with no vitals says so", () => {
     const p = parseAdminPatient(JSON.stringify({ ...ROWS.ranked[1], vital_history: {}, tier_breakdown: {}, now: ROWS.now }), "p-1")!;
     const html = panel({ view: 3, rows, stays, picked: rows.rows[0], patient: p });
@@ -175,6 +196,19 @@ describe("the page for an admin", () => {
     expect(app).toContain('const admin = token !== null && role === "admin";'); // the role is the server's word, never the name picked
     expect(app).not.toMatch(/localStorage|sessionStorage|document\.cookie/);
     expect(app.match(/form\.get\("passphrase"\)/g)).toHaveLength(1);
+  });
+
+  it("with no open view an admin gets no drawing and is told why; the page never draws its own engine's patients beside the server's", () => {
+    expect(noDrawing(true, false, "down")).toBe("Server not reachable. No drawing is shown.");
+    expect(noDrawing(true, false, null)).toBe("Server not reachable. No drawing is shown.");
+    expect(noDrawing(true, false, "gone")).toBe("No drawing: the server's public view is off. The lists still come from the server.");
+    expect(noDrawing(true, true, "down")).toBeNull(); // there is a drawing
+    expect(noDrawing(false, false, "down")).toBeNull(); // not an admin: the sign-in form, as before
+    expect(app).toContain("stageNote={noDrawing(admin, !!watch, probe)}");
+    expect(app).toContain('{stageNote && <p className="stagenote" role="status">{stageNote}</p>}');
+    // A viewer build starts from an empty world and never steps one: there is no local patient to draw.
+    expect(app).toContain("if (VIEW_API) return { s: createReader()({ shared: null, patients: [] }), src: VIEW_SOURCE };");
+    expect(app).toContain("if (!VIEW_API && !skippingRef.current) {");
   });
 
   it("an admin keeps the public drawing, never reads a unit's live view, gets no control, and a clinician's page is as before", () => {

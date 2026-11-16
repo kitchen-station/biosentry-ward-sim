@@ -542,6 +542,8 @@ summary {
 .crumbs b { white-space: nowrap; }
 /* The admin's patient rows: the name line, then the vitals line under it. */
 .beds.admin button .tiny { display: block; }
+/* Said over the stage when there is nothing to draw. */
+.stagenote { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center; background: var(--night); color: var(--cream-100); }
 
 .beds {
   display: grid;
