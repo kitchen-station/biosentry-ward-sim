@@ -372,8 +372,11 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
   });
 
   it("the /live effect and the probe effect keep their guards", () => {
-    before(app(), "if (!VIEW_API || watch) return;", "/wards/W4/live");
-    before(app(), 'if (!VIEW_API || token !== null || gate !== "trying") return;', "fetchOpenWard(");
+    // A watcher never reads the live view, and neither does a signed-in admin: that route is for the unit's own clinicians.
+    before(app(), "if (!VIEW_API || watch || admin) return;", "/wards/W4/live");
+    // The open route is asked only with no token, or for a signed-in admin, whose drawing is the open view. It never carries the token.
+    before(app(), 'if (!VIEW_API || (token !== null && !admin) || gate !== "trying") return;', "fetchOpenWard(");
+    expect(app()).toContain("void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API }).then("); // no token in the request
   });
 
   it("watching the ward alone, click and hover are off; watching a hospital, a click picks a floor or a bed in use and nothing else; the select list is off", () => {
