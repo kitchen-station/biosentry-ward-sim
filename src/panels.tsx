@@ -9,7 +9,7 @@ import type { HospitalVitals } from "./sim/hospital/vitals";
 import { HospitalPanel, isHospitalId, W4HospitalSections } from "./hospital-panels";
 import { PORTRAIT, STAFF_PALETTES, sprite } from "./render/sprites";
 import { CHIP_COLOURS, RISK_LIGHT } from "./render/draw";
-import type { CommandBody } from "./sim/commands";
+import { SKIPS, type CommandBody } from "./sim/commands";
 import { BEDS } from "./sim/map";
 import {
   applyPatch,
@@ -114,6 +114,7 @@ export function TopBar({
   onSignOut,
   onReset,
   onSpeed,
+  onSkipAhead,
   hospital,
   serverHospital = false,
   admin = false,
@@ -137,6 +138,8 @@ export function TopBar({
   onReset?: () => void;
   /** Viewer mode: the speed is asked of the runner, not set here. */
   onSpeed?: (speed: Speed) => void;
+  /** Viewer mode, for a clinician who may control the runner: asks the server to skip ahead. Nothing is stepped in this page. */
+  onSkipAhead?: (minutes: number) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: { id: string; label: string; sentence: string }[]; onScenario: (id: string) => void; seedText: string; onShuffle?: () => void };
   /** The page shown. Left out, there is no switch. The links change the URL hash and nothing else. */
@@ -199,6 +202,16 @@ export function TopBar({
             </button>
           ))}
           <button onClick={onReset}>Reset</button>
+          {onSkipAhead && (
+            <details className="skipmenu">
+              <summary title="The server moves the whole run ahead. One skip at a time.">Skip ahead</summary>
+              <div role="group" aria-label="Skip ahead">
+                {SKIPS.map(([minutes, word]) => (
+                  <button key={minutes} onClick={(e) => { e.currentTarget.closest("details")!.open = false; onSkipAhead(minutes); }}>{word}</button>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       )}
     </header>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyCommand, commandNotice, freshWard, sendCommand, type Command } from "./commands";
+import { readFileSync } from "node:fs";
+import { applyCommand, commandNotice, freshWard, sendCommand, skipAhead, SKIPS, type Command } from "./commands";
 import { createSim, patientById, step, type Sim } from "./sim";
 import { createSyntheticSource, FIXTURE_SEED } from "./source";
 
@@ -156,5 +157,86 @@ describe("sending a command from the viewer", () => {
     expect(commandNotice(409)).toBe("Not sent: the ward is not live");
     expect(commandNotice(0)).toBe("Not sent: cannot reach the ward");
     expect(commandNotice(500)).toBe("Not sent: cannot reach the ward");
+  });
+});
+
+describe("skip ahead", () => {
+  const counted = (stopAfter = Infinity) => {
+    const n = { tick: 0, minute: 0, hour: 0 };
+    return { n, world: { tick: () => n.tick < stopAfter && ((n.tick += 1), true), minute: () => void (n.minute += 1), hour: async () => void (n.hour += 1) } };
+  };
+
+  it("the four choices are the API's four, in ward minutes", () => {
+    expect(SKIPS).toEqual([[60, "+1 h"], [360, "+6 h"], [720, "+12 h"], [1440, "+1 day"]]);
+  });
+
+  it("steps every ward second, publishes every ward minute and flushes every ward hour", async () => {
+    for (const [minutes] of SKIPS) {
+      const { n, world } = counted();
+      expect(await skipAhead(minutes, world)).toBe(minutes * 60);
+      expect(n).toEqual({ tick: minutes * 60, minute: minutes, hour: minutes / 60 });
+    }
+  });
+
+  it("stops where the world can go no further, and still publishes and flushes what it stepped", async () => {
+    const { n, world } = counted(3600 + 90); // an hour and a minute and a half, then the month is over
+    expect(await skipAhead(1440, world)).toBe(3690);
+    expect(n).toEqual({ tick: 3690, minute: 62, hour: 2 });
+    const none = counted(0);
+    expect(await skipAhead(60, none.world)).toBe(0);
+    expect(none.n).toEqual({ tick: 0, minute: 0, hour: 0 }); // nothing stepped, nothing sent
+  });
+
+  it("with the runner's tick, a ward at 10x ends where an hour at 60x ends, and its speed is never changed", async () => {
+    const a = freshWard(10);
+    const speeds = new Set<number>();
+    await skipAhead(60, {
+      tick: () => {
+        const speed = a.s.speed;
+        a.s.speed = 60;
+        step(a.s, a.src);
+        a.s.speed = speed;
+        return true;
+      },
+      minute: () => void speeds.add(a.s.speed),
+      hour: async () => void speeds.add(a.s.speed),
+    });
+    const b = freshWard(60);
+    for (let tick = 0; tick < 3600; tick += 1) step(b.s, b.src);
+    b.s.speed = 10;
+    expect([...speeds]).toEqual([10]);
+    expect(JSON.stringify(a.s)).toBe(JSON.stringify(b.s));
+  });
+
+  it("applyCommand leaves a skip to the runner, as it leaves a reset", () => {
+    const { s, src } = ward();
+    const before = JSON.stringify(s);
+    applyCommand(s, src, command("skip", null, { minutes: 1440 }));
+    expect(JSON.stringify(s)).toBe(before);
+  });
+
+  it("the page sends minutes with a skip, and says so when the API holds an earlier skip", async () => {
+    const calls: RequestInit[] = [];
+    const send = (async (_url: string, init: RequestInit) => {
+      calls.push(init);
+      return new Response(JSON.stringify({ detail: "An earlier skip has not been picked up by the simulation yet" }), { status: 409 });
+    }) as unknown as typeof fetch;
+    let detail = "";
+    expect(await sendCommand("http://api", "tok", { kind: "skip", patient_id: null, speed: null, minutes: 360 }, send, (d) => (detail = d))).toBe(409);
+    expect(JSON.parse(calls[0].body as string)).toEqual({ kind: "skip", patient_id: null, speed: null, minutes: 360 });
+    expect(commandNotice(409, detail)).toBe("A skip is still being applied");
+    expect(commandNotice(409, "The ward is not receiving data")).toBe("Not sent: the ward is not live"); // the other 409 keeps its line
+    expect(commandNotice(403, detail)).toBe("Not sent: your role cannot control the ward");
+  });
+
+  it("the runner reads the feed again only after every command was applied, and does not tick while it skips", () => {
+    const runner = readFileSync("src/headless.ts", "utf8");
+    expect(runner).toMatch(/if \(applying\) return;\n  applying = true;\n  try \{\n    for \(const c of await sync\.pullCommands\(\)\)/);
+    expect(runner).toContain('else if (c.kind === "skip") await skip(c.minutes ?? 0, c.clinician_id);');
+    expect(runner).toContain("if (skipping) return; // the skip steps, publishes and flushes on its own");
+    expect(runner.match(/sync\.pullCommands\(/g)).toHaveLength(1); // the one reader of the feed
+    // A month that ends inside the skip stops it and is turned as always.
+    expect(runner).toContain("if (s.ended || (hospital && month.due(s))) return false;");
+    expect(runner).toMatch(/hour: flush,\n    \}\);\n    if \(hospital && month\.due\(s\)\) \{\n      await month\.turn\(\{ s, src \}, swap\);/);
   });
 });

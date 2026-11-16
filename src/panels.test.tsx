@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { createSim } from "./sim/sim";
@@ -20,6 +21,20 @@ describe("the top bar", () => {
     expect(bar).not.toContain("<nav");
     expect(bar).not.toContain("href=");
     expect(bar).not.toMatch(/Analytics|Developer/);
+  });
+
+  it("offers Skip ahead only to a clinician who may control the run: four choices, each asked of the server", () => {
+    expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />)).not.toContain("Skip ahead"); // a viewer
+    expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} admin />)).not.toContain("Skip ahead"); // the hospital admin
+    expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />)).not.toContain("Skip ahead");
+    const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} onSkipAhead={noop} />);
+    expect(html).toMatch(/<details class="skipmenu"><summary title="[^"]+">Skip ahead<\/summary><div role="group" aria-label="Skip ahead">/);
+    expect([...html.matchAll(/<button>(\+[^<]+)<\/button>/g)].map((x) => x[1])).toEqual(["+1 h", "+6 h", "+12 h", "+1 day"]);
+    // The page only asks: the one sender exists when the server said can_control, and nothing is stepped here.
+    const app = readFileSync("src/App.tsx", "utf8");
+    expect(app).toContain('onSkipAhead={send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))}');
+    expect(app).toMatch(/const send = canControl\n\s+\? async \(body: CommandBody\) => \{/);
+    expect(app).toContain("setCanControl(live.can_control === true);");
   });
 
   it("shows the runner's speed as read-only text in viewer, and the clock with seconds", () => {

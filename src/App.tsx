@@ -478,9 +478,10 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   // Viewer mode: the runner takes the command and the next answer shows it. Nothing is changed here.
   const send = canControl
     ? async (body: CommandBody) => {
-        const status = await sendCommand(VIEW_API!, token, body);
+        let detail = "";
+        const status = await sendCommand(VIEW_API!, token, body, fetch, (d) => (detail = d));
         if (status === 401) return onSignedOut();
-        setCommandText(commandNotice(status));
+        setCommandText(commandNotice(status, detail));
         clearTimeout(commandTimer.current);
         commandTimer.current = setTimeout(() => setCommandText(null), 6000);
       }
@@ -708,6 +709,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
         readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
         onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
         onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
+        onSkipAhead={send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))}
         hospital={
           world.s.hospital && !watch
             ? {
