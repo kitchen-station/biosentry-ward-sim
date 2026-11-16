@@ -3,7 +3,7 @@
 //
 // Read-only: there is no write here. Only what a route returned is kept, field by field; nothing is filled in. A value
 // the server did not send is null and the panel says so.
-import { readCapped } from "./open-view";
+import { readCapped, scoreNote } from "./open-view";
 
 export const ADMIN_CAP_BYTES = 2_000_000; // a unit's rows carry each patient's vitals and their sources
 export const ADMIN_TIMEOUT_MS = 10_000;
@@ -28,7 +28,7 @@ const json = (text: string): unknown => {
   }
 };
 
-export interface AdminUnit { id: string; name: string; floor: number | null; kind: (typeof KINDS)[number]; patients: number }
+export interface AdminUnit { id: string; name: string; floor: number | null; kind: (typeof KINDS)[number]; patients: number; /** The run's line on how to read this unit's NEWS2, as served (`score_note`). Left out when the server sends none. */ note?: string }
 /** One stored value as served: null value = the server says it is absent. */
 export interface AdminValue { value: number | null; atMs: number | null; source: string | null }
 export interface AdminVitals {
@@ -105,7 +105,8 @@ export function parseAdminUnits(text: string): AdminUnit[] | null {
     if (!isObj(u) || !str(u.id, 20) || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(u.id) || !str(u.name, 60) || !oneOf(u.kind, KINDS) || !int(u.patients, 0, 10_000)) return null;
     const floor = u.floor ?? null;
     if (floor !== null && !int(floor, -5, 200)) return null;
-    out.push({ id: u.id, name: u.name, floor, kind: u.kind, patients: u.patients });
+    const note = scoreNote(u.score_note);
+    out.push({ id: u.id, name: u.name, floor, kind: u.kind, patients: u.patients, ...(note === null ? {} : { note }) });
   }
   return out;
 }

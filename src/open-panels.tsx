@@ -1,6 +1,6 @@
 // The side panel of the public page when the server runs a whole hospital: where you are, what is on this level, and one
 // bed's card. Everything shown comes from the open answers (beds only). No name, vitals or score is ever here.
-import { bedSel, inOrder, openBedOf, type OpenViews } from "./open-hospital";
+import { bedSel, inOrder, openBedOf, type DrawnUnit, type OpenViews } from "./open-hospital";
 import { CARD_VITALS, type OpenBed, type OpenCard } from "./open-view";
 import { RISK_LIGHT } from "./render/draw";
 import type { RunUnit } from "./sim/hospital/units";
@@ -90,7 +90,7 @@ function Beds({ unit, beds, onSelect }: { unit: RunUnit; beds: OpenBed[]; onSele
  * `onView` opens a floor or goes back to the building; `onSelect` picks a bed or clears the pick.
  */
 export function OpenHospitalPanel({ units, views, view, selected, speed, card, nowMs, onView, onSelect }: {
-  units: RunUnit[]; views: OpenViews; view: number | null; selected: string | null; speed: number;
+  units: DrawnUnit[]; views: OpenViews; view: number | null; selected: string | null; speed: number;
   /** The picked bed's card, when it is for `selected`. */
   card: CardState | null;
   /** The ward's clock as a time, for "12 min ago". */
@@ -144,6 +144,8 @@ export function OpenHospitalPanel({ units, views, view, selected, speed, card, n
             <section key={u.id}>
               <h2 className="ptitle">{u.name}</h2>
               {KIND_NOTE[u.kind] && <p className="tiny">{KIND_NOTE[u.kind]}</p>}
+              {/* The run's own words on how to read this unit's NEWS2, exactly as served. The page adds none of its own. */}
+              {u.note && <p className="tiny">{u.note}</p>}
               {views[u.id] ? <Beds unit={u} beds={views[u.id].beds} onSelect={onSelect} /> : <p className="tiny">No answer from the server yet.</p>}
             </section>
           ))}

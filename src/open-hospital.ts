@@ -16,11 +16,13 @@ import type { RunUnit } from "./sim/hospital/units";
  * The server's unit list (GET /open-view) as the page uses it: only the units the building draws, each on the floor the server
  * gives it (the page's own floor when the server says "not known"). A unit the page cannot draw is left out, not guessed at.
  */
-export function drawnUnits(list: OpenUnit[]): RunUnit[] {
-  const out: RunUnit[] = [];
+/** A unit the page draws, with the note the server sent for it. */
+export type DrawnUnit = RunUnit & { note?: string };
+export function drawnUnits(list: OpenUnit[]): DrawnUnit[] {
+  const out: DrawnUnit[] = [];
   for (const u of list) {
     const own = UNITS.find((x) => x.id === u.id && x.id !== "MORGUE");
-    if (own) out.push({ id: u.id, name: u.name, floor: u.floor ?? own.floor, kind: u.kind });
+    if (own) out.push({ id: u.id, name: u.name, floor: u.floor ?? own.floor, kind: u.kind, ...(u.note === undefined ? {} : { note: u.note }) });
   }
   return out;
 }
@@ -73,7 +75,7 @@ export function openRisk(views: OpenViews, units: RunUnit[]): Record<string, str
 }
 
 /** The unit and bed a selection means, or null: a bed row, a click on a bed in the drawing, or W4's own stub. */
-export function openBedOf(views: OpenViews, sel: string | null, units: RunUnit[]): { unit: RunUnit; bed: OpenBed } | null {
+export function openBedOf<U extends RunUnit>(views: OpenViews, sel: string | null, units: U[]): { unit: U; bed: OpenBed } | null {
   if (sel === null) return null;
   for (const unit of units) {
     const bed = views[unit.id]?.beds.find((b) => bedSel(unit.id, b.bed) === sel || (unit.id === OPEN_WARD && sel === `bed:${b.bed}`));
@@ -132,7 +134,7 @@ export function startUnitsPoll(req: Omit<OpenRequest, "ward" | "signal"> & { uni
  * hospital. `onUnits(null)`: the server has no list (404: the route is off, or the page is older than the server's run). A server
  * that is down says nothing: the last list stays. Returns stop.
  */
-export function startUnitsList(req: Omit<OpenRequest, "ward" | "signal"> & { onUnits: (units: RunUnit[] | null) => void }): () => void {
+export function startUnitsList(req: Omit<OpenRequest, "ward" | "signal"> & { onUnits: (units: DrawnUnit[] | null) => void }): () => void {
   const timers: Timers = req.timers ?? { setTimeout: (f, ms) => globalThis.setTimeout(f, ms), clearTimeout: (h) => globalThis.clearTimeout(h as never) };
   const ctl = new AbortController();
   let off = false;
