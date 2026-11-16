@@ -9,7 +9,7 @@ The simulation is deployed. You do not need to install anything to see it.
 | Ward simulation | <https://biosentry-ward-sim.pages.dev> | This simulation, in the browser. No sign-in. |
 | Dashboard | <https://biosentry-dashboard.pages.dev> | The BioSentry clinician's list on a sample ward. Any passphrase is accepted. |
 
-Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only, and the dashboard reads the same ward. The page's switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", opens the hospital page, which has no server and runs alone in your browser. When the team server runs a whole hospital, the ward page draws that hospital instead (building, floor, bed, from the open view of each unit, see `docs/open-view.md`) and the switch is not shown.
+Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only, and the dashboard reads the same ward. When the team server runs a whole hospital, the ward page draws that hospital (building, floor, bed, from the open view of each unit, see `docs/open-view.md`). There is no second public page: the hospital that runs alone in a browser is a developer's page now (`npm run dev` with no `VITE_` value).
 
 The connected version (this simulation writes to the BioSentry API and the dashboard reads the same ward, live) runs on the team's server and is private to the team. The dashboard repository's `deploy/README.md` says how it is built.
 
@@ -192,7 +192,7 @@ A build with `VITE_VIEW_API_URL` set is a viewer. It never makes a ward: a clini
 
 With no token, the viewer first asks `GET /wards/W4/open-view`; while the answer stays valid it asks again 2 s after each answer. If the API answers a valid body, the page shows the ward read-only ("watching") with no controls and no names. Anything else shows the sign-in form. See [docs/open-view.md](docs/open-view.md).
 
-The viewer page has a two-way switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", each with its own clock label. The second opens `/hospital/`: the standalone hospital page, built by `npm run build:hospital` (base `/hospital/`, into `dist/hospital`, with no `VITE_` value set) and uploaded beside the ward page by the deploy job. It is the page's own made-up hospital, run in the visitor's browser, and says "Simulated in your browser, not the server's ward W4". It does not show the runner's ward. Watching with no token, the side panel says what the page is, explains the speed ("1 minute here is 10 ward minutes"), links the dashboard, and lists the beds, highest rank first, with colour, rank and risk word only; a row selects the bed and shows the same, with no name and no vitals.
+The viewer page has no link to another page. The standalone hospital page (the page's own made-up hospital, run in the browser, labelled "Simulated in your browser, not the server's ward W4") is no longer built or uploaded by the deploy job; it is what `npm run dev` shows with no `VITE_` value set. Watching with no token while the server runs ward W4 alone, the side panel says what the page is, explains the speed ("1 minute here is 10 ward minutes"), links the dashboard, and lists the beds, highest rank first, with colour, rank and risk word only; a row selects the bed and shows the same, with no name and no vitals.
 
 ```bash
 VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev

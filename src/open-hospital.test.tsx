@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { floorSummary } from "./building";
+import { FLOORS } from "./render/floors";
+import { slabTag } from "./render/scene";
 import { bedSel, inOrder, openBedOf, openHospital, openRisk, OPEN_FIRST_MS, OPEN_RETRY_MS, OPEN_UNITS, startUnitsPoll, type OpenViews } from "./open-hospital";
 import { OpenHospitalPanel } from "./open-panels";
 import { OPEN_POLL_MS, type OpenBed, type OpenWard } from "./open-view";
@@ -48,6 +50,20 @@ describe("the hospital made from the open answers", () => {
     expect(cells("ICU").map((c) => c.risk)).toEqual([undefined]); // never scored: no NEWS2 colour at all
     expect(cells("MED3B")).toEqual([]); // no answer for it: drawn empty
     expect(new Set(h.people.map((p) => p.n)).size).toBe(h.people.length); // one number per bed
+  });
+
+  it("puts nothing of the placeholder person on the drawing: a bed's tag has no initials, and a sign counts beds in use only", () => {
+    const floors = floorSummary(h, openRisk(VIEWS));
+    const cells = floors.flatMap((f) => f.units).flatMap((u) => [...u.beds, ...u.stretchers, ...u.over]).filter((c) => c !== null);
+    expect(cells).toHaveLength(8);
+    expect(cells.every((c) => c.initials === "")).toBe(true); // no name was given, so none can show
+    const spec = (floor: number) => FLOORS.find((s) => s.floor === floor)!;
+    expect(slabTag(spec(0), floors, true)).toBe("GF ER 2"); // not "0 waiting": the open answer has no queue
+    expect(slabTag(spec(3), floors, true)).toMatch(/^3F \S+ 3$/); // not "3/30": the open answer has no capacity
+    expect(slabTag(spec(4), floors, true)).toMatch(/ 2$/);
+    expect(slabTag(spec(0), floors)).toMatch(/waiting$/); // the standalone page's own sign is unchanged
+    const er = floors.find((f) => f.floor === 0)!.units.find((u) => u.id === "ER")!;
+    expect([er.queue.length, floors.find((f) => f.floor === 0)!.boarders]).toEqual([0, 0]); // so no "+N" and no "N boarding" tag is drawn
   });
 
   it("finds the unit and bed a click or a row means, and nothing for anything else", () => {
@@ -150,9 +166,8 @@ describe("the side panel", () => {
 describe("the page's wiring", () => {
   const app = readFileSync("src/App.tsx", "utf8");
 
-  it("draws the building only when another unit has answered, hides the two-world switch then, and takes clicks only on floors and beds", () => {
+  it("draws the building only when another unit has answered, and takes clicks only on floors and beds", () => {
     expect(app).toContain("const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);");
-    expect(app).toContain("worlds={watch && hosp ? undefined :");
     expect(app).toContain("serverHospital={!!watch && hosp}");
     expect(app).toContain('const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit;');
     expect(app).toContain("units: OPEN_UNITS.map((u) => u.id).filter((id) => id !== OPEN_WARD),");

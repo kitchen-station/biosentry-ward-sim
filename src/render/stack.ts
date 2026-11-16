@@ -45,7 +45,8 @@ export function nextLevel(l: Level, e: LevelEvent): Level {
 }
 
 /** `getView` is App's floor (null for the building). `getRisk`: NEWS2 risk by `h:${n}`, read once a minute with the scenes. Same surface as createRenderer, so App drives either. */
-export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null, getRisk: () => Record<string, string | null> = () => ({})): Renderer {
+/** `bedsOnly`: the hospital is the public page's, made from the server's open answers. The signs then show beds in use and nothing else. */
+export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null, getRisk: () => Record<string, string | null> = () => ({}), bedsOnly = false): Renderer {
   const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
   const w4 = createW4();
   const slabs = FLOORS.map((spec) => (spec === W4 ? null : createFloor(spec)));
@@ -149,7 +150,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   // The storeys' signs: one tidy column near the building's front corner, at screen size so they read at the landing zoom.
   const signAnchor = (i: number) => screen(iso(34.5, MAP_H), 8 - lift(i));
   let signFloors: FloorSummary[] | null = null; // the summary the signs last showed, so hit() reads the same text
-  const signText = (i: number) => slabTag(FLOORS[i], signFloors);
+  const signText = (i: number) => slabTag(FLOORS[i], signFloors, bedsOnly);
   const signDot = (i: number) => (FLOORS[i] === W4 ? "#4ECDC4" : undefined); // the monitored ward
 
   function closed(s: Sim, floors: FloorSummary[] | null, hovered: string | null) {

@@ -11,26 +11,21 @@ const src = createSyntheticSource(FIXTURE_SEED, true);
 const bar = (props: object) => renderToStaticMarkup(createElement(TopBar, { s, src, notice: null, ...props } as never));
 const hospital = { skipping: false, onSkip: () => {}, scenario: "pitch", scenarios: [], onScenario: () => {}, seedText: "seed" };
 
-describe("the public page's switch between the two worlds", () => {
-  const worlds = { here: "ward", ward: "/", hospital: "/hospital/" } as const;
-  it("shows a two-way switch with each world named, the one on screen pressed", () => {
-    const html = bar({ worlds });
-    expect(html).toContain("Live ward W4 (server)");
-    expect(html).toContain("Whole hospital (demo in your browser)");
-    expect(html).toMatch(/aria-pressed="true"[^>]*>Live ward W4 \(server\)/);
-    expect(bar({ worlds: { ...worlds, here: "hospital" } })).toMatch(/aria-pressed="true"[^>]*>Whole hospital/);
-    expect(bar({})).not.toContain("Live ward W4 (server)");
+describe("the public page is one page: no switch between worlds", () => {
+  it("the top bar has no switch and no second clock label, whatever it is given", () => {
+    for (const html of [bar({}), bar({ onSignIn: () => {} }), bar({ serverHospital: true }), bar({ hospital })]) {
+      expect(html).not.toMatch(/Live ward W4 \(server\)|Whole hospital|aria-label="World"|Server ward clock|hospital clock/);
+    }
   });
-  it("each world has its own clock label", () => {
-    expect(bar({ worlds })).toContain("Server ward clock");
-    expect(bar({ worlds: { ...worlds, here: "hospital" } })).toContain("Demo hospital clock");
+  it("no page code holds the switch or a link to /hospital/", () => {
+    const [app, panels] = ["src/App.tsx", "src/panels.tsx"].map((f) => readFileSync(f, "utf8"));
+    expect(app).not.toMatch(/worlds=|hospital\/`|"\/hospital\/"/);
+    expect(panels).not.toMatch(/\bWORLDS\b|\bworlds\b|location\.assign/);
   });
-  it("App gives the switch to the viewer build and to the hospital page as deployed, and to no other page", () => {
-    const app = readFileSync("src/App.tsx", "utf8");
-    // Watching a server that runs the whole hospital, the page is that hospital and shows no switch.
-    expect(app).toContain('worlds={watch && hosp ? undefined : VIEW_API ? { here: "ward", ward: import.meta.env.BASE_URL, hospital: `${import.meta.env.BASE_URL}hospital/` } : HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? { here: "hospital", ward: "/", hospital: import.meta.env.BASE_URL } : undefined}');
+  it("the pages a visitor or a clinician sees never say demo", () => {
+    for (const f of ["src/App.tsx", "src/panels.tsx", "src/open-panels.tsx", "src/open-hospital.ts", "src/hospital-panels.tsx", "src/vital-cards.tsx", "src/person-timeline.tsx"]) expect([f, /demo/i.test(readFileSync(f, "utf8"))]).toEqual([f, false]);
   });
-  it("the hospital page says it is simulated in the browser, not the server's ward", () => {
+  it("the standalone page, now a developer's page, still says it is simulated in the browser", () => {
     expect(bar({ hospital })).toContain("Simulated in your browser, not the server&#x27;s ward W4");
     expect(bar({})).not.toContain("Simulated in your browser");
   });
@@ -45,7 +40,7 @@ describe("the side panel when watching", () => {
     const order = [...html.matchAll(/Bed (\S+?)( ·|<)/g)].map((m) => m[1]);
     expect(order).toEqual([...s.patients].reverse().map((p) => p.bed)); // rank n-i: the last patient is rank 1
     expect(html).toContain("running live on the team server at 10x: 1 minute here is 10 ward minutes");
-    expect(html).toContain("walk a loop. That loop is demo design");
+    expect(html).toContain("walk a set loop. It is not a product feature.");
   });
   it("a chosen bed shows its risk and rank and no name or vitals, with a way back", () => {
     const p = s.patients[0];
@@ -57,24 +52,21 @@ describe("the side panel when watching", () => {
   });
 });
 
-describe("the deploy builds the hospital page with no API address and no key", () => {
+describe("the deploy uploads one page", () => {
   const yml = readFileSync(".github/workflows/ci.yml", "utf8").split("\n");
-  const at = yml.findIndex((l) => l.trim() === "- run: npm run build:hospital");
-  const next = yml.findIndex((l, i) => i > at && l.trim().startsWith("- "));
-  it("has the step after the ward page's build and before the upload, with no env block", () => {
-    const build = yml.findIndex((l) => l.trim() === "- run: npm run build");
+  it("builds the ward page and uploads it, with no second build between them", () => {
     const upload = yml.findIndex((l) => l.includes("wrangler"));
+    const build = yml.findLastIndex((l, i) => i < upload && l.trim() === "- run: npm run build"); // the deploy job's own build, not the test job's
     expect(build).toBeGreaterThan(0);
-    expect(at).toBeGreaterThan(build);
-    expect(next).toBe(upload);
-    expect(yml.slice(at, next).join("\n")).not.toMatch(/env:|VITE_[A-Z_]+\s*:/);
+    expect(yml.findIndex((l, i) => i > build && l.trim().startsWith("- "))).toBe(upload);
+    expect(yml.join("\n")).not.toMatch(/build:hospital|dist\/hospital/);
   });
   it("no workflow line sets the ingest key or the dashboard feed address", () => {
     expect(yml.filter((l) => /^\s*VITE_(INGEST_KEY|API_URL)\s*:/.test(l))).toEqual([]);
   });
-  it("the script builds under /hospital/ into dist/hospital, so the ward page's files are not replaced", () => {
-    const script = (JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> }).scripts["build:hospital"];
-    expect(script).toContain("--base /hospital/");
-    expect(script).toContain("--outDir dist/hospital");
+  it("no script builds a page under /hospital/", () => {
+    const scripts = (JSON.parse(readFileSync("package.json", "utf8")) as { scripts: Record<string, string> }).scripts;
+    expect(Object.keys(scripts)).not.toContain("build:hospital");
+    expect(Object.values(scripts).join(" ")).not.toContain("--base /hospital/");
   });
 });

@@ -162,7 +162,7 @@ describe("source scans", () => {
     expect(a).toContain("if (HOSPITAL && world.s.hospital && vitalsRef.current?.world !== world.s) vitalsRef.current = ");
     expect(a).toContain("const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;");
     // The standalone build reads the engine; a watcher of the server's hospital has no engine and reads the open answers' bands.
-    expect(a).toMatch(/createStackRenderer\(canvas, \(\) => viewRef\.current, \(\) => \(vitalsRef\.current \? riskBySel\(vitalsRef\.current\.v\) : openRisk\(othersRef\.current\)\)\)/);
+    expect(a).toMatch(/createStackRenderer\(canvas, \(\) => viewRef\.current, \(\) => \(vitalsRef\.current \? riskBySel\(vitalsRef\.current\.v\) : openRisk\(othersRef\.current\)\), !!watch\)/); // and a watcher's signs show beds in use only
     expect(a).toContain("vitals={vitals}");
   });
 

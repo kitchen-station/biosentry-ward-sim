@@ -70,10 +70,12 @@ export function floorScene(h: Hospital | undefined, spec: FloorSpec, floors: Flo
 }
 
 /** The slab's tag in the stack: one short live line. */
-export function slabTag(spec: FloorSpec, floors: FloorSummary[] | null): string {
+export function slabTag(spec: FloorSpec, floors: FloorSummary[] | null, bedsOnly = false): string {
   const label = spec.floor === 0 ? "GF" : `${spec.floor}F`;
   const f = floors?.find((x) => x.floor === spec.floor);
   if (!f) return `${label} ${spec.name}`;
+  // The public page knows only the beds in use (the server's open answers): no queue and no capacity, so the sign says neither.
+  if (bedsOnly) return `${label} ${spec.short} ${f.units.reduce((n, u) => n + [...u.beds, ...u.stretchers, ...u.over].filter(Boolean).length, 0)}`;
   if (spec.floor === 0) return `${label} ${spec.short} ${f.units.find((u) => u.id === "ER")?.queue.length ?? 0} waiting`;
   return `${label} ${spec.short} ${f.census}/${f.capacity}`;
 }

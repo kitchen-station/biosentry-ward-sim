@@ -318,7 +318,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current))) : createRenderer(canvas);
+    const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current)), !!watch) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -580,7 +580,6 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onSignIn={watch?.onLeave}
         serverHospital={!!watch && hosp}
-        worlds={watch && hosp ? undefined : VIEW_API ? { here: "ward", ward: import.meta.env.BASE_URL, hospital: `${import.meta.env.BASE_URL}hospital/` } : HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? { here: "hospital", ward: "/", hospital: import.meta.env.BASE_URL } : undefined}
         onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}
         readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
         onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
@@ -622,7 +621,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
             aria-label={
               watch
                 ? hosp
-                  ? "Isometric view of the hospital building, read-only. The list beside this view picks a floor and a bed by keyboard."
+                  ? "Isometric view of the hospital building, read-only. The list after this view picks a floor and a bed by keyboard."
                   : "Isometric view of ward W4, read-only."
                 : HOSPITAL
                 ? "Isometric view of the hospital building. Choosing a floor slides it out of the building. Use the floor buttons, and the list after this view for ward W4, to select by keyboard."
