@@ -8,6 +8,11 @@ import type { LiveView, PatientView } from "./sim/view";
 export const OPEN_WARD = "W4";
 export const OPEN_POLL_MS = 2000;
 export const OPEN_TIMEOUT_MS = 5000;
+/** The page's first ask waits longer: from outside, the open view took 1.6 to 3.2 s on a quiet server (measured 16 Nov 2026), so 5 s fails under load. */
+export const FIRST_ASK_TIMEOUT_MS = 15_000;
+/** How long to wait before asking again after the n-th first ask in a row found the server not reachable: 5 s, 10 s, 20 s, then every 30 s. */
+export const firstAskWaitMs = (failures: number): number => [5000, 10_000, 20_000][failures - 1] ?? 30_000;
+export const UNREACHABLE = "Server not reachable, trying again";
 export const OPEN_CAP_BYTES = 65_536;
 const MAX_STAFF = 20;
 const MAX_MOVES = 20;
@@ -130,12 +135,12 @@ const BROWSER_TIMERS: Timers = { setTimeout: (f, ms) => globalThis.setTimeout(f,
 
 export type OpenAnswer<T> = { ok: true; body: T } | { ok: false; kind: "down" | "gone" };
 export type OpenResult = OpenAnswer<OpenWard>;
-export interface OpenRequest { fetch: typeof fetch; base: string; ward?: string; timers?: Timers; signal?: AbortSignal }
+export interface OpenRequest { fetch: typeof fetch; base: string; ward?: string; timers?: Timers; signal?: AbortSignal; /** Left out: 5 s. */ timeoutMs?: number }
 
 /** One request to an open route. down: 5xx, network error, timeout. gone: any other status or a bad body. */
-async function openGet<T>({ fetch: f, base, timers = BROWSER_TIMERS, signal }: OpenRequest, path: string, parse: (text: string) => T | null): Promise<OpenAnswer<T>> {
+async function openGet<T>({ fetch: f, base, timers = BROWSER_TIMERS, signal, timeoutMs = OPEN_TIMEOUT_MS }: OpenRequest, path: string, parse: (text: string) => T | null): Promise<OpenAnswer<T>> {
   const ctl = new AbortController();
-  const join = () => ctl.abort(); // the caller's signal and the 5 s timeout both end this request
+  const join = () => ctl.abort(); // the caller's signal and the timeout (5 s unless the caller gives one) both end this request
   if (signal?.aborted) join();
   signal?.addEventListener("abort", join, { once: true });
   let timer: unknown;
@@ -143,7 +148,7 @@ async function openGet<T>({ fetch: f, base, timers = BROWSER_TIMERS, signal }: O
     timer = timers.setTimeout(() => {
       ctl.abort();
       reject(new Error("timeout"));
-    }, OPEN_TIMEOUT_MS);
+    }, timeoutMs);
   });
   const work = (async (): Promise<OpenAnswer<T>> => {
     // A simple GET: no headers key, so no Authorization and no custom header, and no cookie.
@@ -323,7 +328,7 @@ export function toLive(w: OpenWard): LiveView {
 
 export type Gate = "trying" | "watch" | "signin";
 export type GateEvent = "probe_ok" | "probe_fail" | "poll_gone" | "leave" | "signed_out";
-/** The page's open-view state. Sign-in, once shown, stays until a reload; a sign-out or a 401 tries once more. */
+/** The page's open-view state. Sign-in, once shown, stays until a reload; a sign-out or a 401 tries once more. A first ask that found the server not reachable sends no event: the page stays "trying" and asks again (App). */
 export function nextGate(g: Gate, e: GateEvent): Gate {
   if (e === "signed_out") return "trying";
   if (g === "trying") return e === "probe_ok" ? "watch" : e === "probe_fail" ? "signin" : g;

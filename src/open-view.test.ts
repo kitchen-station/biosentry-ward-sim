@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchOpenWard, nextGate, parseOpenWard, readCapped, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
+import { fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, parseOpenWard, readCapped, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
 import { createReader } from "./sim/view";
 import { createSim } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
@@ -376,7 +376,38 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     before(app(), "if (!VIEW_API || watch || admin) return;", "/wards/W4/live");
     // The open route is asked only with no token, or for a signed-in admin, whose drawing is the open view. It never carries the token.
     before(app(), 'if (!VIEW_API || (token !== null && !admin) || gate !== "trying") return;', "fetchOpenWard(");
-    expect(app()).toContain("void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API }).then("); // no token in the request
+    expect(app()).toContain("void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API!, timeoutMs: FIRST_ASK_TIMEOUT_MS }).then("); // no token in the request
+    expect(app().match(/fetchOpenWard\(/g)).toHaveLength(1);
+  });
+
+  it("the first ask waits 15 s, and a server that is not reachable is asked again after 5, 10, 20, then every 30 s", async () => {
+    expect(FIRST_ASK_TIMEOUT_MS).toBe(15_000);
+    expect([1, 2, 3, 4, 5, 40].map(firstAskWaitMs)).toEqual([5000, 10_000, 20_000, 30_000, 30_000, 30_000]);
+    expect(Math.min(...[1, 2, 3, 4].map(firstAskWaitMs))).toBeGreaterThanOrEqual(2000); // never faster than one ask per 2 s
+    // The longer limit is honoured: nothing at 14,999 ms, "down" at 15,000 ms.
+    vi.useFakeTimers();
+    const p = fetchOpenWard({ fetch: (() => new Promise(() => {})) as unknown as typeof fetch, base: BASE, timeoutMs: FIRST_ASK_TIMEOUT_MS });
+    let done: unknown = null;
+    void p.then((r) => (done = r));
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(done).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toEqual({ ok: false, kind: "down" });
+    vi.useRealTimers();
+  });
+
+  it("not reachable with nobody signed in: the page says so and asks again; it never falls to a bare sign-in form", () => {
+    const a = app();
+    // "down" keeps the gate at "trying" and counts; only an answer (ok, or gone) moves the gate.
+    expect(a).toContain('if (!r.ok && r.kind === "down" && !admin) return setFails((n) => n + 1);');
+    expect(a).toContain("const timer = setTimeout(ask, fails === 0 ? 0 : firstAskWaitMs(fails));");
+    before(a, 'if (!r.ok && r.kind === "down" && !admin) return setFails((n) => n + 1);', 'setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));');
+    // What is shown meanwhile: the line, as a status, and the sign-in form only when the reader asks for it.
+    expect(a).toContain('<span className="pill solid" role="status">{UNREACHABLE}</span>');
+    expect(a).toContain("<button onClick={() => { setFails(0); setGate((g) => nextGate(g, \"probe_fail\")); }}>Sign in instead</button>");
+    expect(UNREACHABLE).toBe("Server not reachable, trying again");
+    // A 404 (the server's public view is off) still goes to sign-in at once: nothing to wait for.
+    expect(nextGate("trying", "probe_fail")).toBe("signin");
   });
 
   it("watching the ward alone, click and hover are off; watching a hospital, a click picks a floor or a bed in use and nothing else; the select list is off", () => {

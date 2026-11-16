@@ -5,7 +5,9 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 ## What the page does
 
 - A valid body: the page draws the ward read-only, shows "Watching, read-only" and a "Sign in to control" button, and asks again 2 s after each answer or failure.
-- Anything else on the first request (404, other status, 5xx, network error, timeout, bad body): today's sign-in form.
+- The first request waits up to 15 s (every later one 5 s): from outside, the open view took 1.6 to 3.2 s on a quiet server, so 5 s failed under load.
+- The server could not be reached on the first request (5xx, network error, timeout): the page says "Server not reachable, trying again" and asks again after 5 s, 10 s, 20 s, then every 30 s. The read-only view opens by itself when the server answers. "Sign in instead" shows the sign-in form. The page never falls to a bare sign-in form because the server was slow.
+- Anything else on the first request (404, other status, bad body): the sign-in form, at once. The server's public view is off, so there is nothing to wait for.
 - While watching: a 5xx, network error or timeout keeps the last picture and shows "Not updating". A redirect (301, 302, 303, 307, 308) is refused and counts as a network error: "Not updating", and polling goes on. Any other status from 201 to 499, or a bad or over-cap body, ends the watch and shows sign-in. There is no retry until a reload.
 - "Sign in to control" leaves watching and shows sign-in. After a sign-in the page works as before and never calls the open route. A 401 from `/live` or from a command tries the open route once more. A signed-in viewer has a "Sign out" button in the top bar: it drops the token and asks the open route once, so the page returns to watching if the route answers and to the sign-in form if not.
 - A bed is tagged only when both rank and risk are set. It is grey when risk is null. So a not-ranked bed shows no NR tag. The side panel has no "Not ranked (NR)" line. Figures are coloured by role only.
