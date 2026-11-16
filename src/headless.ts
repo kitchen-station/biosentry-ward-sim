@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { applyAction } from "./sim/actions";
-import { applyCommand, clinicianName, freshWard } from "./sim/commands";
+import { applyCommand, clinicianName, freshWard, skipAhead, SKIPS } from "./sim/commands";
 import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
 import { freshHospital, HOSPITAL_SCENARIOS } from "./sim/hospital/fresh";
 import { createMonthLoop, type World } from "./sim/hospital/month";
@@ -126,6 +126,7 @@ else await sync.start(s, src);
 started = true;
 console.log(`${hospital ? "Hospital" : "Ward"} ${newMonth ? `started a new month (seed ${s.hospital?.seed}), run ${sync.run.runId},` : saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, writing to ${apiUrl}`);
 setInterval(async () => {
+  if (skipping) return; // the skip steps, publishes and flushes on its own
   const now = performance.now();
   spare += (now - last) / 1000; // a late timer or a suspended host is caught up, so sim minutes stay on the wall clock
   last = now;
@@ -154,6 +155,38 @@ async function reset(by: string) {
   await starting;
   save();
 }
+// A clinician's skip: the world moves ahead that many ward minutes at once, at 60x fidelity whatever the speed (as skipDay).
+// The hospital's readings are published every ward minute and everything is sent every ward hour. A month that ends inside
+// the skip closes as always: the skip stops there, the rest of it is dropped, and the next month starts.
+let skipping = false;
+async function skip(minutes: number, by: string) {
+  const word = SKIPS.find(([m]) => m === minutes)?.[1];
+  if (!word || skipping) return; // not one of the four the API takes: nothing is stepped
+  skipping = true;
+  try {
+    say(s, `${clinicianName(by)} skipped ahead ${word.slice(1)}`);
+    await skipAhead(minutes, {
+      tick: () => {
+        if (s.ended || (hospital && month.due(s))) return false;
+        const speed = s.speed;
+        s.speed = 60; // one ward second a step; set back at once, so nothing else ever sees it
+        step(s, src);
+        s.speed = speed;
+        if (hospital) feedVitals(vitals, s.hospital!, s.clockS);
+        return true;
+      },
+      minute: () => void (hospital && publishHospital(s, vitals)),
+      hour: flush,
+    });
+    if (hospital && month.due(s)) {
+      await month.turn({ s, src }, swap);
+      save();
+    }
+  } finally {
+    skipping = false;
+    [last, spare] = [performance.now(), 0]; // the wall time the skip took is not stepped a second time
+  }
+}
 // What clinicians did on the dashboard, applied to the ward. pull() answers nothing while one is under way or once the sync stopped.
 setInterval(async () => {
   for (const a of await sync.pull()) {
@@ -165,14 +198,24 @@ setInterval(async () => {
   }
 }, 2000);
 
-// What clinicians sent from the viewer: speed, reset and a patient's controls.
+// What clinicians sent from the viewer: speed, reset, skip and a patient's controls.
+// The feed is not read again until every command of the last read was applied. The API holds a second skip back until the
+// feed is asked for what comes after the first one, so that ask must not go out while the first is still being stepped.
+let applying = false;
 setInterval(async () => {
-  for (const c of await sync.pullCommands()) {
-    try {
-      if (c.kind === "reset") await reset(c.clinician_id);
-      else applyCommand(s, src, c);
-    } catch (error) {
-      console.error(`Command ${c.seq} (${c.kind}) was not applied:`, error);
+  if (applying) return;
+  applying = true;
+  try {
+    for (const c of await sync.pullCommands()) {
+      try {
+        if (c.kind === "reset") await reset(c.clinician_id);
+        else if (c.kind === "skip") await skip(c.minutes ?? 0, c.clinician_id);
+        else applyCommand(s, src, c);
+      } catch (error) {
+        console.error(`Command ${c.seq} (${c.kind}) was not applied:`, error);
+      }
     }
+  } finally {
+    applying = false;
   }
 }, 2000);

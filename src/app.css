@@ -130,7 +130,18 @@ input:focus-visible {
 
 .speeds.right {
   margin-left: auto;
+  max-width: 100%;
+  flex-wrap: wrap; /* with Skip ahead the group is wider than a phone */
+  justify-content: flex-end;
 }
+
+/* The Skip ahead menu of a clinician who may control the server's run: a button that opens four choices under it. */
+.speeds .skipmenu { position: relative; margin: 0; }
+.speeds .skipmenu summary { cursor: pointer; list-style: none; margin: 0; background: var(--cream-100); border: 2px solid var(--ink-900); box-shadow: inset -2px -2px 0 var(--cream-300); padding: 2px 10px; white-space: nowrap; }
+.speeds .skipmenu summary::-webkit-details-marker { display: none; }
+.speeds .skipmenu summary:focus-visible { outline: 2px solid var(--ink-900); outline-offset: 2px; }
+.speeds .skipmenu > div { position: absolute; right: 0; top: 100%; z-index: 5; display: grid; gap: 4px; padding: 4px; background: var(--cream-100); border: 2px solid var(--ink-900); }
+.speeds .skipmenu > div button { white-space: nowrap; }
 
 .speeds .on,
 .speeds .on:hover:not(:disabled) {
