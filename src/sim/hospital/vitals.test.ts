@@ -482,13 +482,20 @@ describe("scans", () => {
   const all = files("src");
 
   const imports = (f: string) => /from\s+["'][^"']*\bvitals["']/.test(readFileSync(f, "utf8"));
-  it("is imported only by the page: App.tsx, the two panel files and the person timeline (display only)", () => {
+  it("is imported only by the page (App.tsx, the two panel files, the person timeline) and by the runner (headless.ts, publish.ts); display only", () => {
     const importers = all.filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.endsWith("hospital/vitals.ts") && imports(f));
-    expect(importers).toEqual(["src/App.tsx", "src/hospital-panels.tsx", "src/panels.tsx", "src/person-timeline.tsx"]);
-    for (const named of ["src/headless.ts", "src/trial.ts", "src/hospital-trial.ts", "src/compare.ts", "src/lab-worker.ts", "src/sim/trial.ts", "src/sim/hospital/trial.ts"]) {
+    expect(importers).toEqual(["src/App.tsx", "src/headless.ts", "src/hospital-panels.tsx", "src/panels.tsx", "src/person-timeline.tsx", "src/sim/hospital/publish.ts"]);
+    for (const named of ["src/trial.ts", "src/hospital-trial.ts", "src/compare.ts", "src/lab-worker.ts", "src/sim/trial.ts", "src/sim/hospital/trial.ts"]) {
       expect(all).toContain(named);
       expect(imports(named)).toBe(false);
     }
+  });
+
+  it("the runner's publisher reads the engine and the hospital and writes only the outbox: no write through `h` or `v`, no random draw", () => {
+    const text = readFileSync("src/sim/hospital/publish.ts", "utf8");
+    expect(text).not.toMatch(/\b[hv]\.[\w.]+\s*(=|\+=|-=)[^=]/);
+    expect(text).not.toMatch(/Math\.random|stream\(/);
+    expect(text).not.toMatch(/\bpv\.[\w.]+\s*(=|\+=|-=)[^=]/); // nor into a person's stream
   });
 
   it("imports only the pure pieces: no module that writes a Sim, and only a few names from sim.ts", () => {
