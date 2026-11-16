@@ -5,7 +5,7 @@ import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } fr
 import { floorOf } from "./hospital-panels";
 import { fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, ADMIN_REFRESH_MS, type AdminAnswer, type AdminPatient, type AdminRequest, type AdminRow, type AdminRows, type AdminStay, type AdminUnit } from "./admin-view";
 import { adminFloor, AdminPanel, type Load } from "./admin-panels";
-import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
+import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type DrawnUnit, type OpenViews } from "./open-hospital";
 import { openOps } from "./open-ops";
 import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
@@ -18,7 +18,6 @@ import { buildQuery, buildWorld, drawSeed, NAMED, parseQuery, seedText } from ".
 import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
 import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, WARD_START_ISO, type VitalsSource } from "./sim/source";
-import type { RunUnit } from "./sim/hospital/units";
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { AnalyticsBoundary } from "./insights/Boundary";
 import { createWardStats, feed, summary } from "./sim/ward-stats";
@@ -207,7 +206,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   const othersRef = useRef(others);
   othersRef.current = others;
   // The run's units, from the server's public list. Empty: the server has no list, so the page is the ward alone.
-  const [units, setUnits] = useState<RunUnit[]>([]);
+  const [units, setUnits] = useState<DrawnUnit[]>([]);
   const unitsRef = useRef(units);
   unitsRef.current = units;
   const unitIds = units.map((u) => u.id).filter((id) => id !== OPEN_WARD).join(",");

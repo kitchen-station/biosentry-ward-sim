@@ -177,7 +177,13 @@ export const fetchOpenWard = (req: OpenRequest): Promise<OpenResult> =>
 // ---- The run's units (GET /open-view) ----
 const UNIT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$/;
 const KINDS = ["ranked", "shown", "unranked"] as const;
-export interface OpenUnit { id: string; name: string; floor: number | null; kind: (typeof KINDS)[number] }
+export interface OpenUnit { id: string; name: string; floor: number | null; kind: (typeof KINDS)[number]; /** The run's own line on how to read this unit's NEWS2, as served (`score_note`). Left out when the server sends none. */ note?: string }
+
+/**
+ * A unit's `score_note` as the API takes it: one printable line, 1 to 300 characters. Anything else, or none, is null: the
+ * note is left out and the unit is kept (a list with no note still draws; the page writes no note of its own in its place).
+ */
+export const scoreNote = (v: unknown): string | null => (typeof v === "string" && /^[^\x00-\x1f\x7f-\x9f]{1,300}$/.test(v) ? v : null);
 
 /** Strict, as parseOpenWard: 1 to 12 units, each id once. */
 export function parseOpenUnits(text: string): OpenUnit[] | null {
@@ -196,7 +202,8 @@ export function parseOpenUnits(text: string): OpenUnit[] | null {
     const floor = u.floor ?? null;
     if (floor !== null && !int(floor, -5, 200)) return null;
     seen.add(u.id);
-    units.push({ id: u.id, name: u.name, floor, kind: u.kind });
+    const note = scoreNote(u.score_note);
+    units.push({ id: u.id, name: u.name, floor, kind: u.kind, ...(note === null ? {} : { note }) });
   }
   return units;
 }

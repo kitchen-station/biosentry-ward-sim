@@ -18,6 +18,7 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 Code: `src/open-hospital.ts` (pure) and `src/open-panels.tsx`. Tests: `src/open-hospital.test.tsx`.
 
 - While watching, the page asks `GET {VIEW_API}/open-view` for the run's units (id, name, floor, kind) at once and then once a minute. It keeps only the units the building draws; a unit the page cannot draw is left out. A 404 means there is no list: the page asks no other unit and is the ward, as before.
+- A unit may carry `score_note`: the run's own line on how to read that unit's NEWS2 (one printable line, at most 300 characters). The page prints it under the unit's name, exactly as served and as text, in the public unit view and in the Hospital admin's. A note out of shape is left out and the unit is kept. The page writes no note of its own in its place.
 - It then asks the open route of each other listed unit, one unit at a time in turn.
 - If any of them answers, the server runs a whole hospital. The page then draws the building: building, floor, bed. The side panel has a breadcrumb ("Hospital › 3F Medicine 3A › Bed ..."), Escape goes up one level, and the top bar says "Hospital" and "Server clock".
 - If none answers (404: the server runs ward W4 alone), the page is the ward, exactly as described above. A unit that answered 404 is asked again once a minute, so the page follows the server without a reload.
