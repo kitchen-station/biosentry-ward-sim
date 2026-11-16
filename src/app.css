@@ -141,7 +141,7 @@ input:focus-visible {
 
 .main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   min-height: 0;
   margin: 4px;
@@ -161,6 +161,15 @@ input:focus-visible {
   position: absolute;
   display: block;
 }
+
+/* The side panel: 340px open, a narrow tab shut. The canvas takes the rest. */
+.side { display: flex; flex-direction: column; gap: 4px; width: 340px; min-height: 0; min-width: 0; }
+.side.shut { width: 36px; }
+.sidebody { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sidebody > .command { flex: 1; }
+.sidetab { font: inherit; padding: 4px 8px; cursor: pointer; background: var(--cream-100); color: var(--ink-900); border: 2px solid var(--ink-900); }
+.sidetab:focus-visible { outline: 2px solid var(--ink-900); outline-offset: 2px; }
+.shut .sidetab { flex: 1; padding: 8px 0; writing-mode: vertical-rl; }
 
 .command {
   display: flex;
@@ -589,6 +598,16 @@ summary {
 
   .main {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .side,
+  .side.shut {
+    width: auto;
+  }
+
+  .shut .sidetab {
+    writing-mode: horizontal-tb;
+    flex: none;
   }
 
   .floor {

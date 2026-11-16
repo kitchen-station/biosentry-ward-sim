@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Flip } from "./flip";
 import { Sparkline } from "./chart";
 import { NotRankedRow, RankedRow, RISK_WORDS, VITAL_CARD, VitalCards } from "./vital-cards";
@@ -747,6 +747,39 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
   );
 }
 
+const SIDE_KEY = "biosentry.sidePanel";
+
+/** The side panel can fold to a narrow tab. The choice is kept in localStorage; without it the panel is open. */
+export function SidePanel({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SIDE_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const toggle = () => {
+    setOpen(!open);
+    try {
+      localStorage.setItem(SIDE_KEY, open ? "closed" : "open");
+    } catch {
+      /* the page works without storage */
+    }
+  };
+  return (
+    <div className={open ? "side" : "side shut"}>
+      <button type="button" className="sidetab" aria-expanded={open} aria-controls="side-body" onClick={toggle}>
+        {open ? "Hide panel ▸" : "◂ Show panel"}
+      </button>
+      {open && (
+        <div id="side-body" className="sidebody">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Inspector({
   s,
   src,
@@ -777,7 +810,7 @@ export function Inspector({
           <>
             <h2 className="ptitle">Watching W4</h2>
             <p className="story">
-              This is ward W4, running live on the team server{s.speed > 0 ? ` at ${s.speed}x: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}` : ""}. Pick a bed in the list. The same ward is on the dashboard:{" "}
+              This is ward W4, running live on the team server{s.speed > 0 ? ` at ${s.speed}x: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}` : ""}. Pick a bed in the list. The public dashboard runs alone on a sample ward:{" "}
               <a href="https://biosentry-dashboard.pages.dev" target="_blank" rel="noopener noreferrer">open the dashboard</a>. Read-only. Sign in to control.
             </p>
             <BedList s={s} onSelect={onSelect} />
