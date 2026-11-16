@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Connect, type Plugin } from "vite";
+import type { Connect, Plugin } from "vite";
+import { configDefaults, defineConfig } from "vitest/config";
 import { buildGuard } from "./build-guard.ts";
 import { createApiState, handle } from "./src/bridge/api.ts";
 
@@ -55,4 +56,8 @@ function wardApi(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [buildGuard(), react(), wardApi()] });
+export default defineConfig({
+  plugins: [buildGuard(), react(), wardApi()],
+  // Agent worktrees under .claude/ are old checkouts of this repository: their tests are not this tree's.
+  test: { exclude: [...configDefaults.exclude, ".claude/**"] },
+});
