@@ -174,7 +174,11 @@ export interface PatientRow {
   bins: Bin[];
   /** Hospital mode: the hospital person this stay belongs to. The same for every stay of one person. */
   person?: string;
+  /** Hospital mode: the unit of this stay. Absent: the run's home unit, W4. */
+  unit?: string;
 }
+/** Hospital mode: where the runner has got to with one person's stays outside W4 (src/sim/hospital/publish.ts). It is saved with the queue. */
+export interface PublishedStay { id: string | null; unit: string; visit: number; reads: number; k: number } // id null: on W4, whose rows the ward sends
 /** What a departure says on the wire. The ward's own words are two; a hospital run adds a move to another unit and a death. */
 export interface Departure { patient_id: string; minute: number; outcome: StayOutcome | "transferred" | "died"; to_unit?: string }
 export interface Outbox {
@@ -184,6 +188,7 @@ export interface Outbox {
   admissions: (PatientRow & { minute: number })[];
   departures: Departure[];
   sent: Map<string, string>; // patient/code to the value and quality last queued
+  stays?: Record<string, PublishedStay>; // by hospital person
   /** Set by the API sync. A nurse-charted value is then queued again at every assessment, also when it did not change, so its age is true. */
   nurseTimes?: boolean;
 }
