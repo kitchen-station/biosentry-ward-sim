@@ -1,6 +1,6 @@
 // The ward simulation. Plain data, no React, no canvas: it runs headless in tests.
 //
-// Demo-only behaviour, not from the product: the quality gate rule, the 30-minute NOT RANKED
+// Simulation-only behaviour, not from the product: the quality gate rule, the 30-minute NOT RANKED
 // cutoff, and the whole staff response loop. BioSentry itself only ranks and displays.
 
 import { arbitrate, LEVEL, rankWard, type Decision } from "./arbiter";
@@ -24,7 +24,7 @@ export type Quality = "ok" | "degraded" | "missing";
 export type Trend = "rising" | "falling" | "stable" | "insufficient";
 
 const WINDOW_MINUTES = 15;
-const REASSESS_AFTER = 60; // demo value
+const REASSESS_AFTER = 60; // simulation value
 // Routine observation rounds (only with `Sim.rounds`, which the API runner sets). Minimum frequency of observations by NEWS2,
 // RCP 2017 Chart 3: score 0, 12-hourly; 1 to 4, 4 to 6-hourly (the stricter 4 h); a single parameter at 3, or 5 and above, hourly.
 // The dashboard's "Obs due" rule uses the same minutes.
@@ -385,7 +385,7 @@ function maybeQueueAssessment(s: Sim, p: Patient, minute: number) {
   const due =
     level >= 1 &&
     minute - p.lastAssessed >= REASSESS_AFTER &&
-    (level > p.ackLevel || level >= 2); // demo rule: medium and high are seen at least hourly
+    (level > p.ackLevel || level >= 2); // simulation rule: medium and high are seen at least hourly
   // The age of the nurse's set is the age of its oldest part, as the dashboard reads it.
   const setAt = p.bp && p.bpAt !== null ? Math.min(p.nurseAt, p.bpAt) : p.nurseAt;
   const every = p.decision.kind !== "ranked" ? ROUND_UNSCORED_MIN : level >= 1 ? ROUND_EVERY_MIN.raised : p.decision.news2.total === 0 ? ROUND_EVERY_MIN.zero : ROUND_EVERY_MIN.low;
@@ -602,7 +602,7 @@ function stepPhysician(s: Sim, m: Staff, dt: number) {
   }
 }
 
-const HOLD_IF_UNWELL_MIN = 48 * 60; // demo rule: not sent home at NEWS2 5+; moved to higher care after this
+const HOLD_IF_UNWELL_MIN = 48 * 60; // simulation rule: not sent home at NEWS2 5+; moved to higher care after this
 
 function leave(s: Sim, p: Patient, minute: number, outcome: StayOutcome, text: string) {
   s.patients.splice(s.patients.indexOf(p), 1);

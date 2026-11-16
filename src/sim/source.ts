@@ -109,7 +109,7 @@ export interface SavedSource {
 const perVital = <T,>(value: T) =>
   Object.fromEntries(VITALS.map((v) => [v, value])) as Record<Vital, T>;
 
-// MIN_VALID_PER_BIN and STALE_AFTER_S from BioSentry. The 30-minute cutoff is a demo value.
+// MIN_VALID_PER_BIN and STALE_AFTER_S from BioSentry. The 30-minute cutoff is a simulation value.
 export const SYNTHETIC_RULES: GateRules = {
   sampleEveryMin: 1,
   warmupMin: 60,
@@ -160,9 +160,9 @@ const SLOPE: Record<string, Partial<Record<Vital, number>>> = {
   "p-001": { heart_rate: 16, respiratory_rate: 3, spo2: -3, temperature: 0.2 },
 };
 
-// Demo values: the fixture has no reading for these, so the demo invents them.
-const DEMO_CUFF: Record<string, Cuff> = { "p-004": { systolic: 128, diastolic: 76 } };
-const DEMO_BASELINE: Record<string, Record<Vital, number>> = {
+// Stand-in values: the fixture has no reading for these, so the simulation invents them.
+const STANDIN_CUFF: Record<string, Cuff> = { "p-004": { systolic: 128, diastolic: 76 } };
+const STANDIN_BASELINE: Record<string, Record<Vital, number>> = {
   "p-005": { heart_rate: 84, respiratory_rate: 18, spo2: 97, temperature: 36.7 },
 };
 
@@ -193,8 +193,8 @@ export const FIXTURE_SEED = fx.seed;
 
 const SIGNAL_LOST_MIN: Record<string, number> = { "p-011": 20 };
 const NO_PATCH = new Set(["p-005"]);
-// Demo values: the fixture assigns these two patients no physician.
-const DEMO_PHYSICIAN: Record<string, string> = { "p-004": "md-santos", "p-005": "md-aquino" };
+// Stand-in values: the fixture assigns these two patients no physician.
+const STANDIN_PHYSICIAN: Record<string, string> = { "p-004": "md-santos", "p-005": "md-aquino" };
 
 const assignee = (id: string, role: string) =>
   Object.entries(fx.clinicians).find(([, c]) => c.role === role && c.patients.includes(id))?.[0];
@@ -205,7 +205,7 @@ const ROWS = [...fx.ranked, ...fx.unscored];
 const SEATS = ROWS.map((row) => ({
   bed: row.bed,
   rn: assignee(row.id, "rn")!,
-  md: assignee(row.id, "md") ?? DEMO_PHYSICIAN[row.id],
+  md: assignee(row.id, "md") ?? STANDIN_PHYSICIAN[row.id],
   listMd: assignee(row.id, "md") ?? null,
 }));
 
@@ -252,9 +252,9 @@ function anchorsFromFixture(): Record<string, { vitals: Record<Vital, number>; c
   for (const row of ROWS) {
     const vitals = {} as Record<Vital, number>;
     for (const v of VITALS) {
-      vitals[v] = presentValue<number>(row.vitals[v]) ?? DEMO_BASELINE[row.id]?.[v] ?? NaN;
+      vitals[v] = presentValue<number>(row.vitals[v]) ?? STANDIN_BASELINE[row.id]?.[v] ?? NaN;
     }
-    const cuff = presentValue<Cuff>(row.vitals.blood_pressure) ?? DEMO_CUFF[row.id];
+    const cuff = presentValue<Cuff>(row.vitals.blood_pressure) ?? STANDIN_CUFF[row.id];
     out[row.id] = { vitals, cuff };
   }
   return out;

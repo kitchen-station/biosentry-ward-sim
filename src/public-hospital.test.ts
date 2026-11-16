@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -22,8 +22,19 @@ describe("the public page is one page: no switch between worlds", () => {
     expect(app).not.toMatch(/worlds=|hospital\/`|"\/hospital\/"/);
     expect(panels).not.toMatch(/\bWORLDS\b|\bworlds\b|location\.assign/);
   });
-  it("the pages a visitor or a clinician sees never say demo", () => {
-    for (const f of ["src/App.tsx", "src/panels.tsx", "src/open-panels.tsx", "src/open-hospital.ts", "src/hospital-panels.tsx", "src/vital-cards.tsx", "src/person-timeline.tsx"]) expect([f, /demo/i.test(readFileSync(f, "utf8"))]).toEqual([f, false]);
+  it("no source file the public build ships says demo", () => {
+    // Every non-test file under src. Left out, each for a stated reason:
+    //  - src/data/evaluation and src/analytics: the developer build only; the build guard keeps them out of the public build.
+    //  - src/sim/synthetic.json: the other repository's sample ward, copied as it is. Its two "demo" fields are not read by any page (checked below).
+    //  - the dataset's own name, "eICU-CRD Demo".
+    const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
+    const shipped = walk("src").filter((f) => !/\.test\.(ts|tsx|mjs)$/.test(f) && !f.startsWith("src/data/evaluation/") && !f.startsWith("src/analytics/") && f !== "src/sim/synthetic.json");
+    expect(shipped.length).toBeGreaterThan(60);
+    const hits = shipped.filter((f) => /demo/i.test(readFileSync(f, "utf8").replace(/eICU-CRD Demo|eicu-crd-demo/g, "")));
+    expect(hits).toEqual([]);
+    // The fixture's two fields that hold the word are never read: no source names them.
+    const code = shipped.filter((f) => /\.tsx?$/.test(f)).map((f) => readFileSync(f, "utf8")).join("\n");
+    expect(code).not.toMatch(/Mechanism axes|fixture\.[\w.[\]]*mechanism|fx\.[\w.[\]]*mechanism/);
   });
   it("the standalone page, now a developer's page, still says it is simulated in the browser", () => {
     expect(bar({ hospital })).toContain("Simulated in your browser, not the server&#x27;s ward W4");

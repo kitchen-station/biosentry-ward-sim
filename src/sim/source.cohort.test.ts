@@ -129,7 +129,7 @@ describe("one drawing function", () => {
 describe("ids", () => {
   it("no per-id fixture table has a c- id, and a drawn patient gets none of their effects", () => {
     const src = read("./source.ts");
-    const names = ["AF_PATIENTS", "SLOPE", "DEMO_CUFF", "DEMO_BASELINE", "NO_PATCH", "SIGNAL_LOST_MIN", "DEMO_PHYSICIAN"];
+    const names = ["AF_PATIENTS", "SLOPE", "STANDIN_CUFF", "STANDIN_BASELINE", "NO_PATCH", "SIGNAL_LOST_MIN", "STANDIN_PHYSICIAN"];
     const tables = names.map((n) => src.match(new RegExp(`const ${n}\\b[^;]*;`))![0]);
     for (const t of tables) {
       expect(t).not.toMatch(/"c-\d/);

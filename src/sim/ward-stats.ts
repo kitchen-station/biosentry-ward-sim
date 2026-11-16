@@ -1,13 +1,13 @@
 // What the Analytics page keeps while a ward runs: W4's NEWS2 levels per 15 minutes, alerts per shift, finished stays, and
 // (hospital world) the units' hourly counts. Pure: it only reads the Sim, calls no random stream and writes nothing on the
 // Sim or the source. It lives beside the world, not in Sim, so saves and the golden run are unchanged.
-// Synthetic data only. An alert here is a demo line, not a clinical claim.
+// Synthetic data only. An alert here is this page's own line, not a clinical claim.
 import { BEDS } from "./map";
 import { minuteOf, type Sim } from "./sim";
 import { START_CLOCK_MIN, type VitalsSource } from "./source";
 
 export const BIN_MIN = 15;
-export const ALERT_AT = 5; // the demo line: NEWS2 total 5 or more, as compare's rule news2_total_ge_5
+export const ALERT_AT = 5; // this page's alert line: NEWS2 total 5 or more, as compare's rule news2_total_ge_5
 export const REARM_BINS = 16; // quiet bins (4 h) before a patient can alert again; also read by src/compare.ts
 export const WINDOW_AFTER_FULL_MIN = 120; // an episode's window ends this long after the offset is fully in; also read by src/compare.ts
 export const SHIFT_MIN = 720; // 12 h shifts that start at 07:00 and 19:00

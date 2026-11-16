@@ -57,7 +57,7 @@ describe("the Analytics page", () => {
   it("makes each chart a figure with a one-line caption", () => {
     expect(count(html, "<figure")).toBe(11);
     expect(count(html, "<figcaption>")).toBe(11);
-    expect(html).toContain("Alert = NEWS2 5 or more (demo line)");
+    expect(html).toContain("Alert = NEWS2 5 or more (the alert line of this page)");
     expect(html).toContain("Per unit, per hour");
     expect(html).toContain("Counts from the simulator");
   });
@@ -101,7 +101,7 @@ describe("the Analytics page", () => {
     for (const e of summary.episodes!) given.add(String(Math.floor(e.start))); // a start prints as a whole-minute clock time
     // A vital printed by the ward's own formatter (VITAL_CARD digits) from a datum.
     for (const [k, xs] of Object.entries(person.history)) for (const x of xs) if (x !== null) given.add(x.toFixed(VITAL_CARD[k as keyof typeof VITAL_CARD].digits));
-    // Fixed words with digits: names of things, the 3 h window, the demo line, the dashed line at 5.
+    // Fixed words with digits: names of things, the 3 h window, the page's alert line, the dashed line at 5.
     const unitNames = summary.hospital!.units.map((u) => u.name).join("|"); // "Medicine 3A" holds a digit; its unit data is given
     const fixed = text(html).replace(new RegExp(`${unitNames}|W4|NEWS2|SpO2|3 h|NEWS2 5 or more|Dashed line: 5`, "g"), " ");
     const printed = [...fixed.matchAll(/\d+(\.\d+)?/g)].map((m) => m[0]);
@@ -184,7 +184,7 @@ describe("the simulated episodes table", () => {
   });
   it("has the exact label and rule lines, and the empty and missing messages", () => {
     expect(html).toContain("Simulated episode, the simulator&#x27;s ground truth. A real ward never knows this. No outcome shown.");
-    expect(html).toContain(`Alert = NEWS2 5 or more (demo line). Window: start to fully in, plus ${WINDOW_AFTER_FULL_MIN} min.`);
+    expect(html).toContain(`Alert = NEWS2 5 or more (the alert line of this page). Window: start to fully in, plus ${WINDOW_AFTER_FULL_MIN} min.`);
     expect(render("hospital", { ...summary, episodes: [] })).toContain("No simulated episode has started yet.");
     expect(render("hospital", { ...summary, episodes: null })).toContain("Not available here.");
     expect(render("hospital", { ...summary, episodes: null })).not.toContain("<table");

@@ -41,7 +41,7 @@ The ward builds a summary while it runs: `src/sim/ward-stats.ts`. It is pure. It
 
 ## Alerts
 
-An alert here is the demo line: NEWS2 total 5 or more, with the compare runner's re-arm rule (`news2_total_ge_5`). After an alert a patient can alert again only after 16 quiet 15-minute bins (4 h). A missing bin counts as quiet. `REARM_BINS` is defined in `ward-stats.ts` and `src/compare.ts` imports it. A test checks the count equals the compare runner's on the same seeded run. It is a demo line, not a clinical threshold.
+An alert here is this page's own alert line: NEWS2 total 5 or more, with the compare runner's re-arm rule (`news2_total_ge_5`). After an alert a patient can alert again only after 16 quiet 15-minute bins (4 h). A missing bin counts as quiet. `REARM_BINS` is defined in `ward-stats.ts` and `src/compare.ts` imports it. A test checks the count equals the compare runner's on the same seeded run. It is a demo line, not a clinical threshold.
 
 ## Simulated episodes
 
