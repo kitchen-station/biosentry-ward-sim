@@ -3,7 +3,9 @@ import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
 import { floorOf } from "./hospital-panels";
-import { openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
+import { fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, ADMIN_REFRESH_MS, type AdminAnswer, type AdminPatient, type AdminRequest, type AdminRow, type AdminRows, type AdminStay, type AdminUnit } from "./admin-view";
+import { adminFloor, AdminPanel, type Load } from "./admin-panels";
+import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, nextGate, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
@@ -53,7 +55,10 @@ function newWorld(pick: Pick): { s: Sim; src: VitalsSource } {
   return { s: createSim(src), src };
 }
 
-function SignIn({ onToken }: { onToken: (token: string) => void }) {
+/** The API's hospital admin: reads every unit, changes nothing. The passphrase is typed by the person, as for a clinician. */
+const ADMIN_ID = "admin-garcia";
+
+function SignIn({ onToken }: { onToken: (token: string, role: string | null) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -68,8 +73,8 @@ function SignIn({ onToken }: { onToken: (token: string) => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clinician_id: form.get("clinician"), passphrase: form.get("passphrase") }),
       });
-      const token = response.ok ? ((await response.json()) as { token?: unknown }).token : null;
-      if (typeof token === "string") return onToken(token);
+      const answer = response.ok ? ((await response.json()) as { token?: unknown; role?: unknown }) : null;
+      if (typeof answer?.token === "string") return onToken(answer.token, typeof answer.role === "string" ? answer.role : null);
       setError(
         response.status === 401
           ? "Sign-in failed"
@@ -98,6 +103,7 @@ function SignIn({ onToken }: { onToken: (token: string) => void }) {
                 {name}, {title}
               </option>
             ))}
+            <option value={ADMIN_ID}>Hospital admin</option>
           </select>
         </label>
         <label>
@@ -118,11 +124,14 @@ function SignIn({ onToken }: { onToken: (token: string) => void }) {
 export function App() {
   // In memory only: a reload signs out.
   const [token, setToken] = useState<string | null>(null);
+  // The role the API gave at sign-in. An admin keeps the public drawing (the open view) and reads the signed-in routes beside it.
+  const [role, setRole] = useState<string | null>(null);
+  const admin = token !== null && role === "admin";
   // No token in a viewer build: ask the open route once.
   const [gate, setGate] = useState<Gate>("trying");
   const [first, setFirst] = useState<OpenWard | null>(null);
   useEffect(() => {
-    if (!VIEW_API || token !== null || gate !== "trying") return;
+    if (!VIEW_API || (token !== null && !admin) || gate !== "trying") return;
     let off = false;
     void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API }).then((r) => {
       if (off) return;
@@ -130,21 +139,32 @@ export function App() {
       setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));
     });
     return () => void (off = true);
-  }, [token, gate]);
-  const shown = screen(VIEW_API, token, gate, first);
+  }, [token, gate, admin]);
+  const shown = screen(VIEW_API, admin ? null : token, gate, first);
   if (shown === "loading") return <p className="tag">loading</p>;
-  if (shown === "signin") return <SignIn onToken={setToken} />;
+  if (shown === "signin" && !admin) {
+    return (
+      <SignIn
+        onToken={(t, r) => {
+          setToken(t);
+          setRole(r);
+          if (r === "admin") setGate("trying"); // the admin's drawing is the open view: ask for it again
+        }}
+      />
+    );
+  }
   const onSignedOut = () => {
     setToken(null);
+    setRole(null);
     setGate((g) => nextGate(g, "signed_out"));
   };
   const watch = shown === "watch" && first ? { first, onBody: setFirst, onGone: () => setGate((g) => nextGate(g, "poll_gone")), onLeave: () => setGate((g) => nextGate(g, "leave")) } : undefined;
-  return <Ward token={token} onSignedOut={onSignedOut} watch={watch} />;
+  return <Ward token={token} admin={admin} onSignedOut={onSignedOut} watch={watch} />;
 }
 
 type Watch = { first: OpenWard; onBody: (w: OpenWard) => void; onGone: () => void; onLeave: () => void };
 
-function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut: () => void; watch?: Watch }) {
+function Ward({ token, admin, onSignedOut, watch }: { token: string | null; admin: boolean; onSignedOut: () => void; watch?: Watch }) {
   const [pick, setPick] = useState<Pick>(() => parseQuery(window.location.search)); // only the standalone page reads it
   const [world, setWorld] = useState(() => newWorld(pick));
   const statsRef = useRef(createWardStats()); // beside the world, not in it: replaced with the world, fed after every step. A viewer never feeds it.
@@ -281,7 +301,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
 
   // Viewer mode: each answer replaces the drawn ward.
   useEffect(() => {
-    if (!VIEW_API || watch) return;
+    if (!VIEW_API || watch || admin) return; // an admin does not read a unit's live view: that is for the unit's own clinicians
     const read = createReader();
     let off = false;
     let finished: Stay[] = [];
@@ -500,9 +520,73 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   // shortcut: ages assume the run's origin is WARD_START_ISO (every run this runner starts); a run from another source needs a served now on the card
   const wardNowMs = Date.parse(WARD_START_ISO) + (viewClock.has() ? viewClock.read(performance.now()) : world.s.clockS) * 1000;
 
+  // The hospital admin: the signed-in routes, read only. The units now and every 10 s; a unit's rows and history when it is
+  // opened and every 10 s while it is open; a patient's page once per pick. No route is asked faster than that.
+  const [aUnits, setAUnits] = useState<Load<AdminUnit[]>>(null);
+  const [aRows, setARows] = useState<Load<AdminRows>>(null);
+  const [aStays, setAStays] = useState<Load<AdminStay[]>>(null);
+  const [aPick, setAPick] = useState<AdminRow | null>(null);
+  const [aPatient, setAPatient] = useState<Load<AdminPatient>>(null);
+  const aUnit = admin && aUnits !== null && typeof aUnits !== "string" && view !== null ? aUnits.find((u) => adminFloor(u) === view)?.id ?? null : null;
+  const adminAsk = <T,>(ask: (req: AdminRequest) => Promise<AdminAnswer<T>>, set: (v: Load<T>) => void, signal: AbortSignal) =>
+    void ask({ fetch: window.fetch.bind(window), base: VIEW_API!, token: token!, signal }).then((r) => {
+      if (signal.aborted) return;
+      if (r.ok) set(r.body);
+      else if (r.kind === "signed_out") onSignedOut();
+      else set(r.kind === "denied" ? "denied" : "failed");
+    });
+  useEffect(() => {
+    if (!admin) return;
+    const ctl = new AbortController();
+    setAUnits("loading");
+    const ask = () => adminAsk(fetchAdminUnits, setAUnits, ctl.signal);
+    ask();
+    const timer = setInterval(ask, ADMIN_REFRESH_MS);
+    return () => {
+      ctl.abort();
+      clearInterval(timer);
+    };
+  }, [admin]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setARows(null);
+    setAStays(null);
+    setAPick(null);
+    if (!admin || !aUnit) return;
+    const ctl = new AbortController();
+    setARows("loading");
+    setAStays("loading");
+    const ask = () => {
+      adminAsk((req) => fetchAdminRows(req, aUnit), setARows, ctl.signal);
+      adminAsk((req) => fetchAdminStays(req, aUnit), setAStays, ctl.signal);
+    };
+    ask();
+    const timer = setInterval(ask, ADMIN_REFRESH_MS);
+    return () => {
+      ctl.abort();
+      clearInterval(timer);
+    };
+  }, [admin, aUnit]); // eslint-disable-line react-hooks/exhaustive-deps
+  const aPickId = aPick?.id ?? null;
+  useEffect(() => {
+    setAPatient(null);
+    if (!admin || aPickId === null) return;
+    const ctl = new AbortController();
+    setAPatient("loading");
+    adminAsk((req) => fetchAdminPatient(req, aPickId), setAPatient, ctl.signal);
+    return () => ctl.abort();
+  }, [admin, aPickId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A bed picked on the drawing is the patient in that bed, when the open unit's rows hold one; no pick, no patient.
+  useEffect(() => {
+    if (!admin) return;
+    if (selected === null) return setAPick(null);
+    const bed = openBedOf(viewsRef.current, selected, unitsRef.current)?.bed.bed;
+    const row = bed !== undefined && aRows !== null && typeof aRows !== "string" ? aRows.rows.find((r) => r.bed === bed) : undefined;
+    if (row) setAPick(row);
+  }, [admin, selected, aRows]);
+
   // Watching a hospital: a picked bed's card is asked for once. Not polled, not retried; another pick ends a request in flight.
   const [card, setCard] = useState<CardState | null>(null);
-  const cardFor = watch && hosp ? selected : null;
+  const cardFor = watch && hosp && !admin ? selected : null; // an admin reads the signed-in routes, not the public card
   useEffect(() => {
     const pick = openBedOf(viewsRef.current, cardFor, unitsRef.current);
     if (!cardFor || !pick) return setCard(null);
@@ -611,7 +695,8 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         s={world.s}
         src={world.src}
         notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
-        onSignIn={watch?.onLeave}
+        onSignIn={admin ? undefined : watch?.onLeave}
+        admin={admin}
         serverHospital={!!watch && hosp}
         onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}
         readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
@@ -719,7 +804,16 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
         <SidePanel>
-          {watch && hosp ? (
+          {admin ? (
+            <AdminPanel
+              units={aUnits} view={view} rows={aRows} stays={aStays} picked={aPick} patient={aPatient}
+              onView={(floor) => go({ rail: floor })}
+              onPatient={(row) => {
+                setAPick(row);
+                select(row && aUnit ? bedSel(aUnit, row.bed) : null); // the drawing goes to the bed, where it has one
+              }}
+            />
+          ) : watch && hosp ? (
             <OpenHospitalPanel units={units} views={views} view={view} selected={selected} speed={world.s.speed} card={card} nowMs={wardNowMs} onView={(floor) => go({ rail: floor })} onSelect={select} />
           ) : (
             <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} vitals={vitals} />
@@ -728,7 +822,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
-        {world.s.hospital && <span>{watch ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
+        {world.s.hospital && <span>{admin ? "Synthetic patients. Hospital admin: every unit, read-only." : watch ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
       </footer>
     </div>
   );

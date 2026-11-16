@@ -28,6 +28,18 @@ Code: `src/open-hospital.ts` (pure) and `src/open-panels.tsx`. Tests: `src/open-
 - Rule 5: the three requests above are all open routes; no other route is called without a token.
 - Rule 6 for these units: a bed label that passed the label pattern is shown as a text node in the list and the card, and is sent back as one encoded path part of the bed's own open route. A unit's name and a card's reason are text nodes too. None is ever used as HTML, a link, a selector or a style.
 
+## The hospital admin (signed in)
+
+Code: `src/admin-view.ts` (pure) and `src/admin-panels.tsx`. Tests: `src/admin-view.test.tsx`. Owner decision orch-h11.
+
+- The sign-in list has one more entry, "Hospital admin". The passphrase is typed by the person. The role comes from the API's answer to the sign-in, never from the entry picked.
+- A reader with the admin role keeps the public drawing (the open view, asked without the token, as for a watcher) and gets the side panel "Hospital admin": every unit with its patient count; a unit's patients with name, bed, NEWS2 score, rank, trend and the five vitals; the unit's history (stays that ended, newest first); one patient's page with each vital's source and age. The top bar says "Hospital admin" and "Read-only".
+- Routes, with the token: `GET /wards` (at sign-in and every 10 s), `GET /wards/{unit}/rows` and `GET /wards/{unit}/stays` (when a unit is opened and every 10 s while it is open), `GET /patients/{id}` (once per pick). Nothing is asked faster than that. A 401 signs the reader out.
+- Read-only: the panel has no control, the top bar has only "Sign out", and the admin's page never reads a unit's live view (`/wards/{unit}/live` is for the unit's own clinicians), so it never learns `can_control`.
+- A row with no vitals in the answer says "Vitals not served yet." and shows none. Today that is every ER and intensive care row. A value the server marks absent shows as "none". Nothing is filled in.
+- Ages are measured against the `now` the route serves, so they hold for any run.
+- A clinician's page is unchanged.
+
 ## The nine rules (wire contract, section 9.1), and where they are tested
 
 1. No credential to the open route: `credentials: "omit"`, no `headers` key at all (a simple GET), `redirect: "error"`.

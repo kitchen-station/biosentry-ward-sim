@@ -192,7 +192,7 @@ The numbers, the limits and a worked example with real output are in [docs/compa
 
 A build with `VITE_VIEW_API_URL` set is a viewer. It never makes a ward: a clinician signs in, and the page draws what the headless runner publishes, read from `GET /wards/W4/live` every 2 seconds.
 
-With no token, the viewer first asks `GET /wards/W4/open-view`; while the answer stays valid it asks again 2 s after each answer. If the API answers a valid body, the page shows the ward read-only ("watching") with no controls and no names. Anything else shows the sign-in form. See [docs/open-view.md](docs/open-view.md).
+A reader who signs in as "Hospital admin" (the API's admin role) sees every unit read-only: names, NEWS2, vitals and each unit's history, from the signed-in routes; see [docs/open-view.md](docs/open-view.md). With no token, the viewer first asks `GET /wards/W4/open-view`; while the answer stays valid it asks again 2 s after each answer. If the API answers a valid body, the page shows the ward read-only ("watching") with no controls and no names. Anything else shows the sign-in form. See [docs/open-view.md](docs/open-view.md).
 
 The viewer page has no link to another page. The standalone hospital page (the page's own made-up hospital, run in the browser, labelled "Simulated in your browser, not the server's ward W4") is no longer built or uploaded by the deploy job; it is what `npm run dev` shows with no `VITE_` value set. Watching with no token while the server runs ward W4 alone, the side panel says what the page is, explains the speed ("1 minute here is 10 ward minutes"), links the dashboard, and lists the beds, highest rank first, with colour, rank and risk word only; a row selects the bed and shows the same, with no name and no vitals.
 

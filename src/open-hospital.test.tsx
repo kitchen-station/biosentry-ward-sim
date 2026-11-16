@@ -321,7 +321,7 @@ describe("the page's wiring", () => {
 
   it("asks for a card once per pick: in an effect of the pick alone, never on a timer, and a new pick ends the old request", () => {
     expect(app.match(/fetchOpenCard\(/g)).toHaveLength(1);
-    const i = app.indexOf("const cardFor = watch && hosp ? selected : null;");
+    const i = app.indexOf("const cardFor = watch && hosp && !admin ? selected : null;"); // a signed-in admin reads the signed-in routes instead
     const effect = app.slice(i, app.indexOf("}, [cardFor]);", i));
     expect(i).toBeGreaterThan(-1);
     expect(effect).toContain("fetchOpenCard(");

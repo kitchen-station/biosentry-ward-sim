@@ -116,11 +116,14 @@ export function TopBar({
   onSpeed,
   hospital,
   serverHospital = false,
+  admin = false,
   readClock,
   page,
 }: {
   s: Sim;
   src: VitalsSource;
+  /** Signed in with the admin role: the bar says so, and that the view is read-only. */
+  admin?: boolean;
   /** Watching the server's run and it is a whole hospital: the bar names the hospital, not ward W4. */
   serverHospital?: boolean;
   /** Viewer mode: the clock runs on between reads (see clock.ts). Left out, the clock reads the sim itself. */
@@ -144,6 +147,8 @@ export function TopBar({
       <h1>BioSentry ward sim</h1>
       <span className="pill">{hospital || serverHospital ? "Hospital" : "W4"}</span>
       {serverHospital && <span className="tiny">Server clock</span>}
+      {admin && <span className="pill solid">Hospital admin</span>}
+      {admin && <span className="pill">Read-only</span>}
       {hospital && <span className="pill" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
       {page && (
         <nav aria-label="View">
