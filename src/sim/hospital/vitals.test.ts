@@ -482,13 +482,26 @@ describe("scans", () => {
   const all = files("src");
 
   const imports = (f: string) => /from\s+["'][^"']*\bvitals["']/.test(readFileSync(f, "utf8"));
-  it("is imported only by the page: App.tsx, the two panel files and the person timeline (display only)", () => {
+  it("is imported only by the page (App.tsx, the two panel files, the person timeline) and by the runner (headless.ts, publish.ts); display only", () => {
     const importers = all.filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.endsWith("hospital/vitals.ts") && imports(f));
-    expect(importers).toEqual(["src/App.tsx", "src/hospital-panels.tsx", "src/panels.tsx", "src/person-timeline.tsx"]);
-    for (const named of ["src/headless.ts", "src/trial.ts", "src/hospital-trial.ts", "src/compare.ts", "src/lab-worker.ts", "src/sim/trial.ts", "src/sim/hospital/trial.ts"]) {
+    expect(importers).toEqual(["src/App.tsx", "src/headless.ts", "src/hospital-panels.tsx", "src/panels.tsx", "src/person-timeline.tsx", "src/sim/hospital/publish.ts"]);
+    for (const named of ["src/trial.ts", "src/hospital-trial.ts", "src/compare.ts", "src/lab-worker.ts", "src/sim/trial.ts", "src/sim/hospital/trial.ts"]) {
       expect(all).toContain(named);
       expect(imports(named)).toBe(false);
     }
+  });
+
+  // A write through the hospital (h), the engine (v), a person's stream (pv), the sim (s) or a person (q): an assignment, a mutating call or a delete.
+  const WRITES = /\b(h|v|pv|s|q)\.[\w.]+\s*(=(?!=)|\+=|-=|\+\+|--)|\b(h|v|pv|s|q)\.[\w.]*\.(push|pop|shift|unshift|splice|sort|reverse|set|delete|clear)\(|\bdelete\s+(h|v|pv|s|q)\b/;
+  it("the publisher's own guard catches each kind of write it is meant to catch", () => {
+    for (const bad of ["pv.bins.push(x)", "h.people.shift()", "delete v.live", "s.clockS = 1", "q.where += 1", "v.live.delete(id)", "pv.reads++", "h.events.splice(0, 1)", "s.log.sort()"]) expect(bad).toMatch(WRITES);
+    for (const ok of ["const out = s.outbox;", "for (const pv of v.live.values())", "h.people.find((x) => x.id === a)", "out.admissions.push(x)", "delete stays[person];", "if (a == b) return"]) expect(ok).not.toMatch(WRITES);
+  });
+
+  it("the runner's publisher reads the engine and the hospital and writes only the outbox: no write through h, v, pv, s or q, no random draw", () => {
+    const text = readFileSync("src/sim/hospital/publish.ts", "utf8");
+    expect(text).not.toMatch(WRITES);
+    expect(text).not.toMatch(/Math\.random|stream\(/);
   });
 
   it("imports only the pure pieces: no module that writes a Sim, and only a few names from sim.ts", () => {

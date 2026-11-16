@@ -9,6 +9,8 @@ import { applyAction } from "./sim/actions";
 import { applyCommand, clinicianName, freshWard } from "./sim/commands";
 import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
 import { freshHospital } from "./sim/hospital/fresh";
+import { publishHospital } from "./sim/hospital/publish";
+import { createVitals, feedVitals } from "./sim/hospital/vitals";
 import { loadWard, saveWard } from "./sim/persist";
 import { minuteOf, say, step, type Speed } from "./sim/sim";
 import { createSync, STOP_TEXT } from "./sim/sync";
@@ -40,6 +42,8 @@ if (refused) {
 }
 // WARD_SPEED is the starting speed: a saved ward resumes at the speed it had, which a clinician may have changed.
 let { s, src } = saved ?? (hospital ? freshHospital(speed) : freshWard(speed));
+// Hospital mode: the vitals engine for everyone outside W4, display only. It is not saved: a restart builds it again from the hospital.
+let vitals = createVitals();
 s.rounds = true; // the deployed ward: nurses re-take observations on the NEWS2 schedule (also for a ward saved before this existed)
 // A fixed client id: a runner that begins a new ward replaces its own run at once instead of waiting out the old one.
 const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch });
@@ -102,7 +106,11 @@ setInterval(() => {
   const now = performance.now();
   spare += (now - last) / 1000; // a late timer or a suspended host is caught up, so sim minutes stay on the wall clock
   last = now;
-  for (; spare >= TICK; spare -= TICK) step(s, src);
+  for (; spare >= TICK; spare -= TICK) {
+    step(s, src);
+    if (hospital) feedVitals(vitals, s.hospital!, s.clockS);
+  }
+  if (hospital) publishHospital(s, vitals); // reads from this interval, sent as that unit's patients
   void flush();
 }, 1000);
 // What the page in viewer mode draws. Every 2 s, as often as it polls.
@@ -111,6 +119,7 @@ setInterval(() => void sync.publish(view(s)), 2000);
 async function reset(by: string) {
   const fresh = hospital ? freshHospital(s.speed) : freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
   fresh.s.rounds = true;
+  vitals = createVitals(); // an old engine fed a new world would reuse its streams
   const starting = sync.start(fresh.s, fresh.src);
   [s, src] = [fresh.s, fresh.src];
   say(s, `${clinicianName(by)} reset the ward`);
