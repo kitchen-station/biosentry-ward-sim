@@ -195,7 +195,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
       </Fig>
       <Fig
         name="Alerts per patient per shift"
-        caption={lastShift ? `Alert = NEWS2 5 or more (demo line). Last shift: ${n(lastShift.alerts)} alerts, ${n(lastShift.patientMin)} patient-min${lastShift.partial ? ", part shift" : ""}.` : NO_DATA}
+        caption={lastShift ? `Alert = NEWS2 5 or more (the alert line of this page). Last shift: ${n(lastShift.alerts)} alerts, ${n(lastShift.patientMin)} patient-min${lastShift.partial ? ", part shift" : ""}.` : NO_DATA}
         note={empty(shifts.length)}
       >
         <StackedBars
@@ -229,7 +229,7 @@ function Episodes({ mode, sum, label }: { mode: Mode; sum: WardSummary | null; l
   return (
     <>
       <p>Simulated episode, the simulator&apos;s ground truth. A real ward never knows this. No outcome shown.</p>
-      <p>Alert = NEWS2 5 or more (demo line). Window: start to fully in, plus {WINDOW_AFTER_FULL_MIN} min.</p>
+      <p>Alert = NEWS2 5 or more (the alert line of this page). Window: start to fully in, plus {WINDOW_AFTER_FULL_MIN} min.</p>
       {!Array.isArray(all) ? (
         <p>Not available here.</p>
       ) : rows.length === 0 ? (

@@ -1,5 +1,5 @@
 // The escalation arbiter: the only component allowed to change displayed priority.
-// Ported from BioSentry rules 1 and 5. Tier B, Tier C and notes hooks are not part of this demo.
+// Ported from BioSentry rules 1 and 5. Tier B, Tier C and notes hooks are not part of this simulation.
 
 import type { InputName, InputProblem, News2Result, News2Score, Risk } from "./news2";
 

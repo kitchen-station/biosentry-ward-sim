@@ -20,7 +20,7 @@ export const NAMED: Named[] = [
   { id: "calm", label: "Calm, fully staffed", sentence: "Fewer arrivals and the DOH staffing standard.", file: "doh-standard", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
   { id: "surge", label: "Surge", sentence: "More arrivals than typical, same staff.", file: "surge", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
   { id: "more-nurses", label: "More ward nurses (DOH ward staffing)", sentence: "The typical hospital with the ward nurse counts of the DOH standard and nothing else changed, ready for a compare.", file: "more-nurses", seed: HOSPITAL_SEED, vitalsSeed: FIXTURE_SEED },
-  // shortcut: judgement, a chosen demonstration group, not a ward rate; change only with a cited source
+  // shortcut: judgement, a chosen group for showing, not a ward rate; change only with a cited source
   { id: "critical", label: "Critical group", sentence: "Chosen group: 4 of 12 are made to start a simulated deterioration in the first 6 hours; others may start one by chance. Not a ward rate.", file: "typical", seed: HOSPITAL_SEED, vitalsSeed: 20261114, critical: { count: 4, withinMin: 360 } },
 ];
 export const DEFAULT_ID = "pitch";
