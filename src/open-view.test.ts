@@ -376,12 +376,16 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     before(app(), 'if (!VIEW_API || token !== null || gate !== "trying") return;', "fetchOpenWard(");
   });
 
-  it("click, hover and the select list are off while watching", () => {
+  it("watching the ward alone, click and hover are off; watching a hospital, a click picks a floor or a bed in use and nothing else; the select list is off", () => {
     const a = app();
     const click = a.slice(a.indexOf("onClick={(e) => {"), a.indexOf("onPointerDown"));
-    before(click, "if (watch) return", "targetAt(e)");
+    before(click, "if (watch && !hosp) return", "targetAt(e)");
+    // A watcher's hit is cut down to a floor or a bed of the open answers before anything is selected.
+    before(click, 'const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit;', "select(id)");
+    before(click, 'const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit;', "go(");
+    expect(click).not.toMatch(/send\(|sendCommand|fetch\(/); // selecting only: a click never asks the server for anything
     const move = a.slice(a.indexOf("onMouseMove="), a.indexOf("/>", a.indexOf("onMouseMove=")));
-    before(move, "if (watch) return", "targetAt(e)");
+    before(move, "if (watch && !hosp) return", "targetAt(e)");
     expect(a).toContain("{!watch && selectList}");
     expect(a.match(/\{selectList\}/g)).toBeNull();
   });
