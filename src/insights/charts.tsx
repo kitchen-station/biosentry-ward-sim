@@ -14,7 +14,6 @@ const soft = "var(--ink-300)";
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? clamp(v, -BIG, BIG) : null);
-const slotW = (n: number) => (W - 2 * PAD) / Math.max(1, n);
 const f = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : "0.0");
 
 function Skipped({ x, w, h, id }: { x: number; w: number; h: number; id: string }) {
@@ -138,20 +137,33 @@ export function ObsChart({ values, lo, hi, bands, ticks, unit, digits = 0, times
   );
 }
 
-/** Bars of stacked parts (bottom first). `scale` is the full height: the tallest bar if left out. Each bar may carry a title. */
-export function StackedBars({ bars, colors, label, height = 90, scale, faded = [] }: { bars: Slot<{ parts: number[]; title?: string }>[]; colors: string[]; label: string; height?: number; scale?: number; faded?: number[] }) {
+/** A number for an axis: whole as it is, otherwise two decimals at most. */
+export const axisNumber = (v: number) => String(Number(v.toFixed(2)));
+
+/**
+ * Bars of stacked parts (bottom first). `scale` is the full height: the tallest bar if left out. Each bar may carry a title.
+ * The axis is numbered: 0 and the full height. `unit` names what the height counts.
+ */
+export function StackedBars({ bars, colors, label, height = 90, scale, faded = [], unit }: { bars: Slot<{ parts: number[]; title?: string }>[]; colors: string[]; label: string; height?: number; scale?: number; faded?: number[]; unit?: string }) {
   const id = useHatch();
+  const L = 22; // room for the axis numbers
+  const T = 10;
   const n = bars.length;
   const clean = bars.map((b) => (b && b !== "skip" ? { ...b, parts: b.parts.map((p) => clamp(num(p) ?? 0, 0, BIG)) } : b));
   const sums = clean.map((b) => (b && b !== "skip" ? b.parts.reduce((a, x) => a + x, 0) : 0));
   const top = num(scale) ?? Math.max(1, ...sums);
-  const w = slotW(n);
+  const w = (W - L - PAD) / Math.max(1, n);
+  const full = height - PAD - T;
   return (
     <svg viewBox={`0 0 ${W} ${height}`} role="img" aria-label={label} className="chart">
       <Hatch id={id} />
-      <line x1={PAD} x2={W - PAD} y1={height - PAD} y2={height - PAD} stroke={ink} strokeWidth={1} />
+      <line x1={L} x2={L} y1={T} y2={height - PAD} stroke={ink} strokeWidth={1} />
+      <line x1={L} x2={W - PAD} y1={height - PAD} y2={height - PAD} stroke={ink} strokeWidth={1} />
+      <text x={L - 3} y={height - 1} fontSize={8} textAnchor="end" fill={ink}>0</text>
+      <text x={L - 3} y={T + 3} fontSize={8} textAnchor="end" fill={ink}>{axisNumber(top)}</text>
+      {unit && <text x={L + 2} y={8} fontSize={8} fill={ink}>{unit}</text>}
       {clean.map((b, i) => {
-        const x = PAD + i * w;
+        const x = L + i * w;
         if (b === "skip") return <Skipped key={i} id={id} x={x} w={w} h={height} />;
         if (b === null) return null;
         let base = height - PAD;
@@ -159,7 +171,7 @@ export function StackedBars({ bars, colors, label, height = 90, scale, faded = [
           <g key={i} opacity={faded.includes(i) ? 0.5 : 1}>
             {b.title && <title>{b.title}</title>}
             {b.parts.map((p, k) => {
-              const h = clamp((p / Math.max(top, 1e-9)) * (height - 2 * PAD), 0, height - 2 * PAD);
+              const h = clamp((p / Math.max(top, 1e-9)) * full, 0, full);
               base = Math.max(0, base - h);
               return h > 0 ? <rect key={k} x={f(x + w * 0.1)} y={f(base)} width={f(Math.max(w * 0.8, 1))} height={f(h)} fill={colors[k]} /> : null;
             })}
@@ -170,17 +182,24 @@ export function StackedBars({ bars, colors, label, height = 90, scale, faded = [
   );
 }
 
-/** Dots on one axis, left to right by `at` (0 to 1) and in `rows` rows, so close ones do not hide each other. */
-export function Strip({ dots, rows = 4, label, height = 60 }: { dots: { at: number; row: number; color: string; title: string }[]; rows?: number; label: string; height?: number }) {
-  const step = (height - 2 * PAD - 8) / Math.max(1, rows - 1);
+/** Dots on one axis, left to right by `at` (0 to 1) and in `rows` rows, so close ones do not hide each other. `ends`: what the left and right ends of the axis are. */
+export function Strip({ dots, rows = 4, label, height = 60, ends }: { dots: { at: number; row: number; color: string; title: string }[]; rows?: number; label: string; height?: number; ends?: [string, string] }) {
+  const B = ends ? 12 : PAD;
+  const step = (height - PAD - B - 8) / Math.max(1, rows - 1);
   return (
     <svg viewBox={`0 0 ${W} ${height}`} role="img" aria-label={label} className="chart">
-      <line x1={PAD} x2={W - PAD} y1={height - PAD} y2={height - PAD} stroke={ink} strokeWidth={1} />
+      <line x1={PAD} x2={W - PAD} y1={height - B} y2={height - B} stroke={ink} strokeWidth={1} />
       {dots.map((d, i) => (
         <circle key={i} cx={f(PAD + 4 + clamp(num(d.at) ?? 0, 0, 1) * (W - 2 * PAD - 8))} cy={f(PAD + 4 + (Math.abs(d.row) % rows) * step)} r={3} fill={d.color} stroke={ink} strokeWidth={0.5}>
           <title>{d.title}</title>
         </circle>
       ))}
+      {ends && (
+        <>
+          <text x={PAD} y={height - 2} fontSize={8} fill={ink}>{ends[0]}</text>
+          <text x={W - PAD} y={height - 2} fontSize={8} textAnchor="end" fill={ink}>{ends[1]}</text>
+        </>
+      )}
     </svg>
   );
 }

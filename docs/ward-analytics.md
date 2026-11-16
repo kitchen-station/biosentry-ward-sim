@@ -50,8 +50,21 @@ Ours, not the RCP's (no published rule was found for these; they are design choi
 - A limit's number is printed only where it has room; every limit still has its mark.
 - SpO2 is drawn on scale 1 only.
 - Count charts (beds in use, people read) have a numbered axis from 0, name what they count and print the last value. They no longer zoom to their own range.
+- Bar charts (in and out, NEWS2 levels, alerts per shift) number their axis: 0 and the tallest bar, with what the height counts. The alerts chart names its rule on the chart: "alert = NEWS2 5 or more". Length of stay has its ends labelled in days.
 - A stay's score line prints "last, low, high" and how many hourly scores it holds.
 - The heart trace is drawn from the heart rate. It says "Illustration, not a recording" on the strip itself.
+
+## Which panel reads what
+
+| Panel | The developer's page (its own engine) | Signed in, watching the server |
+|---|---|---|
+| Hospital: beds in use, in and out | the engine's hourly rows | **not served** (one line says so) |
+| Every unit: NEWS2 levels, intensive care | the vitals engine | not shown |
+| Ward W4: NEWS2 levels, alerts per shift, beds in use, length of stay | the page's own statistics | **not served** (each chart says so) |
+| Simulated episodes | the simulator's truth | not shown |
+| Person: NEWS2 by hour, what happened, vitals | the page's patients | **served**: the patient views of the live view |
+
+No panel shows the browser engine's numbers while the page watches the server. The page says "Not served", never "No data yet", when the server does not send a number: "No data yet" is for a run that has not produced it yet. What the server would have to serve for the middle rows: per unit and hour, beds in use, admitted, discharged, transferred in and out, and the count at each NEWS2 level; per 12-hour shift, alerts and patient-minutes; and finished stays with their in and out minutes.
 
 ## Where the data comes from
 
@@ -88,7 +101,7 @@ If the clock jumps and the page is not fed (the Entrance panel's Skip 1 day), th
 
 - Hospital world: all sections.
 - Ward-only standalone build: the Hospital section is one line, "This page simulates ward W4 only."
-- Viewer build, signed in: the page does not run its own simulation and never shows its own world's numbers. The Hospital section is one line, "The runner runs ward W4 only." The Ward charts each say "Not available from the runner yet", because the runner sends no totals. The Person charts use the patient views the page already has from its `/live` reads. The page adds no request; the open view's poll continues as before.
+- Viewer build, signed in: the page does not run its own simulation and never shows its own world's numbers. The Hospital section is one line, "Not served: the server runs the whole hospital, but sends this page no totals per unit and hour." The Ward charts each say "Not served: the server sends this page no hourly totals". The Person charts use the patient views the page already has from its `/live` reads. The page adds no request; the open view's poll continues as before.
 - Viewer build, watching with no token: only "Sign in to see ward analytics" and the "Sign in to control" button. No request is made.
 
 ## Page and run

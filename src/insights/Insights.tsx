@@ -7,7 +7,7 @@ import { RISK_LIGHT } from "../render/draw";
 import type { Patient } from "../sim/sim";
 import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
 import { OBS, obsSpans, SCORE_COLOUR, TOTAL, type ObsVital } from "../obs-bands";
-import { LineChart, ObsChart, StackedBars, Strip, type Slot } from "./charts";
+import { axisNumber, LineChart, ObsChart, StackedBars, Strip, type Slot } from "./charts";
 
 export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history"> & Partial<Pick<Patient, "bpHistory">>;
 /** hospital: the standalone hospital world. ward: a standalone W4 only. viewer: the runner's ward, whose totals this page does not have. */
@@ -22,7 +22,8 @@ export interface VitalsView {
 
 const NO_DATA = "No data yet";
 const NO_STAY = "No finished stay yet (stays that began before the run are not counted)";
-const NOT_YET = "Not available from the runner yet";
+// Watching the server: the server sends this page no totals over time, so the page says so. It never shows its own engine's numbers there.
+const NOT_YET = "Not served: the server sends this page no hourly totals";
 const LEVELS = ["low", "low_medium", "medium", "high", "not_ranked"] as const;
 const LEVEL_NAME: Record<(typeof LEVELS)[number], string> = { low: "low", low_medium: "low-medium", medium: "medium", high: "high", not_ranked: "not ranked" };
 const LEVEL_COLOR = [RISK_LIGHT.low, RISK_LIGHT.low_medium, RISK_LIGHT.medium, RISK_LIGHT.high, "var(--ink-300)"];
@@ -78,7 +79,7 @@ const placeWord = (id: string) => (id === "MORGUE" ? "places" : "beds"); // the 
 
 function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
   if (mode === "ward") return <p>This page simulates ward W4 only.</p>;
-  if (mode === "viewer") return <p>The runner runs ward W4 only.</p>;
+  if (mode === "viewer") return <p>Not served: the server runs the whole hospital, but sends this page no totals per unit and hour.</p>;
   const h = sum?.hospital;
   const units = arr(h?.units);
   const note = arr(h?.hours).length === 0 || units.length === 0 ? NO_DATA : undefined;
@@ -121,7 +122,7 @@ function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
             <div key={u.id} className="unit">
               <span>{u.name}</span>
               <Legend names={er ? [...FLOW_NAME, "arrivals"] : FLOW_NAME} colors={er ? [...FLOW_COLOR, "var(--ink-900)"] : FLOW_COLOR} />
-              <StackedBars bars={bars} colors={er ? [...FLOW_COLOR, "var(--ink-900)"] : FLOW_COLOR} label={`${u.name} in and out`} height={50} />
+              <StackedBars bars={bars} colors={er ? [...FLOW_COLOR, "var(--ink-900)"] : FLOW_COLOR} label={`${u.name} in and out`} height={56} unit="people per day" />
             </div>
           );
         })}
@@ -155,7 +156,8 @@ function EveryUnit({ sum, vitals }: { sum: WardSummary | null; vitals: VitalsVie
               bars={withGaps(rowsOf(id), (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : { parts: LEVELS.map((k) => r[k]), title: LEVELS.map((k) => `${LEVEL_NAME[k]} ${n(r[k])}`).join(", ") }))}
               colors={LEVEL_COLOR}
               label={`${name(id)} NEWS2 levels per hour`}
-              height={50}
+              height={56}
+              unit="people"
             />
             <span>
               {UNIT_LABEL[id]}
@@ -192,7 +194,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
         note={empty(rows.length)}
       >
         <Legend names={LEVELS.map((k) => LEVEL_NAME[k])} colors={LEVEL_COLOR} />
-        <StackedBars bars={hourly.map((r) => (r === "skip" || r === null ? r : { parts: LEVELS.map((k) => r[k]), title: LEVELS.map((k) => `${LEVEL_NAME[k]} ${n(r[k])}`).join(", ") }))} colors={LEVEL_COLOR} label="NEWS2 levels per hour" scale={Math.max(1, ...rows.map((r) => r.beds))} />
+        <StackedBars bars={hourly.map((r) => (r === "skip" || r === null ? r : { parts: LEVELS.map((k) => r[k]), title: LEVELS.map((k) => `${LEVEL_NAME[k]} ${n(r[k])}`).join(", ") }))} colors={LEVEL_COLOR} label="NEWS2 levels per hour" unit="people" scale={Math.max(1, ...rows.map((r) => r.beds))} />
       </Fig>
       <Fig
         name="Alerts per patient per shift"
@@ -203,6 +205,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
           bars={shifts.map((x) => ({ parts: [rate(x)], title: `${n(x.alerts)} alerts, ${n(x.patientMin)} patient-min${x.partial ? ", part shift" : ""}` }))}
           colors={["var(--ink-700)"]}
           label="Alerts per patient per shift"
+          unit="alerts per patient per 12 h shift (alert = NEWS2 5 or more)"
           faded={shifts.flatMap((x, i) => (x.partial ? [i] : []))}
         />
       </Fig>
@@ -214,6 +217,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
         <Strip
           dots={stays.map((x, i) => ({ at: lens[i] / longest, row: i, color: OUTCOME_COLOR[x.outcome], title: `${x.outcome === "discharged" ? "discharged" : "higher care"}, in ${n(x.inMin)}, out ${n(x.outMin)}` }))}
           label="Length of stay"
+          ends={["0 days", `${axisNumber(longest / 1440)} days`]}
         />
       </Fig>
     </>

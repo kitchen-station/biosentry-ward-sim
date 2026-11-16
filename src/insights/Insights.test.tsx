@@ -1,3 +1,4 @@
+import { axisNumber } from "./charts";
 import { OBS, TOTAL } from "../obs-bands";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -117,6 +118,23 @@ describe("the Analytics page", () => {
     for (const spec of Object.values(OBS)) for (const b of spec.bands) if (b.upTo !== null) given.add(b.upTo.toFixed(spec.step < 1 ? 1 : 0));
     for (const m of [TOTAL.lo, TOTAL.mediumFrom, TOTAL.highFrom, TOTAL.hi]) given.add(String(m));
     given.add("0"); // a count chart's axis starts at 0
+    // A bar chart's axis top is the tallest bar: a sum the chart makes from given parts. The same sums, made here.
+    const tops = (rows: number[][]) => given.add(axisNumber(Math.max(1, ...rows.map((r) => r.reduce((a, x) => a + x, 0)))));
+    const LV = ["low", "low_medium", "medium", "high", "not_ranked"] as const;
+    tops(summary.levels!.filter((r) => r.m % 60 === 0).map((r) => LV.map((k) => r[k])));
+    for (const id of new Set(vitals.hourly.map((r) => r.unit))) tops(vitals.hourly.filter((r) => r.unit === id).map((r) => LV.map((k) => r[k])));
+    for (const u of summary.hospital!.units) {
+      const days = new Map<number, number[]>();
+      for (const r of summary.hospital!.hours.filter((x) => x.unit === u.id)) {
+        const d = days.get(Math.floor(r.hour / 24)) ?? [0, 0, 0, 0, 0];
+        [r.admitted_in, r.discharged, r.transferred_in, r.transferred_out, r.arrivals].forEach((v, i) => (d[i] += v));
+        days.set(Math.floor(r.hour / 24), d);
+      }
+      tops([...days.values()].map((d) => (u.id === "ER" ? d : d.slice(0, 4))));
+    }
+    given.add(axisNumber(Math.max(1, ...summary.shifts!.map((x) => (x.patientMin === 0 ? 0 : (x.alerts * 720) / x.patientMin))))); // the alert rate's top
+    given.add(axisNumber(Math.max(1, ...summary.stays!.map((x) => x.outMin - x.inMin)) / 1440)); // the longest stay, in days
+    given.add("12"); // "per 12 h shift", a fixed word
     const fixed = text(html)
       .replace(/\d+(\.\d+)? (h|min) ago/g, " ")
       .replace(new RegExp(`${unitNames}|W4|NEWS2|SpO2 \\(scale 1\\)|SpO2|3 h|NEWS2 5 or more|Orange: 5 or 6 \\(medium\\)|Red: 7 or more \\(high\\)|yellow 1, orange 2, red 3`, "g"), " ");
@@ -140,10 +158,11 @@ describe("the Analytics page", () => {
     expect(ward).not.toContain("Emergency");
   });
 
-  it("shows Not available from the runner yet for the hospital and ward charts in the viewer, and still draws the person", () => {
+  it("says Not served for the hospital and ward charts when watching the server, and still draws the person from what is served", () => {
     const viewer = render("viewer", null);
-    expect(count(viewer, "Not available from the runner yet")).toBe(4); // the four ward charts
-    expect(count(viewer, "The runner runs ward W4 only.")).toBe(1); // one line for the whole Hospital section
+    expect(count(viewer, "Not served: the server sends this page no hourly totals")).toBe(4); // the four ward charts
+    expect(count(viewer, "Not served: the server runs the whole hospital, but sends this page no totals per unit and hour.")).toBe(1); // one line for the whole Hospital section
+    expect(viewer).not.toMatch(/runs ward W4 only|from the runner yet/); // the server runs the whole hospital now
     expect(viewer).not.toContain("Emergency");
     expect(viewer).toContain("Last score: 3");
     expect(viewer).not.toContain("No data yet");
