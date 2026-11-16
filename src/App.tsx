@@ -9,7 +9,7 @@ import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPo
 import { openOps } from "./open-ops";
 import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
-import { fetchOpenCard, fetchOpenWard, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
+import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
@@ -133,25 +133,49 @@ export function App() {
   const [gate, setGate] = useState<Gate>("trying");
   const [first, setFirst] = useState<OpenWard | null>(null);
   const [probe, setProbe] = useState<"down" | "gone" | null>(null); // why the last ask of the open view failed
+  const [fails, setFails] = useState(0); // first asks in a row, with nobody signed in, that found the server not reachable
   useEffect(() => {
     if (!VIEW_API || (token !== null && !admin) || gate !== "trying") return;
     let off = false;
-    void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API }).then((r) => {
-      if (off) return;
-      if (r.ok) setFirst(r.body);
-      setProbe(r.ok ? null : r.kind);
-      setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));
-    });
-    return () => void (off = true);
-  }, [token, gate, admin]);
+    const ask = () =>
+      void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API!, timeoutMs: FIRST_ASK_TIMEOUT_MS }).then((r) => {
+        if (off) return;
+        if (r.ok) setFirst(r.body);
+        setProbe(r.ok ? null : r.kind);
+        // Not reachable, and nobody signed in: the page says so and asks again after a wait. It never falls to a bare sign-in form.
+        if (!r.ok && r.kind === "down" && !admin) return setFails((n) => n + 1);
+        setFails(0);
+        setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));
+      });
+    const timer = setTimeout(ask, fails === 0 ? 0 : firstAskWaitMs(fails)); // never sooner than 5 s after a failure
+    return () => {
+      off = true;
+      clearTimeout(timer);
+    };
+  }, [token, gate, admin, fails]);
   const shown = screen(VIEW_API, admin ? null : token, gate, first);
-  if (shown === "loading") return <p className="tag">loading</p>;
+  if (shown === "loading") {
+    if (fails === 0 || token !== null) return <p className="tag">loading</p>;
+    return (
+      <div className="app">
+        <header className="topbar">
+          <h1>BioSentry ward sim</h1>
+          <span className="pill solid" role="status">{UNREACHABLE}</span>
+        </header>
+        <div className="panel bp signin">
+          <p>The read-only view opens by itself when the server answers. It is asked again in {firstAskWaitMs(fails) / 1000} seconds.</p>
+          <button onClick={() => { setFails(0); setGate((g) => nextGate(g, "probe_fail")); }}>Sign in instead</button>
+        </div>
+      </div>
+    );
+  }
   if (shown === "signin" && !admin) {
     return (
       <SignIn
         onToken={(t, r) => {
           setToken(t);
           setRole(r);
+          setFails(0);
           if (r === "admin") setGate("trying"); // the admin's drawing is the open view: ask for it again
         }}
       />
@@ -160,6 +184,7 @@ export function App() {
   const onSignedOut = () => {
     setToken(null);
     setRole(null);
+    setFails(0);
     setGate((g) => nextGate(g, "signed_out"));
   };
   const watch = shown === "watch" && first ? { first, onBody: setFirst, onGone: () => setGate((g) => nextGate(g, "poll_gone")), onLeave: () => setGate((g) => nextGate(g, "leave")) } : undefined;
