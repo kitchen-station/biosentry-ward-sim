@@ -784,6 +784,15 @@ nav a[aria-current="page"] {
 .insights .figs { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
 .insights .figs > p { grid-column: 1 / -1; }
 .insights .fig { min-width: 0; }
+/* A figure made large: over the page, as wide as it allows, with its numbers under the chart. */
+.insights .fig.enlarged { position: fixed; inset: 8px; z-index: 20; overflow: auto; padding: 12px; background: var(--cream-100); border: 2px solid var(--ink-900); box-shadow: 0 0 0 4px var(--ink-900); align-content: start; grid-template-columns: minmax(0, 1fr); }
+/* Large, not huge: a chart reads best at about twice its normal width. */
+.insights .fig.enlarged .chart { max-width: 760px; }
+.insights .fig.enlarged .numbers { overflow-x: auto; }
+.insights .fig.enlarged .scroll { max-height: none; }
+.insights .fig button { justify-self: start; }
+.insights .fig table { border-collapse: collapse; width: 100%; }
+.insights .fig th, .insights .fig td { text-align: left; padding: 2px 8px 2px 0; border-top: 1px solid var(--cream-300); vertical-align: top; }
 .insights .chart { max-width: 100%; }
 .insights .scroll { max-height: 220px; overflow: auto; }
 .insights select { max-width: 100%; }
