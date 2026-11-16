@@ -6,9 +6,10 @@ import { VITAL_CARD } from "../panels";
 import { RISK_LIGHT } from "../render/draw";
 import type { Patient } from "../sim/sim";
 import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
-import { LineChart, StackedBars, Strip, type Slot } from "./charts";
+import { OBS, obsSpans, SCORE_COLOUR, TOTAL, type ObsVital } from "../obs-bands";
+import { LineChart, ObsChart, StackedBars, Strip, type Slot } from "./charts";
 
-export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history">;
+export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history"> & Partial<Pick<Patient, "bpHistory">>;
 /** hospital: the standalone hospital world. ward: a standalone W4 only. viewer: the runner's ward, whose totals this page does not have. */
 export type Mode = "hospital" | "ward" | "viewer";
 
@@ -98,7 +99,7 @@ function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
                     {u.name}: {n(last(rows)?.census)} of {n(u.beds)}
                     {u.id === "MORGUE" ? " places" : ""}
                   </span>
-                  <LineChart values={withGaps(rows, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.census))} refLine={u.beds} label={`${u.name} ${placeWord(u.id)} in use`} height={46} />
+                  <LineChart values={withGaps(rows, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.census))} refLine={u.beds} unit={placeWord(u.id)} label={`${u.name} ${placeWord(u.id)} in use`} height={46} />
                 </div>
               );
             })}
@@ -164,7 +165,7 @@ function EveryUnit({ sum, vitals }: { sum: WardSummary | null; vitals: VitalsVie
         ))}
       </Fig>
       <Fig name="Intensive care: people read at each whole hour" caption={`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`} note={lines.length === 0 ? NO_DATA : undefined}>
-        <LineChart values={withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read))} label="Intensive care people read at each whole hour" />
+        <LineChart values={withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read))} unit="people" label="Intensive care people read at each whole hour" />
       </Fig>
     </>
   );
@@ -206,7 +207,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
         />
       </Fig>
       <Fig name="Beds in use" caption={now ? `Last hour: ${n(now.beds)} beds in use.` : NO_DATA} note={empty(rows.length)}>
-        <LineChart values={hourly.map((r) => (r === "skip" || r === null ? r : r.beds))} label="Beds in use per hour" />
+        <LineChart values={hourly.map((r) => (r === "skip" || r === null ? r : r.beds))} unit="beds" label="Beds in use per hour" />
       </Fig>
       <Fig name="Length of stay" caption="Finished stays, left shorter, right longer. Coloured by how the stay ended." note={note ?? (stays.length === 0 ? NO_STAY : undefined)}>
         <Legend names={["discharged", "higher care"]} colors={[OUTCOME_COLOR.discharged, OUTCOME_COLOR.higher_care]} />
@@ -264,6 +265,14 @@ function Episodes({ mode, sum, label }: { mode: Mode; sum: WardSummary | null; l
   );
 }
 
+// The person's charts, in the order of the RCP observation chart. Systolic pressure is the nurse's cuff, so it has fewer points.
+const OBS_ORDER: ObsVital[] = ["respiratory_rate", "spo2", "systolic_bp", "heart_rate", "temperature"];
+const BIN_MIN = 15; // one point of a vital's history is a 15-minute bin
+/** "3 h ago", "45 min ago", "now": how far back the left end and the middle of a chart are. Ours: the page has no clock for a person's history. */
+const backLabel = (minutes: number) => (minutes <= 0 ? "now" : minutes % 60 === 0 ? `${minutes / 60} h ago` : minutes > 60 ? `${(minutes / 60).toFixed(1)} h ago` : `${minutes} min ago`);
+const timesOf = (points: number, stepMin: number): [string, string, string] => [backLabel((points - 1) * stepMin), backLabel(Math.round(((points - 1) * stepMin) / 2)), "now"];
+const KEY = "Shaded by NEWS2 score, as on the RCP observation chart: yellow 1, orange 2, red 3. The axis is fixed. A gap is a missing reading.";
+
 function PersonSection({ patients, label }: { patients: Person[]; label: (minute: number) => string }) {
   const [picked, setPicked] = useState("");
   const list = arr(patients);
@@ -302,8 +311,12 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
         </select>
       </label>
       <div className="figs">
-        <Fig name="NEWS2 by hour" caption={have.length ? `Last score: ${n(last(have))}. Dashed line: 5.` : NO_DATA} note={have.length ? undefined : NO_DATA}>
-          <LineChart values={scores} refLine={5} label="NEWS2 by hour" />
+        <Fig name="NEWS2 by hour" caption={have.length ? `Last score: ${n(last(have))}. Orange: 5 or 6 (medium). Red: 7 or more (high).` : NO_DATA} note={have.length ? undefined : NO_DATA}>
+          <ObsChart
+            values={scores} lo={TOTAL.lo} hi={TOTAL.hi} unit="NEWS2 total" label="NEWS2 by hour" times={timesOf(scores.length, 60)}
+            bands={[{ from: TOTAL.lo, to: TOTAL.mediumFrom - 0.5, colour: null }, { from: TOTAL.mediumFrom - 0.5, to: TOTAL.highFrom - 0.5, colour: SCORE_COLOUR[2] }, { from: TOTAL.highFrom - 0.5, to: TOTAL.hi, colour: SCORE_COLOUR[3] }]}
+            ticks={[TOTAL.lo, TOTAL.mediumFrom, TOTAL.highFrom, TOTAL.hi]}
+          />
         </Fig>
         <Fig name="What happened" caption={events.length ? `Last: ${label(last(events).minute)}, ${last(events).text}` : NO_DATA} note={events.length ? undefined : NO_DATA}>
           <div className="scroll">
@@ -319,13 +332,21 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
             </svg>
           </div>
         </Fig>
-        <Fig name="Vitals, last 3 h" caption={`Last: ${VITALS.map((k) => `${VITAL_CARD[k].label} ${vital(k, last(hist(k)))}`).join(", ")}.`} note={noVitals ? NO_DATA : undefined}>
-          {VITALS.map((k) => (
-            <div key={k} className="unit">
-              <span>{VITAL_CARD[k].label}</span>
-              <LineChart values={hist(k)} label={VITAL_CARD[k].label} height={40} fit />
-            </div>
-          ))}
+        <Fig name="Vitals, last 3 h" caption={`Last: ${VITALS.map((k) => `${VITAL_CARD[k].label} ${vital(k, last(hist(k)))}`).join(", ")}. ${KEY}`} note={noVitals ? NO_DATA : undefined}>
+          {OBS_ORDER.map((k) => {
+            const values = k === "systolic_bp" ? arr(p.bpHistory) : hist(k);
+            const spec = OBS[k];
+            return (
+              <div key={k} className="unit">
+                <span>{spec.label}</span>
+                <ObsChart
+                  values={values} lo={spec.lo} hi={spec.hi} unit={spec.unit} digits={spec.step < 1 ? 1 : 0} label={spec.label} times={timesOf(values.length, BIN_MIN)} height={120}
+                  bands={obsSpans(k).map((b) => ({ from: b.from, to: b.to, colour: b.score === 0 ? null : SCORE_COLOUR[b.score] }))}
+                  ticks={spec.bands.flatMap((b) => (b.upTo === null ? [] : [b.upTo]))}
+                />
+              </div>
+            );
+          })}
         </Fig>
       </div>
     </>

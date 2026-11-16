@@ -30,6 +30,29 @@ Person (pick one)
 - What happened: the stay's last 30 event lines.
 - Vitals, last 3 h: heart rate, respiratory rate, SpO2 and temperature in 15-minute bins. Values print as the ward's vital cards print them (same digits and units), and each line is scaled to its own range.
 
+## How a vital is drawn
+
+Code: `src/obs-bands.ts`, `ObsChart` in `src/insights/charts.tsx`. Tests: `src/obs-bands.test.tsx`.
+
+From the Royal College of Physicians' NEWS2 observation chart (Chart 3, 2022, https://www.rcp.ac.uk/media/eczf5mvm/news2-chart-3_news-observation-chart_2022_0_0.pdf):
+
+- One chart per vital, with its unit, in the chart's order: respirations (breaths/min), SpO2 scale 1 (%), systolic blood pressure (mmHg), pulse (beats/min), temperature (°C).
+- Time runs left to right.
+- The value axis is banded: each range is shaded by its NEWS2 score, with the chart's key (no colour for 0, yellow for 1, orange for 2, red for 3). The band limits are printed on the axis.
+- The bands are the scorer's own (`src/sim/news2.ts`, unchanged). A test scores every value on every axis with the scorer and requires the same band.
+- The NEWS2 total has its own chart: orange from 5 (medium), red from 7 (high).
+
+Ours, not the RCP's (no published rule was found for these; they are design choices of this page):
+
+- The axis of each vital is fixed (for example respirations 4 to 36), so small noise never fills the chart and two charts of one vital can be compared. A value off the axis is drawn hollow on its edge.
+- A dot at every reading; a line only between readings that follow each other. A missing reading is a gap and is never bridged.
+- The last value is printed on the chart. The left end and the middle are labelled by how long ago they were.
+- A limit's number is printed only where it has room; every limit still has its mark.
+- SpO2 is drawn on scale 1 only.
+- Count charts (beds in use, people read) have a numbered axis from 0, name what they count and print the last value. They no longer zoom to their own range.
+- A stay's score line prints "last, low, high" and how many hourly scores it holds.
+- The heart trace is drawn from the heart rate. It says "Illustration, not a recording" on the strip itself.
+
 ## Where the data comes from
 
 The ward builds a summary while it runs: `src/sim/ward-stats.ts`. It is pure. It only reads the simulation, calls no random stream and writes nothing on the `Sim`. A test shows a run that is fed ends in the same state as one that is not. It is made with the world, replaced on reset or on a scenario change, and fed after every `step()` in the frame loop and in the hospital world's +1 day. The Entrance panel's Skip 1 day is not fed, and its span shows as skipped. It is not in `Sim`, so saves and the golden run are unchanged. `src/headless.ts` does not use it.

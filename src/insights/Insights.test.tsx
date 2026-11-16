@@ -1,3 +1,4 @@
+import { OBS, TOTAL } from "../obs-bands";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -68,11 +69,20 @@ describe("the Analytics page", () => {
     expect(html).not.toMatch(/\d\.\d{4,}/);
   });
 
-  it("scales a vital's line to its own range", () => {
-    const lines = [...html.matchAll(/aria-label="Resp. rate"[^>]*>.*?<polyline points="([^"]+)"/g)];
-    const ys = lines[0][1].split(" ").map((p) => Number(p.split(",")[1]));
-    expect(Math.min(...ys)).toBeLessThan(15); // the top of a 40 px box, not squashed against it
-    expect(Math.max(...ys)).toBeGreaterThan(25);
+  it("draws each vital on a fixed axis with its unit, in the order of the observation chart, and never zooms to the data", () => {
+    // It used to scale each line to its own range, so small noise filled the box. Now the axis is the vital's own, fixed.
+    const charts = [...html.matchAll(/class="chart obs"/g)];
+    expect(charts).toHaveLength(6); // NEWS2 by hour and the five vitals
+    const order = [...html.matchAll(/<div class="unit"><span>([^<]+)<\/span><svg[^>]*class="chart obs"/g)].map((m) => m[1]);
+    expect(order).toEqual(["Respirations", "SpO2 (scale 1)", "Systolic BP", "Pulse", "Temperature"]);
+    for (const unit of ["breaths/min", "%", "mmHg", "beats/min", "°C", "NEWS2 total"]) expect(html).toContain(`>${unit}</text>`);
+    // The same value sits at the same height whatever else is on the chart.
+    const yOf = (rr: (number | null)[]) => {
+      const h = render("hospital", summary, [{ ...person, history: { ...person.history, respiratory_rate: rr } }], vitals);
+      const m = /aria-label="Respirations[^"]*"[^>]*>.*?<circle cx="[^"]+" cy="([^"]+)"/.exec(h)!;
+      return Number(m[1]);
+    };
+    expect(yOf([16, 17, 16])).toBe(yOf([16, 34, 5]));
   });
 
   it("explains an empty length of stay, and labels the morgue as places", () => {
@@ -103,7 +113,13 @@ describe("the Analytics page", () => {
     for (const [k, xs] of Object.entries(person.history)) for (const x of xs) if (x !== null) given.add(x.toFixed(VITAL_CARD[k as keyof typeof VITAL_CARD].digits));
     // Fixed words with digits: names of things, the 3 h window, the page's alert line, the dashed line at 5.
     const unitNames = summary.hospital!.units.map((u) => u.name).join("|"); // "Medicine 3A" holds a digit; its unit data is given
-    const fixed = text(html).replace(new RegExp(`${unitNames}|W4|NEWS2|SpO2|3 h|NEWS2 5 or more|Dashed line: 5`, "g"), " ");
+    // The observation charts' own fixed numbers: the band limits on each axis, the NEWS2 total's marks, the band key, and how far back a chart's left end and middle are.
+    for (const spec of Object.values(OBS)) for (const b of spec.bands) if (b.upTo !== null) given.add(b.upTo.toFixed(spec.step < 1 ? 1 : 0));
+    for (const m of [TOTAL.lo, TOTAL.mediumFrom, TOTAL.highFrom, TOTAL.hi]) given.add(String(m));
+    given.add("0"); // a count chart's axis starts at 0
+    const fixed = text(html)
+      .replace(/\d+(\.\d+)? (h|min) ago/g, " ")
+      .replace(new RegExp(`${unitNames}|W4|NEWS2|SpO2 \\(scale 1\\)|SpO2|3 h|NEWS2 5 or more|Orange: 5 or 6 \\(medium\\)|Red: 7 or more \\(high\\)|yellow 1, orange 2, red 3`, "g"), " ");
     const printed = [...fixed.matchAll(/\d+(\.\d+)?/g)].map((m) => m[0]);
     expect(printed.length).toBeGreaterThan(20);
     expect(printed.filter((n) => !given.has(n))).toEqual([]);
@@ -157,7 +173,7 @@ describe("the Analytics page", () => {
   it("has no link, no style string, and only fixed class names", () => {
     expect(html).not.toMatch(/href=|\sstyle=/);
     const classes = new Set([...html.matchAll(/class="([^"]*)"/g)].map((m) => m[1]));
-    expect([...classes].sort()).toEqual(["chart", "fig", "figs", "floorrow", "insights", "legend", "scroll", "unit"]);
+    expect([...classes].sort()).toEqual(["chart", "chart obs", "fig", "figs", "floorrow", "insights", "legend", "scroll", "unit"]);
   });
 
   it("uses no dangerouslySetInnerHTML and no dependency", () => {
