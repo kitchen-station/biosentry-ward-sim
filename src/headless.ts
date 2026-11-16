@@ -7,7 +7,8 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { applyAction } from "./sim/actions";
 import { applyCommand, clinicianName, freshWard } from "./sim/commands";
-import { refuseHospitalState } from "./sim/hospital/attach";
+import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
+import { freshHospital } from "./sim/hospital/fresh";
 import { loadWard, saveWard } from "./sim/persist";
 import { minuteOf, say, step, type Speed } from "./sim/sim";
 import { createSync, STOP_TEXT } from "./sim/sync";
@@ -15,26 +16,30 @@ import { createTruthPoster, startedEpisodes } from "./sim/truth";
 import { createPublisher } from "./sim/view";
 
 const TICK = 1 / 60;
+// WARD_MODE=hospital runs the whole hospital and saves it, so a restart continues it. It does not write to the API yet: that
+// comes with the next slices. The default mode is the ward-only runner, unchanged.
+const mode = process.env.WARD_MODE ?? "ward";
+const hospital = mode === "hospital";
 const apiUrl = process.env.BIOSENTRY_API_URL;
 const key = process.env.BIOSENTRY_INGEST_KEY;
 // Real time by default: at 60x one ward writes about 7 million observations a day.
 const speed = Number(process.env.WARD_SPEED ?? 1) as Speed;
-if (!apiUrl || !key || ![1, 10, 60].includes(speed)) {
-  console.error("Set BIOSENTRY_API_URL and BIOSENTRY_INGEST_KEY. WARD_SPEED may be 1, 10 or 60.");
+if (!apiUrl || !key || ![1, 10, 60].includes(speed) || !["ward", "hospital"].includes(mode)) {
+  console.error("Set BIOSENTRY_API_URL and BIOSENTRY_INGEST_KEY. WARD_SPEED may be 1, 10 or 60. WARD_MODE may be ward or hospital.");
   process.exit(2);
 }
 
-const stateFile = process.env.WARD_STATE_FILE ?? "ward-state.json";
+const stateFile = process.env.WARD_STATE_FILE ?? (hospital ? "hospital-state.json" : "ward-state.json");
 const SAVE_EVERY_MS = 10_000;
 // A state file that cannot be read stops the runner: starting a new ward over it would lose the old one.
 const saved = existsSync(stateFile) ? loadWard(readFileSync(stateFile, "utf8")) : null;
-const refused = saved && refuseHospitalState(saved.s);
+const refused = saved && (hospital ? refuseWardState(saved.s) : refuseHospitalState(saved.s));
 if (refused) {
   console.error(refused); // before sync starts: nothing is sent
   process.exit(2);
 }
 // WARD_SPEED is the starting speed: a saved ward resumes at the speed it had, which a clinician may have changed.
-let { s, src } = saved ?? freshWard(speed);
+let { s, src } = saved ?? (hospital ? freshHospital(speed) : freshWard(speed));
 s.rounds = true; // the deployed ward: nurses re-take observations on the NEWS2 schedule (also for a ward saved before this existed)
 // A fixed client id: a runner that begins a new ward replaces its own run at once instead of waiting out the old one.
 const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch });
@@ -63,6 +68,7 @@ function offerTruth() {
 }
 
 async function flush() {
+  if (hospital) return void (Date.now() - savedAt >= SAVE_EVERY_MS && save()); // nothing is sent yet
   await sync.flush();
   if (!sync.stopped) {
     offerTruth();
@@ -80,7 +86,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
     // A stop is a pause, not the end of the run: the API shows the ward as not sending after 30 s.
     if (started) {
-      await sync.flush();
+      if (!hospital) await sync.flush();
       if (!sync.stopped) save();
     } // before then there is nothing of this run to save, and the file on disk is the last whole one
     process.exit(0);
@@ -89,10 +95,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 let last = performance.now();
 let spare = 0;
-if (saved) await sync.resume(s, src, saved.run);
+if (hospital) void 0; // no run on the API yet
+else if (saved) await sync.resume(s, src, saved.run);
 else await sync.start(s, src);
 started = true;
-console.log(`Ward ${saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, writing to ${apiUrl}`);
+console.log(`${hospital ? "Hospital" : "Ward"} ${saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, ${hospital ? "not writing to the API yet" : `writing to ${apiUrl}`}`);
 setInterval(() => {
   const now = performance.now();
   spare += (now - last) / 1000; // a late timer or a suspended host is caught up, so sim minutes stay on the wall clock
@@ -101,7 +108,7 @@ setInterval(() => {
   void flush();
 }, 1000);
 // What the page in viewer mode draws. Every 2 s, as often as it polls.
-setInterval(() => void sync.publish(view(s)), 2000);
+setInterval(() => hospital || void sync.publish(view(s)), 2000);
 // A new ward at the current speed, in a new run. start() registers it before this returns to the timers, so no tick or save sees the old world with the new run.
 async function reset(by: string) {
   const fresh = freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
@@ -114,6 +121,7 @@ async function reset(by: string) {
 }
 // What clinicians did on the dashboard, applied to the ward. pull() answers nothing while one is under way or once the sync stopped.
 setInterval(async () => {
+  if (hospital) return;
   for (const a of await sync.pull()) {
     try {
       applyAction(s, src, a);
@@ -125,6 +133,7 @@ setInterval(async () => {
 
 // What clinicians sent from the viewer: speed, reset and a patient's controls.
 setInterval(async () => {
+  if (hospital) return;
   for (const c of await sync.pullCommands()) {
     try {
       if (c.kind === "reset") await reset(c.clinician_id);

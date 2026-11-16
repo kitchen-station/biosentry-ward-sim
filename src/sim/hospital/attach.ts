@@ -45,3 +45,7 @@ export function createHospitalSim(src: VitalsSource, scenario: Scenario, seed: n
 /** Why the ward-only runner must not continue a saved state, or null: the runner syncs to the API, hospital mode never does in v1. */
 export const refuseHospitalState = (s: Sim): string | null =>
   s.hospital ? "state file holds a hospital; the runner is ward-only in this version" : null;
+
+/** The other way round: a runner started in hospital mode must not continue a ward-only state file. */
+export const refuseWardState = (s: Sim): string | null =>
+  s.hospital ? null : "state file holds a ward, not a hospital; start hospital mode with a new state file";
