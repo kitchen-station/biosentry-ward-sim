@@ -4,3 +4,6 @@ dist
 ward-state.json*
 trials/
 dist-dev
+# Local secrets (VITE_INGEST_KEY and the like)
+.env*
+*.local

@@ -777,7 +777,7 @@ export function Inspector({
           <>
             <h2 className="ptitle">Watching W4</h2>
             <p className="story">
-              This is ward W4, running live on the team server{s.speed > 0 ? ` at ${s.speed}x: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}` : ""}. Pick a bed in the list. The same ward is on the dashboard:{" "}
+              This is ward W4, running live on the team server{s.speed > 0 ? ` at ${s.speed}x: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}` : ""}. Pick a bed in the list. The public dashboard runs alone on a sample ward:{" "}
               <a href="https://biosentry-dashboard.pages.dev" target="_blank" rel="noopener noreferrer">open the dashboard</a>. Read-only. Sign in to control.
             </p>
             <BedList s={s} onSelect={onSelect} />

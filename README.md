@@ -9,7 +9,7 @@ The simulation is deployed. You do not need to install anything to see it.
 | Ward simulation | <https://biosentry-ward-sim.pages.dev> | This simulation, in the browser. No sign-in. |
 | Dashboard | <https://biosentry-dashboard.pages.dev> | The BioSentry clinician's list on a sample ward. Any passphrase is accepted. |
 
-Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only, and the dashboard reads the same ward. The page's switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", opens the hospital page, which has no server and runs alone in your browser.
+Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only. The public dashboard has no server: it runs alone on a sample ward. The page's switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", opens the hospital page, which has no server and runs alone in your browser.
 
 The connected version (this simulation writes to the BioSentry API and the dashboard reads the same ward, live) runs on the team's server and is private to the team. The dashboard repository's `deploy/README.md` says how it is built.
 
