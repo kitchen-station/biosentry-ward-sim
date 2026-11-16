@@ -69,8 +69,10 @@ export function EcgStrip({
     points = out.join(" ");
   }
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="ecg" aria-hidden="true">
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="ecg" role="img" aria-label="Illustration of a heart trace, drawn from the heart rate. Not a recording.">
       <polyline points={points} fill="none" stroke="var(--ink-900)" strokeWidth={1.5} />
+      {/* On the strip itself: a drawn trace must not be read as a recorded one. */}
+      <text x={3} y={9} fontSize={8} fill="var(--ink-900)">Illustration, not a recording</text>
     </svg>
   );
 }

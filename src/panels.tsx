@@ -100,6 +100,12 @@ function Clock({ src, read, speed }: { src: VitalsSource; read: () => number; sp
   );
 }
 
+/** "last 4 · low 1 · high 7 · 12 hourly scores", or that there is none yet. Hours with no score are not counted. */
+export function stayNumbers(scores: (number | null)[]): string {
+  const v = scores.filter((x): x is number => x !== null);
+  return v.length === 0 ? "no score yet" : `last ${v[v.length - 1]} · low ${Math.min(...v)} · high ${Math.max(...v)} · ${v.length} hourly score${v.length === 1 ? "" : "s"}`;
+}
+
 export function TopBar({
   s,
   src,
@@ -271,6 +277,8 @@ function StayScores({ stay }: { stay: Stay }) {
         <span>peak {stay.peak ?? "--"}</span>
       </div>
       <Sparkline data={stay.scores} width={290} height={30} />
+      {/* The numbers behind the line, as the unit census prints them: a line with no number says little. */}
+      <p className="mono">{stayNumbers(stay.scores)}</p>
     </div>
   );
 }
