@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { EcgStrip } from "./ecg";
-import { LineChart, ObsChart } from "./insights/charts";
+import { axisNumber, LineChart, ObsChart, StackedBars, Strip } from "./insights/charts";
 import { OBS, obsScore, obsSpans, SCORE_COLOUR, summarise, TOTAL, type ObsVital } from "./obs-bands";
 import { stayNumbers } from "./panels";
 import { scoreNews2, type News2Inputs } from "./sim/news2";
@@ -104,6 +104,15 @@ describe("a count over time, a stay's scores and the heart trace", () => {
     const html = renderToStaticMarkup(<LineChart values={[3, 7, null, 5]} refLine={10} unit="beds" label="Beds in use" />);
     expect([...html.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toEqual(["0", "10", "beds", "last 5"]);
     expect(html).toContain('stroke-dasharray="3 3"');
+  });
+
+  it("a bar chart numbers its axis (0 and the tallest bar) and names what the height counts; a strip names its two ends", () => {
+    const bars = renderToStaticMarkup(<StackedBars bars={[{ parts: [2, 3] }, null, { parts: [4, 4.5] }]} colors={["a", "b"]} label="In and out" unit="people per day" />);
+    expect([...bars.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toEqual(["0", "8.5", "people per day"]);
+    expect(axisNumber(0.3333)).toBe("0.33");
+    expect(axisNumber(12)).toBe("12");
+    const strip = renderToStaticMarkup(<Strip dots={[{ at: 0.5, row: 0, color: "a", title: "t" }]} label="Length of stay" ends={["0 days", "3.5 days"]} />);
+    expect([...strip.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toEqual(["0 days", "3.5 days"]);
   });
 
   it("a stay's score line comes with its numbers", () => {
