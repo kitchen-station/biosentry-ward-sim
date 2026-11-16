@@ -16,8 +16,8 @@ import { createTruthPoster, startedEpisodes } from "./sim/truth";
 import { createPublisher } from "./sim/view";
 
 const TICK = 1 / 60;
-// WARD_MODE=hospital runs the whole hospital and saves it, so a restart continues it. It does not write to the API yet: that
-// comes with the next slices. The default mode is the ward-only runner, unchanged.
+// WARD_MODE=hospital runs the whole hospital, saves it, and writes ward W4 and its moves to the API in a run that lists every
+// unit. The other units' patients are not sent yet. The default mode is the ward-only runner, unchanged.
 const mode = process.env.WARD_MODE ?? "ward";
 const hospital = mode === "hospital";
 const apiUrl = process.env.BIOSENTRY_API_URL;
@@ -68,7 +68,6 @@ function offerTruth() {
 }
 
 async function flush() {
-  if (hospital) return void (Date.now() - savedAt >= SAVE_EVERY_MS && save()); // nothing is sent yet
   await sync.flush();
   if (!sync.stopped) {
     offerTruth();
@@ -86,7 +85,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
     // A stop is a pause, not the end of the run: the API shows the ward as not sending after 30 s.
     if (started) {
-      if (!hospital) await sync.flush();
+      await sync.flush();
       if (!sync.stopped) save();
     } // before then there is nothing of this run to save, and the file on disk is the last whole one
     process.exit(0);
@@ -95,11 +94,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 let last = performance.now();
 let spare = 0;
-if (hospital) void 0; // no run on the API yet
-else if (saved) await sync.resume(s, src, saved.run);
+if (saved) await sync.resume(s, src, saved.run);
 else await sync.start(s, src);
 started = true;
-console.log(`${hospital ? "Hospital" : "Ward"} ${saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, ${hospital ? "not writing to the API yet" : `writing to ${apiUrl}`}`);
+console.log(`${hospital ? "Hospital" : "Ward"} ${saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, writing to ${apiUrl}`);
 setInterval(() => {
   const now = performance.now();
   spare += (now - last) / 1000; // a late timer or a suspended host is caught up, so sim minutes stay on the wall clock
@@ -108,10 +106,10 @@ setInterval(() => {
   void flush();
 }, 1000);
 // What the page in viewer mode draws. Every 2 s, as often as it polls.
-setInterval(() => hospital || void sync.publish(view(s)), 2000);
+setInterval(() => void sync.publish(view(s)), 2000);
 // A new ward at the current speed, in a new run. start() registers it before this returns to the timers, so no tick or save sees the old world with the new run.
 async function reset(by: string) {
-  const fresh = freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
+  const fresh = hospital ? freshHospital(s.speed) : freshWard(s.speed); // its own source: the old one remembers who deteriorated and when
   fresh.s.rounds = true;
   const starting = sync.start(fresh.s, fresh.src);
   [s, src] = [fresh.s, fresh.src];
@@ -121,7 +119,6 @@ async function reset(by: string) {
 }
 // What clinicians did on the dashboard, applied to the ward. pull() answers nothing while one is under way or once the sync stopped.
 setInterval(async () => {
-  if (hospital) return;
   for (const a of await sync.pull()) {
     try {
       applyAction(s, src, a);
@@ -133,7 +130,6 @@ setInterval(async () => {
 
 // What clinicians sent from the viewer: speed, reset and a patient's controls.
 setInterval(async () => {
-  if (hospital) return;
   for (const c of await sync.pullCommands()) {
     try {
       if (c.kind === "reset") await reset(c.clinician_id);

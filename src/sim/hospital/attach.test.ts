@@ -211,10 +211,10 @@ describe("hospital mode: W4 wired to the hospital", () => {
     expect(one(102)).not.toBe(one(101));
   }, 60_000);
 
-  it("never runs with API sync, and needs a ward with patient flow", () => {
+  it("runs with API sync (its queue fills, the hospital is unchanged), and needs a ward with patient flow", () => {
     const { s, src } = world(TYPICAL);
     s.outbox = { observations: [], bins: [], events: [], admissions: [], departures: [], sent: new Map() }; // as sync.ts register does
-    expect(() => run(s, src, 1)).toThrow(/never run together/);
+    expect(() => run(s, src, 1)).not.toThrow(); // v1 refused here; the runner's hospital mode now syncs (see sync.test.ts)
     expect(() => createHospitalSim(createSyntheticSource(101, false), TYPICAL, 101)).toThrow(/patient flow/);
   });
 

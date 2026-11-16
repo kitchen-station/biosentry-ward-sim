@@ -23,6 +23,8 @@ export interface Action {
   sex: string | null;
   bed: string | null;
   context: string | null;
+  /** Hospital run: the unit an admit_patient is for. Null or absent: ward W4. */
+  unit?: string | null;
 }
 
 const bpOf = (a: Action) => (a.systolic !== null && a.diastolic !== null ? { systolic: a.systolic, diastolic: a.diastolic } : null);
@@ -56,6 +58,8 @@ function admit(s: Sim, src: VitalsSource, a: Action, who: (typeof STAFF)[number]
 export function applyAction(s: Sim, src: VitalsSource, a: Action) {
   const who = STAFF.find(([id]) => id === a.clinician_id);
   const clinician = who?.[1] ?? a.clinician_id;
+  // Only W4's patients are published so far: an admission to another unit has no bed here, and W4 must not take it.
+  if (a.kind === "admit_patient" && a.unit && a.unit !== "W4") return say(s, `${clinician} asked to admit a patient to ${a.unit}: not placed, only W4 takes admissions in this version`);
   if (a.kind === "admit_patient") return admit(s, src, a, who);
   const p = s.patients.find((x) => x.id === a.patient_id);
   if (!p) return; // already left, or never here
