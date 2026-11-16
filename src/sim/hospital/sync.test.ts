@@ -10,6 +10,7 @@ import { createSync } from "../sync";
 import { createHospitalSim } from "./attach";
 import { freshHospital } from "./fresh";
 import { parseScenario } from "./scenario";
+import { ER_SCORE_NOTE } from "./units";
 
 const TYPICAL = parseScenario(typical);
 const RUN = { runId: null, origin: "", cursor: 0, commandCursor: 0 };
@@ -76,12 +77,17 @@ describe("a hospital run that writes to the API", () => {
     expect(posts[0].path).toBe("/sim/runs");
     expect(body.units).toEqual([
       { id: "W4", name: "Ward W4", floor: 4, kind: "ranked" },
-      { id: "ER", name: "Emergency Room", floor: 0, kind: "shown" },
+      { id: "ER", name: "Emergency Room", floor: 0, kind: "ranked", score_note: "NEWS2 used as an aid: evidence in the emergency department is mixed (RCP 2017/2020; studies AUROC 0.59-0.88)." },
       { id: "ICU", name: "Intensive Care", floor: 2, kind: "unranked" },
       { id: "MED3A", name: "Medicine 3A", floor: 3, kind: "ranked" },
       { id: "MED3B", name: "Medicine 3B", floor: 1, kind: "ranked" },
       { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
     ]);
+    // Owner decision orch-h10: the emergency room is ranked and carries the decision's own line; no other unit has a note,
+    // and intensive care stays unranked. The line fits the API's rule for it: one printable line of at most 300 characters.
+    expect(body.units.filter((u: { score_note?: string }) => "score_note" in u).map((u: { id: string }) => u.id)).toEqual(["ER"]);
+    expect(body.units[1].score_note).toBe(ER_SCORE_NOTE);
+    expect(ER_SCORE_NOTE).toMatch(/^[^\x00-\x1f\x7f-\x9f]{1,300}$/);
     expect(body.patients).toHaveLength(12);
     for (const p of body.patients) {
       expect(p.person).toBe(s.hospital!.people.find((x) => x.w4Id === p.id)!.id);
