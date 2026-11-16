@@ -6,7 +6,7 @@ import type { OpenViews } from "./open-hospital";
 import { ER_TAG, HIGH_TAG, ICU_USE, OCCUPANCY, openOps } from "./open-ops";
 import type { OpenBed, OpenWard } from "./open-view";
 import { UNITS } from "./sim/hospital/params";
-import { RUN_UNITS } from "./sim/hospital/units";
+import { RUN_UNITS as RUN } from "./sim/hospital/units";
 
 const beds = (unit: string, n: number, risks: Partial<Record<NonNullable<OpenBed["risk"]>, number>> = {}): OpenWard => {
   const list: OpenBed[] = [];
@@ -14,6 +14,8 @@ const beds = (unit: string, n: number, risks: Partial<Record<NonNullable<OpenBed
   while (list.length < n) list.push({ bed: `${unit}-${list.length + 1}`, state: "not_ranked", rank: null, risk: null });
   return { ward: unit, synthetic: true, can_control: false, sim: null, beds: list };
 };
+// The units as a server lists them when it sends the emergency room as "shown" (a run started before the runner ranked it).
+const RUN_UNITS = RUN.map((u) => (u.id === "ER" ? { ...u, kind: "shown" as const } : u));
 const cap = (id: string) => UNITS.find((u) => u.id === id)!.beds.value;
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
@@ -54,6 +56,9 @@ describe("hospital operations from the open views", () => {
     expect([row("W4").high, row("W4").medium]).toEqual([1, 2]);
     expect([row("MED3A").high, row("MED3A").medium]).toEqual([2, 1]);
     expect([row("ICU").high, row("ER").high, row("ER").medium]).toEqual([null, null, null]);
+    // The panel follows the kind the server sends: an emergency room sent as ranked (the runner's list now) is counted.
+    const ranked = openOps(RUN, views).units.find((u) => u.id === "ER")!;
+    expect([ranked.high, ranked.medium, ranked.flag]).toEqual([3, 0, "over its bays"]);
   });
 
   it("lists the issues, each with the kind of source it is read against, and never calls a study a rule", () => {
