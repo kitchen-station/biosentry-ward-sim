@@ -66,6 +66,10 @@ Ours, not the RCP's (no published rule was found for these; they are design choi
 
 No panel shows the browser engine's numbers while the page watches the server. The page says "Not served", never "No data yet", when the server does not send a number: "No data yet" is for a run that has not produced it yet. What the server would have to serve for the middle rows: per unit and hour, beds in use, admitted, discharged, transferred in and out, and the count at each NEWS2 level; per 12-hour shift, alerts and patient-minutes; and finished stays with their in and out minutes.
 
+## The large view
+
+A figure with a "Larger, with numbers" button grows to fill the page. "Close (Esc)" or the Escape key brings it back. That Escape closes only the large view. The large view adds a table of the numbers behind the chart for a chosen window (last 1 h to all the page holds): the count of readings, the last, lowest, middle (median) and highest value, and the time in each NEWS2 band where the series has bands. The table is a summary of this page. It is our own design, not a NEWS2 practice. It reads the same values as the chart, so a chart that is "Not served" has no button. A missing reading is not counted and adds no time to a band.
+
 ## Where the data comes from
 
 The ward builds a summary while it runs: `src/sim/ward-stats.ts`. It is pure. It only reads the simulation, calls no random stream and writes nothing on the `Sim`. A test shows a run that is fed ends in the same state as one that is not. It is made with the world, replaced on reset or on a scenario change, and fed after every `step()` in the frame loop and in the hospital world's +1 day. The Entrance panel's Skip 1 day is not fed, and its span shows as skipped. It is not in `Sim`, so saves and the golden run are unchanged. `src/headless.ts` does not use it.

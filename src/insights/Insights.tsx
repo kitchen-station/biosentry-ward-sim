@@ -1,12 +1,12 @@
 // The Analytics page: charts first, short labels. It draws only the summary and the patients it is given.
 // Every string from data is React text. Nothing from data goes in a link, a style or a class name.
-import { useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { FIRST_DAY, UNIT_LABEL } from "../hospital-labels";
 import { VITAL_CARD } from "../panels";
 import { RISK_LIGHT } from "../render/draw";
 import type { Patient } from "../sim/sim";
 import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
-import { OBS, obsSpans, SCORE_COLOUR, TOTAL, type ObsVital } from "../obs-bands";
+import { OBS, obsScore, obsSpans, SCORE_BANDS, SCORE_COLOUR, summarise, timeInBands, TOTAL, TOTAL_BANDS, totalBand, type ObsVital } from "../obs-bands";
 import { axisNumber, LineChart, ObsChart, StackedBars, Strip, type Slot } from "./charts";
 
 export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history"> & Partial<Pick<Patient, "bpHistory">>;
@@ -54,12 +54,90 @@ function Legend({ names, colors }: { names: readonly string[]; colors: string[] 
 }
 
 /** A chart: its name, the picture, one line of text. `empty` or `note` replace the picture. */
-function Fig({ name, caption, note, children }: { name: string; caption: string; note?: string; children?: React.ReactNode }) {
+/**
+ * One series behind a chart, for the large view's table. `stepMin`: the minutes one point stands for. `bandOf` and `bands`:
+ * how to sort a value into a NEWS2 band, when the series has bands.
+ */
+export interface Series { name: string; values: Slot<number>[]; stepMin: number; digits?: number; unit?: string; bandOf?: (v: number) => string; bands?: readonly string[] }
+
+/** The windows the large view offers, in minutes. null: everything the page holds. */
+export const WINDOWS: [string, number | null][] = [["Last 1 h", 60], ["Last 3 h", 180], ["Last 6 h", 360], ["Last 12 h", 720], ["Last 24 h", 1440], ["All the page holds", null]];
+/** The last `windowMin` minutes of a series: its last points. */
+export const inWindow = (s: Series, windowMin: number | null) => (windowMin === null ? s.values : s.values.slice(-Math.max(1, Math.round(windowMin / s.stepMin))));
+const span = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${axisNumber(minutes / 60)} h`);
+
+/** Which figure is large, if any, and how to change it. One at a time. */
+const Large = createContext<{ open: string | null; set: (name: string | null) => void }>({ open: null, set: () => {} });
+
+/** The numbers behind a chart: count, last, lowest, middle, highest, and the time in each NEWS2 band where the series has bands. This page's own summary, not a NEWS2 practice. */
+function Numbers({ series }: { series: Series[] }) {
+  const [windowMin, setWindowMin] = useState<number | null>(null);
+  const shown = series.map((s) => ({ s, values: inWindow(s, windowMin) }));
+  const banded = shown.some((x) => x.s.bandOf);
+  const fmt = (s: Series, v: number | null) => (v === null ? "none" : `${v.toFixed(s.digits ?? 0)}${s.unit ? ` ${s.unit}` : ""}`);
   return (
-    <figure className="fig">
+    <>
+      <label>
+        Window{" "}
+        <select value={String(windowMin)} onChange={(e) => setWindowMin(e.target.value === "null" ? null : Number(e.target.value))}>
+          {WINDOWS.map(([word, min]) => (
+            <option key={word} value={String(min)}>{word}</option>
+          ))}
+        </select>
+      </label>
+      <div className="numbers">
+      <table>
+        <caption>The numbers behind this chart. A summary of this page, not a NEWS2 practice.</caption>
+        <thead>
+          <tr>
+            <th scope="col">Series</th>
+            <th scope="col">Readings</th>
+            <th scope="col">Last</th>
+            <th scope="col">Lowest</th>
+            <th scope="col">Middle</th>
+            <th scope="col">Highest</th>
+            {banded && <th scope="col">Time in each NEWS2 band</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map(({ s, values }) => {
+            const n = summarise(values);
+            return (
+              <tr key={s.name}>
+                <th scope="row">{s.name}</th>
+                <td>{n.count}</td>
+                <td>{fmt(s, n.last)}</td>
+                <td>{fmt(s, n.min)}</td>
+                <td>{fmt(s, n.median)}</td>
+                <td>{fmt(s, n.max)}</td>
+                {banded && <td>{s.bandOf && s.bands ? timeInBands(values, s.stepMin, s.bandOf, s.bands).map((b) => `${b.band}: ${span(b.minutes)}`).join(", ") : ""}</td>}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      </div>
+    </>
+  );
+}
+
+/** A figure. With `series` it can be made large: the chart at full width and the numbers behind it. Escape or Close makes it normal again. */
+// shortcut: focus is not trapped in the large view, Tab can reach the page behind; trap it if a keyboard user gets lost there.
+function Fig({ name, caption, note, children, series }: { name: string; caption: string; note?: string; children?: React.ReactNode; series?: Series[] }) {
+  const large = useContext(Large);
+  const open = large.open === name;
+  const can = note === undefined && series !== undefined;
+  return (
+    <figure className={open ? "fig enlarged" : "fig"} role={open ? "dialog" : undefined} aria-label={open ? `${name}, large view` : undefined}>
       <h4>{name}</h4>
+      {can && (
+        <button type="button" aria-expanded={open} onClick={() => large.set(open ? null : name)}>
+          {open ? "Close (Esc)" : "Larger, with numbers"}
+        </button>
+      )}
       {note === undefined ? children : null}
       <figcaption>{note ?? caption}</figcaption>
+      {open && series && <Numbers series={series} />}
     </figure>
   );
 }
@@ -88,7 +166,7 @@ function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
   const hours = (id: string) => arr(h?.hours).filter((r) => r.unit === id).sort((a, b) => a.hour - b.hour);
   return (
     <>
-      <Fig name="Beds in use" caption="Per unit, per hour. Dashed line: beds. The morgue counts places." note={note}>
+      <Fig name="Beds in use" caption="Per unit, per hour. Dashed line: beds. The morgue counts places." note={note} series={units.map((u) => ({ name: u.name, stepMin: 60, unit: placeWord(u.id), values: withGaps(hours(u.id), (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.census)) }))}>
         {[...byFloor].sort((a, b) => a[0] - b[0]).map(([floor, units]) => (
           <div key={floor} className="floorrow">
             <h5>Floor {n(floor)}</h5>
@@ -166,7 +244,7 @@ function EveryUnit({ sum, vitals }: { sum: WardSummary | null; vitals: VitalsVie
           </div>
         ))}
       </Fig>
-      <Fig name="Intensive care: people read at each whole hour" caption={`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`} note={lines.length === 0 ? NO_DATA : undefined}>
+      <Fig name="Intensive care: people read at each whole hour" caption={`Vitals, no NEWS2: NEWS2 is a ward score. ${UNIT_LABEL.ICU}`} note={lines.length === 0 ? NO_DATA : undefined} series={[{ name: "People read", stepMin: 60, unit: "people", values: withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read)) }]}>
         <LineChart values={withGaps(lines, (r) => r.hour, 1).map((r) => (r === "skip" || r === null ? r : r.read))} unit="people" label="Intensive care people read at each whole hour" />
       </Fig>
     </>
@@ -192,6 +270,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
         name="NEWS2 levels"
         caption={now ? `Last hour: ${LEVELS.map((k) => `${LEVEL_NAME[k]} ${n(now[k])}`).join(", ")}.` : NO_DATA}
         note={empty(rows.length)}
+        series={LEVELS.map((k) => ({ name: `People at ${LEVEL_NAME[k]}`, stepMin: 60, unit: "people", values: hourly.map((r) => (r === "skip" || r === null ? r : r[k])) }))}
       >
         <Legend names={LEVELS.map((k) => LEVEL_NAME[k])} colors={LEVEL_COLOR} />
         <StackedBars bars={hourly.map((r) => (r === "skip" || r === null ? r : { parts: LEVELS.map((k) => r[k]), title: LEVELS.map((k) => `${LEVEL_NAME[k]} ${n(r[k])}`).join(", ") }))} colors={LEVEL_COLOR} label="NEWS2 levels per hour" unit="people" scale={Math.max(1, ...rows.map((r) => r.beds))} />
@@ -209,7 +288,7 @@ function Ward({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
           faded={shifts.flatMap((x, i) => (x.partial ? [i] : []))}
         />
       </Fig>
-      <Fig name="Beds in use" caption={now ? `Last hour: ${n(now.beds)} beds in use.` : NO_DATA} note={empty(rows.length)}>
+      <Fig name="Beds in use" caption={now ? `Last hour: ${n(now.beds)} beds in use.` : NO_DATA} note={empty(rows.length)} series={[{ name: "Ward W4", stepMin: 60, unit: "beds", values: hourly.map((r) => (r === "skip" || r === null ? r : r.beds)) }]}>
         <LineChart values={hourly.map((r) => (r === "skip" || r === null ? r : r.beds))} unit="beds" label="Beds in use per hour" />
       </Fig>
       <Fig name="Length of stay" caption="Finished stays, left shorter, right longer. Coloured by how the stay ended." note={note ?? (stays.length === 0 ? NO_STAY : undefined)}>
@@ -315,7 +394,7 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
         </select>
       </label>
       <div className="figs">
-        <Fig name="NEWS2 by hour" caption={have.length ? `Last score: ${n(last(have))}. Orange: 5 or 6 (medium). Red: 7 or more (high).` : NO_DATA} note={have.length ? undefined : NO_DATA}>
+        <Fig name="NEWS2 by hour" caption={have.length ? `Last score: ${n(last(have))}. Orange: 5 or 6 (medium). Red: 7 or more (high).` : NO_DATA} note={have.length ? undefined : NO_DATA} series={[{ name: "NEWS2 total", stepMin: 60, values: scores, bandOf: totalBand, bands: TOTAL_BANDS }]}>
           <ObsChart
             values={scores} lo={TOTAL.lo} hi={TOTAL.hi} unit="NEWS2 total" label="NEWS2 by hour" times={timesOf(scores.length, 60)}
             bands={[{ from: TOTAL.lo, to: TOTAL.mediumFrom - 0.5, colour: null }, { from: TOTAL.mediumFrom - 0.5, to: TOTAL.highFrom - 0.5, colour: SCORE_COLOUR[2] }, { from: TOTAL.highFrom - 0.5, to: TOTAL.hi, colour: SCORE_COLOUR[3] }]}
@@ -336,7 +415,12 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
             </svg>
           </div>
         </Fig>
-        <Fig name="Vitals, last 3 h" caption={`Last: ${VITALS.map((k) => `${VITAL_CARD[k].label} ${vital(k, last(hist(k)))}`).join(", ")}. ${KEY}`} note={noVitals ? NO_DATA : undefined}>
+        <Fig
+          name="Vitals, last 3 h"
+          caption={`Last: ${VITALS.map((k) => `${VITAL_CARD[k].label} ${vital(k, last(hist(k)))}`).join(", ")}. ${KEY}`}
+          note={noVitals ? NO_DATA : undefined}
+          series={OBS_ORDER.map((k) => ({ name: OBS[k].label, stepMin: BIN_MIN, unit: OBS[k].unit, digits: OBS[k].step < 1 ? 1 : 0, values: k === "systolic_bp" ? arr(p.bpHistory) : hist(k), bandOf: (v: number) => SCORE_BANDS[obsScore(k, v)], bands: SCORE_BANDS }))}
+        >
           {OBS_ORDER.map((k) => {
             const values = k === "systolic_bp" ? arr(p.bpHistory) : hist(k);
             const spec = OBS[k];
@@ -357,8 +441,22 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
   );
 }
 
-export default function Insights({ mode, summary, patients, label, vitals }: { mode: Mode; summary: WardSummary | null; patients: Person[]; label: (minute: number) => string; vitals?: VitalsView | null }) {
+/** `large`: the figure that starts large (tests; the page starts with none). */
+export default function Insights({ mode, summary, patients, label, vitals, large = null }: { mode: Mode; summary: WardSummary | null; patients: Person[]; label: (minute: number) => string; vitals?: VitalsView | null; large?: string | null }) {
+  const [open, setOpen] = useState<string | null>(large);
+  // Escape makes the large figure normal again. It is taken here, before the page's own Escape (up one level on the drawing).
+  useEffect(() => {
+    if (open === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(null);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open]);
   return (
+    <Large.Provider value={{ open, set: setOpen }}>
     <section className="insights" aria-label="Analytics">
       <h2>Analytics</h2>
       <p>Synthetic hospital. Simulated patients. No outcome claim.</p>
@@ -384,5 +482,6 @@ export default function Insights({ mode, summary, patients, label, vitals }: { m
       <h3>Person</h3>
       <PersonSection patients={patients} label={label} />
     </section>
+    </Large.Provider>
   );
 }

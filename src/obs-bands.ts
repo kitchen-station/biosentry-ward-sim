@@ -63,3 +63,14 @@ export function summarise(values: (number | null | "skip")[]): { count: number; 
   const mid = s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
   return { count: v.length, last: v[v.length - 1], min: s[0], max: s[s.length - 1], median: mid };
 }
+
+/** How long a series sat in each band: the readings in the band times the minutes one reading stands for. Ours, not a NEWS2 practice. */
+export function timeInBands(values: (number | null | "skip")[], stepMin: number, bandOf: (v: number) => string, names: readonly string[]): { band: string; minutes: number }[] {
+  const count = new Map<string, number>(names.map((n) => [n, 0]));
+  for (const v of values) if (typeof v === "number" && Number.isFinite(v)) count.set(bandOf(v), (count.get(bandOf(v)) ?? 0) + 1);
+  return names.map((band) => ({ band, minutes: (count.get(band) ?? 0) * stepMin }));
+}
+/** The band names of a vital's score and of the NEWS2 total, as the large view prints them. */
+export const SCORE_BANDS = ["score 0", "score 1", "score 2", "score 3"] as const;
+export const TOTAL_BANDS = ["0 to 4", "5 or 6", "7 or more"] as const;
+export const totalBand = (total: number) => (total >= TOTAL.highFrom ? TOTAL_BANDS[2] : total >= TOTAL.mediumFrom ? TOTAL_BANDS[1] : TOTAL_BANDS[0]);
