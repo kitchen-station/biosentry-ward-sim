@@ -540,6 +540,8 @@ summary {
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
 .crumbs button { font: inherit; padding: 2px 6px; white-space: nowrap; }
 .crumbs b { white-space: nowrap; }
+/* The admin's patient rows: the name line, then the vitals line under it. */
+.beds.admin button .tiny { display: block; }
 
 .beds {
   display: grid;
