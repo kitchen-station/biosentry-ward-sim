@@ -1,7 +1,7 @@
 // The hospital's other units go to the API as patients (hospital-contract v1). The engine stays display only.
 import { describe, expect, it } from "vitest";
 import { loadWard, saveWard } from "../persist";
-import { step, type Sim } from "../sim";
+import { injectDeterioration, step, type Sim } from "../sim";
 import type { VitalsSource } from "../source";
 import { createSync } from "../sync";
 import { freshHospital } from "./fresh";
@@ -113,10 +113,60 @@ describe("the other units, published", () => {
     const loaded = loadWard(saveWard(w.s, w.src, RUN));
     const v2 = createVitals(); // the engine is not saved
     const again = fake();
-    again.sync.resume(loaded.s, loaded.src, { ...loaded.run, runId: 7 });
+    await again.sync.resume(loaded.s, loaded.src, { ...loaded.run, runId: 7 });
     minutes(loaded.s, loaded.src, v2, 4 * 60);
     await again.sync.flush();
     const after = batches(again.posts).flatMap((x) => x.admissions ?? []);
     for (const a of after) expect(before.has(a.id)).toBe(false);
+  }, 300_000);
+
+  it("a person who came from the ER to W4 and leaves it after a restart gets a new stay id, not the ER stay's", async () => {
+    const w = freshHospital(60);
+    const one = fake();
+    await one.sync.start(w.s, w.src);
+    const v = createVitals();
+    let person: string | undefined;
+    for (let h = 0; h < 72 && !person; h += 1) {
+      minutes(w.s, w.src, v, 60);
+      person = Object.entries(w.s.outbox!.stays ?? {}).find(([, r]) => r.id === null && r.k >= 1)?.[0]; // an ER stay, then W4
+    }
+    expect(person).toBeDefined();
+    await one.sync.flush();
+    const before = new Set(batches(one.posts).flatMap((x) => (x.admissions ?? []).map((a: Body) => a.id)));
+    const k = w.s.outbox!.stays![person!].k;
+    const loaded = loadWard(saveWard(w.s, w.src, RUN));
+    const again = fake();
+    await again.sync.resume(loaded.s, loaded.src, { ...loaded.run, runId: 7 });
+    const v2 = createVitals(); // a new engine opens no stream for a person on W4
+    minutes(loaded.s, loaded.src, v2, 3);
+    expect(loaded.s.outbox!.stays![person!]).toMatchObject({ id: null, unit: "W4", k }); // the record and its counter are kept
+    // Now they are sent up to the ICU.
+    const q = loaded.s.hospital!.people.find((x) => x.id === person)!;
+    const patient = loaded.s.patients.find((x) => x.id === q.w4Id)!;
+    injectDeterioration(loaded.s, loaded.src, patient.id);
+    patient.dueMin = -48 * 60;
+    loaded.s.tasks = [];
+    for (let m = 0; m < 6 * 60 && loaded.s.patients.includes(patient); m += 1) minutes(loaded.s, loaded.src, v2, 1);
+    await again.sync.flush();
+    const adm = batches(again.posts).flatMap((x) => x.admissions ?? []).filter((a: Body) => a.person === person);
+    expect(adm.length).toBeGreaterThan(0); // the ICU stay
+    for (const a of adm) expect(before.has(a.id)).toBe(false);
+  }, 300_000);
+
+  it("a stay's rows are not sent before its admission, when a batch cuts the admissions", async () => {
+    const w = freshHospital(60);
+    const { sync, posts } = fake();
+    await sync.start(w.s, w.src);
+    const out = w.s.outbox!;
+    const row = (i: number) => ({ ...out.admissions[0] ?? posts[0].body.patients[0], id: `x-${i}`, minute: 1 });
+    for (let i = 0; i < 250; i += 1) out.admissions.push(row(i));
+    for (const i of [0, 249]) out.observations.push({ patient_id: `x-${i}`, code: "heart_rate", minute: 1, source: "device", quality: "ok", num: 70 });
+    await sync.flush();
+    const sent = batches(posts);
+    const at = (id: string) => sent.findIndex((x) => (x.admissions ?? []).some((a: Body) => a.id === id));
+    const obsAt = (id: string) => sent.findIndex((x) => (x.observations ?? []).some((o: Body) => o.patient_id === id));
+    expect(at("x-249")).toBeGreaterThan(at("x-0")); // the batch size really cut them
+    expect(obsAt("x-0")).toBeGreaterThanOrEqual(at("x-0"));
+    expect(obsAt("x-249")).toBeGreaterThanOrEqual(at("x-249"));
   }, 300_000);
 });

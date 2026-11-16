@@ -91,10 +91,17 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     const pending = () =>
       out.observations.length + out.bins.length + out.events.length + out.admissions.length + out.departures.length > 0;
     do {
-      const observations = out.observations.splice(0, BATCH.observations);
-      const bins = out.bins.splice(0, BATCH.bins);
-      const events = out.events.splice(0, BATCH.events);
       const admissions = out.admissions.splice(0, BATCH.moves);
+      // Admissions the batch size cut off stay queued, and so do the rows of their patients: a row must not reach the API before its admission.
+      const waiting = new Set(out.admissions.map((a) => a.id));
+      const ready = <T extends { patient_id: string }>(rows: T[], queue: T[]) => {
+        if (waiting.size === 0) return rows;
+        queue.unshift(...rows.filter((r) => waiting.has(r.patient_id)));
+        return rows.filter((r) => !waiting.has(r.patient_id));
+      };
+      const observations = ready(out.observations.splice(0, BATCH.observations), out.observations);
+      const bins = ready(out.bins.splice(0, BATCH.bins), out.bins);
+      const events = out.events.splice(0, BATCH.events);
       const departures = out.departures.splice(0, BATCH.moves);
       const minute = minuteOf(sim);
       const ended = sim.ended && !pending();

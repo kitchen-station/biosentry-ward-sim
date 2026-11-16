@@ -55,6 +55,12 @@ export function publishHospital(s: Sim, v: HospitalVitals): void {
   for (const [person, rec] of Object.entries(stays)) {
     if (v.live.has(person)) continue;
     const q = h.people.find((x) => x.id === person) ?? h.gone.find((x) => x.id === person);
+    if (q?.unit === "W4" && q.where !== "awaiting_morgue" && q.where !== "morgue") {
+      // On W4, whose rows the ward sends. A new engine (after a restart) opens no stream for them, so there is no stream to match:
+      // keep the record, and its counter, so their next stay gets a new id. Any stay still open ends here as a move into W4.
+      if (rec.id) { close(out, rec, minute, { outcome: "transferred", to_unit: "W4" }); stays[person] = { id: null, unit: "W4", visit: rec.visit, reads: 0, k: rec.k + 1 }; }
+      continue;
+    }
     close(out, rec, minute, { outcome: q?.where === "awaiting_morgue" || q?.where === "morgue" ? "died" : "discharged" });
     delete stays[person];
   }

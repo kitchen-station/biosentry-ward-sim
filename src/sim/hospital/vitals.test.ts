@@ -491,11 +491,17 @@ describe("scans", () => {
     }
   });
 
-  it("the runner's publisher reads the engine and the hospital and writes only the outbox: no write through `h` or `v`, no random draw", () => {
+  // A write through the hospital (h), the engine (v), a person's stream (pv), the sim (s) or a person (q): an assignment, a mutating call or a delete.
+  const WRITES = /\b(h|v|pv|s|q)\.[\w.]+\s*(=(?!=)|\+=|-=|\+\+|--)|\b(h|v|pv|s|q)\.[\w.]*\.(push|pop|shift|unshift|splice|sort|reverse|set|delete|clear)\(|\bdelete\s+(h|v|pv|s|q)\b/;
+  it("the publisher's own guard catches each kind of write it is meant to catch", () => {
+    for (const bad of ["pv.bins.push(x)", "h.people.shift()", "delete v.live", "s.clockS = 1", "q.where += 1", "v.live.delete(id)", "pv.reads++", "h.events.splice(0, 1)", "s.log.sort()"]) expect(bad).toMatch(WRITES);
+    for (const ok of ["const out = s.outbox;", "for (const pv of v.live.values())", "h.people.find((x) => x.id === a)", "out.admissions.push(x)", "delete stays[person];", "if (a == b) return"]) expect(ok).not.toMatch(WRITES);
+  });
+
+  it("the runner's publisher reads the engine and the hospital and writes only the outbox: no write through h, v, pv, s or q, no random draw", () => {
     const text = readFileSync("src/sim/hospital/publish.ts", "utf8");
-    expect(text).not.toMatch(/\b[hv]\.[\w.]+\s*(=|\+=|-=)[^=]/);
+    expect(text).not.toMatch(WRITES);
     expect(text).not.toMatch(/Math\.random|stream\(/);
-    expect(text).not.toMatch(/\bpv\.[\w.]+\s*(=|\+=|-=)[^=]/); // nor into a person's stream
   });
 
   it("imports only the pure pieces: no module that writes a Sim, and only a few names from sim.ts", () => {

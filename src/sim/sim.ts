@@ -608,6 +608,7 @@ function leave(s: Sim, p: Patient, minute: number, outcome: StayOutcome, text: s
   s.patients.splice(s.patients.indexOf(p), 1);
   p.stay.outMin = minute;
   p.stay.outcome = outcome;
+  // shortcut: "ICU" is fixed because W4's only way up is its ICU (attach.ts), upgrade if the hospital adds another step-up unit.
   // Hospital mode: W4 sends a patient needing higher care to its ICU, so on the wire that is a move to another unit.
   s.outbox?.departures.push(s.hospital && outcome === "higher_care" ? { patient_id: p.id, minute, outcome: "transferred", to_unit: "ICU" } : { patient_id: p.id, minute, outcome });
   s.moves.push({ bed: p.bed, kind: outcome });
