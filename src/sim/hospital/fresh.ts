@@ -9,10 +9,11 @@ import type { VitalsSource } from "../source";
 export const RUNNER_SEED = 101;
 export const HOSPITAL_SCENARIOS: string[] = ["typical", ...NAMED.map((n) => n.id)];
 
-export function freshHospital(speed: Speed, scenario = "typical"): { s: Sim; src: VitalsSource } {
+/** `seed`: the month loop's seed for this run. Left out, the scenario starts as it always does (typical: seed 101). */
+export function freshHospital(speed: Speed, scenario = "typical", seed?: number): { s: Sim; src: VitalsSource } {
   if (!HOSPITAL_SCENARIOS.includes(scenario)) throw new Error(`Unknown hospital scenario "${scenario}": use one of ${HOSPITAL_SCENARIOS.join(", ")}`);
   // A seed makes buildWorld draw W4's 12 from it; no seed keeps the named scenario's own patients.
-  const { s, src } = scenario === "typical" ? buildWorld("pitch", RUNNER_SEED) : buildWorld(scenario, null);
+  const { s, src } = scenario === "typical" ? buildWorld("pitch", seed ?? RUNNER_SEED) : buildWorld(scenario, seed ?? null);
   setSpeed(s, speed);
   return { s, src };
 }

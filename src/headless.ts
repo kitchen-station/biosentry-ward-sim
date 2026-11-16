@@ -9,6 +9,7 @@ import { applyAction } from "./sim/actions";
 import { applyCommand, clinicianName, freshWard } from "./sim/commands";
 import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
 import { freshHospital, HOSPITAL_SCENARIOS } from "./sim/hospital/fresh";
+import { createMonthLoop } from "./sim/hospital/month";
 import { publishHospital } from "./sim/hospital/publish";
 import { createVitals, feedVitals } from "./sim/hospital/vitals";
 import { loadWard, saveWard } from "./sim/persist";
@@ -53,8 +54,12 @@ const view = createPublisher();
 // Owner decision dashboard-7: started episodes go to the API, only from here. See docs/episode-truth.md.
 const poster = createTruthPoster({ apiUrl, key, fetch, now: Date.now, log: console.error });
 
+// Hospital mode: at ward day 30 the run closes and the next seed starts (src/sim/hospital/month.ts).
+const month = createMonthLoop({ sync, fresh: (at, seed) => freshHospital(at, scenario, seed), log: console.log });
+
 let savedAt = 0;
 function save() {
+  if (hospital && !month.maySave()) return; // a new month the API has not accepted yet: the file stays the old month's
   writeFileSync(`${stateFile}.tmp`, saveWard(s, src, sync.run));
   renameSync(`${stateFile}.tmp`, stateFile); // a crash mid-write leaves the last whole file
   savedAt = Date.now();
@@ -100,19 +105,34 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 let last = performance.now();
 let spare = 0;
-if (saved) await sync.resume(s, src, saved.run);
+// A saved hospital whose month is over is not continued: the next month starts at once (a restart at the boundary).
+const newMonth = hospital && saved !== null && month.due(s);
+if (newMonth) {
+  ({ s, src } = await month.turn({ s, src }));
+  save();
+} else if (saved) await sync.resume(s, src, saved.run);
 else await sync.start(s, src);
 started = true;
-console.log(`${hospital ? "Hospital" : "Ward"} ${saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, writing to ${apiUrl}`);
-setInterval(() => {
+console.log(`${hospital ? "Hospital" : "Ward"} ${newMonth ? `started a new month (seed ${s.hospital?.seed}), run ${sync.run.runId},` : saved ? `resumed at minute ${minuteOf(s)}, run ${sync.run.runId},` : "started"} running at ${s.speed}x, writing to ${apiUrl}`);
+setInterval(async () => {
   const now = performance.now();
   spare += (now - last) / 1000; // a late timer or a suspended host is caught up, so sim minutes stay on the wall clock
   last = now;
   for (; spare >= TICK; spare -= TICK) {
     step(s, src);
     if (hospital) feedVitals(vitals, s.hospital!, s.clockS);
+    if (hospital && month.due(s)) break; // the month is over at this step: the rest of the time belongs to the next one
   }
   if (hospital) publishHospital(s, vitals); // reads from this interval, sent as that unit's patients
+  if (hospital && month.due(s)) {
+    const next = await month.turn({ s, src }); // the old world is marked ended first, so a tick meanwhile steps nothing
+    if (next.s !== s) {
+      [s, src] = [next.s, next.src];
+      vitals = createVitals(); // an old engine fed a new world would reuse its streams
+      spare = 0;
+      save(); // writes only if the API has already accepted the new run; else the next flush tries again
+    }
+  }
   void flush();
 }, 1000);
 // What the page in viewer mode draws. Every 2 s, as often as it polls.
