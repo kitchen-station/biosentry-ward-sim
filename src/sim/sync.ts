@@ -6,7 +6,8 @@
 import type { Action } from "./actions";
 import type { Command } from "./commands";
 import type { Run } from "./persist";
-import { minuteOf, patientRow, record, signalQuality, type Patient, type Sim } from "./sim";
+import { RUN_UNITS } from "./hospital/units";
+import { minuteOf, patientRow, personOf, record, signalQuality, type Patient, type Sim } from "./sim";
 import { FIXTURE_SEED, WARD_START_ISO, type VitalsSource } from "./source";
 
 // The API's limits per batch, and the most rows kept while it is unreachable.
@@ -183,7 +184,11 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
       source: "synthetic",
       seed: FIXTURE_SEED,
       origin,
-      patients: world.patients.map((p) => patientRow(p, initial.filter((o) => o.patient_id === p.id), minute - (minute % 15))),
+      ...(world.hospital && { units: RUN_UNITS }),
+      patients: world.patients.map((p) => {
+        const person = personOf(world, p.id);
+        return { ...patientRow(p, initial.filter((o) => o.patient_id === p.id), minute - (minute % 15)), ...(person && { person }) };
+      }),
     };
   }
 

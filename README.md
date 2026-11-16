@@ -9,7 +9,7 @@ The simulation is deployed. You do not need to install anything to see it.
 | Ward simulation | <https://biosentry-ward-sim.pages.dev> | This simulation, in the browser. No sign-in. |
 | Dashboard | <https://biosentry-dashboard.pages.dev> | The BioSentry clinician's list on a sample ward. Any passphrase is accepted. |
 
-Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only. The public dashboard has no server: it runs alone on a sample ward. The page's switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", opens the hospital page, which has no server and runs alone in your browser.
+Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only, and the dashboard reads the same ward. The page's switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", opens the hospital page, which has no server and runs alone in your browser.
 
 The connected version (this simulation writes to the BioSentry API and the dashboard reads the same ward, live) runs on the team's server and is private to the team. The dashboard repository's `deploy/README.md` says how it is built.
 
@@ -132,7 +132,7 @@ The key `dev-local` is the one `make api-dev` sets in the BioSentry-Intelligence
 - `BIOSENTRY_INGEST_KEY`: the ingest key. Required.
 - `WARD_SPEED`: 1, 10 or 60. Default 1, which is real time. At 60x one ward writes about 7 million observations a day. It is the starting speed of a new ward: a saved ward continues at the speed it had, which a clinician may have changed from the viewer.
 - `WARD_STATE_FILE`: where the ward is saved. Default `ward-state.json` in the folder you run from.
-- `WARD_MODE`: `ward` (default, ward W4 alone, as before) or `hospital`. Hospital mode runs the whole hospital (the page's Pitch ward, seed 101) and saves it to `hospital-state.json` by default, so a restart continues it. It does not write to the API yet: that comes in the next slices. A state file made in one mode is refused by the other.
+- `WARD_MODE`: `ward` (default, ward W4 alone, as before) or `hospital`. Hospital mode runs the whole hospital (the page's Pitch ward, seed 101) and saves it to `hospital-state.json` by default, so a restart continues it. It writes ward W4 and its moves to the API in a run that lists every unit (a move to the ICU is sent as `transferred` with `to_unit`); the other units' patients are not sent yet. A state file made in one mode is refused by the other.
 
 The runner saves the ward every 10 seconds and when it is stopped. Started again, it continues the same ward: same patients, same clock, same run in the API. The time it was down is not replayed. To start a new ward, delete the state file.
 

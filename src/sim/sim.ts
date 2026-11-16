@@ -172,13 +172,17 @@ export interface PatientRow {
   signal_quality: number | null;
   observations: Obs[];
   bins: Bin[];
+  /** Hospital mode: the hospital person this stay belongs to. The same for every stay of one person. */
+  person?: string;
 }
+/** What a departure says on the wire. The ward's own words are two; a hospital run adds a move to another unit and a death. */
+export interface Departure { patient_id: string; minute: number; outcome: StayOutcome | "transferred" | "died"; to_unit?: string }
 export interface Outbox {
   observations: Obs[];
   bins: Bin[];
   events: LogEvent[];
   admissions: (PatientRow & { minute: number })[];
-  departures: { patient_id: string; minute: number; outcome: StayOutcome }[];
+  departures: Departure[];
   sent: Map<string, string>; // patient/code to the value and quality last queued
   /** Set by the API sync. A nurse-charted value is then queued again at every assessment, also when it did not change, so its age is true. */
   nurseTimes?: boolean;
@@ -224,6 +228,9 @@ const median = (values: number[]) => {
 const MAX_STAY_EVENTS = 30;
 const MAX_STAYS = 500; // finished stays past this are forgotten, oldest first
 const MINUTES_PER_DAY = 1440;
+
+/** The hospital person a W4 patient is, or undefined outside hospital mode. Read-only. */
+export const personOf = (s: Sim, w4Id: string) => s.hospital?.people.find((x) => x.w4Id === w4Id)?.id;
 
 export const minuteOf = (s: Sim) => Math.floor(s.clockS / 60);
 export const staffById = (s: Sim, id: string) => s.staff.find((m) => m.id === id)!;
@@ -596,7 +603,8 @@ function leave(s: Sim, p: Patient, minute: number, outcome: StayOutcome, text: s
   s.patients.splice(s.patients.indexOf(p), 1);
   p.stay.outMin = minute;
   p.stay.outcome = outcome;
-  s.outbox?.departures.push({ patient_id: p.id, minute, outcome });
+  // Hospital mode: W4 sends a patient needing higher care to its ICU, so on the wire that is a move to another unit.
+  s.outbox?.departures.push(s.hospital && outcome === "higher_care" ? { patient_id: p.id, minute, outcome: "transferred", to_unit: "ICU" } : { patient_id: p.id, minute, outcome });
   s.moves.push({ bed: p.bed, kind: outcome });
   if (s.moves.length > 20) s.moves.shift();
   if (s.stays.length > MAX_STAYS) {
@@ -652,8 +660,6 @@ export function place(s: Sim, src: VitalsSource, seed: PatientSeed, minute: numb
 
 /** W4 as the hospital sees it. A full ward refuses before any draw: a cardiac boarder asks every minute. */
 export function w4Port(s: Sim, src: VitalsSource): W4Port {
-  // v1: the API accepts only discharged and higher_care, so hospital mode never runs with an outbox.
-  if (s.outbox) throw new Error("Hospital mode and API sync never run together");
   return {
     admit(person, minute) {
       if (s.patients.length >= BEDS.length) return null;
@@ -682,7 +688,10 @@ export function step(s: Sim, src: VitalsSource) {
     while (s.flow.lastMinute < minuteOf(s)) {
       s.flow.lastMinute += 1;
       movePatients(s, src, s.flow.lastMinute);
-      if (s.hospital) stepHospital(s.hospital, w4Port(s, src), s.flow.lastMinute);
+      if (s.hospital) {
+        stepHospital(s.hospital, w4Port(s, src), s.flow.lastMinute);
+        if (s.outbox) for (const a of s.outbox.admissions) a.person ??= personOf(s, a.id); // w4Id is set only now, after the hospital placed them
+      }
     }
     rerank(s);
   }
