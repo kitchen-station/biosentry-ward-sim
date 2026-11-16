@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -60,6 +60,16 @@ describe("the side panel when watching", () => {
     expect(html).toContain("Back to the list");
     expect(html).toContain("Sign in to see this patient&#x27;s vitals.");
     expect(html).not.toContain(p.name);
+  });
+});
+
+describe("the old /hospital/ address", () => {
+  it("redirects to the one page, and no file here sets a cache time on any page", () => {
+    // Cloudflare Pages reads public/_redirects from the upload. Without it an unknown path answers 200 with the root page.
+    expect(readFileSync("public/_redirects", "utf8")).toBe("/hospital /  301\n/hospital/* /  301\n");
+    // The 7-day `s-maxage` seen on the old page was Cloudflare's own, for files of an earlier deployment: this repository has no _headers file.
+    expect(existsSync("public/_headers")).toBe(false);
+    expect(readdirSync("public")).toEqual(["_redirects"]);
   });
 });
 
