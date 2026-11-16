@@ -268,7 +268,7 @@ Counting a change when the score differs from 15 minutes earlier, the synthetic 
 
 `src/sim/calibration.json` (from `npm run fit:calibration`, cohort of 885 eICU stays, adult, alive, awake, 12 hours or more) supplies the hour each 24-hour rhythm peaks and the held-out range used by `src/sim/calibration.test.ts`. Its 25% scaling (`LIVE_WANDER`) is gone: the ward now runs at full fitted size. Its RR and SpO2 checks at 5 minutes are marked as known misses, because this generator takes that noise from BIDMC.
 
-`src/sim/fitted.json` replaces the generator's hand-set constants. It holds aggregate statistics only: no recording and no single patient's values. To rebuild it, put the four datasets in one folder and run:
+`src/sim/fitted.json` replaces the generator's hand-set constants. It holds aggregate statistics only: no recording and no single patient's values. To rebuild it, put the five datasets (eICU-CRD Demo, BIDMC, MIT-BIH Arrhythmia, MIT-BIH AF and Long Term AF) in one folder and run:
 
 ```bash
 npm run fit -- ~/Documents/datasets
@@ -289,7 +289,7 @@ npm run fit -- ~/Documents/datasets
 
 Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
 
-`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss and occupancy pass. The 24-hour heart rate and respiratory rate swings also pass, but the simulator was set from those figures, so that agreement is by construction. Three checks are marked as known misses:
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss and occupancy pass. The 24-hour heart rate and respiratory rate swings also pass, but the simulator was set from those figures, so that agreement is by construction. Three checks here are marked as known misses. There are six in all: the other three are the 5-minute change sizes of breathing and SpO2 (C5 and C9, in `src/sim/calibration.test.ts`) and temperature's 5-minute correlation (A4, in `npm run realism` only); see [docs/realism.md](docs/realism.md).
 
 | Known miss | Sim | Published |
 |---|---|---|
@@ -297,7 +297,7 @@ Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test
 | Observation sets at NEWS 7+ | about 16% | about 10% |
 | SpO2, low end | 1st to 10th percentiles 90 to 94 | 86 to 91 (Welch 2015) |
 
-Patients spend about 14% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
+Patients spend about 15% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
 
 Limits:
 

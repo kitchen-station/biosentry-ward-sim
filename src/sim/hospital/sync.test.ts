@@ -79,7 +79,7 @@ describe("a hospital run that writes to the API", () => {
       { id: "ER", name: "Emergency Room", floor: 0, kind: "shown" },
       { id: "ICU", name: "Intensive Care", floor: 2, kind: "unranked" },
       { id: "MED3A", name: "Medicine 3A", floor: 3, kind: "ranked" },
-      { id: "MED3B", name: "Medicine 1A", floor: 1, kind: "ranked" },
+      { id: "MED3B", name: "Medicine 3B", floor: 1, kind: "ranked" },
       { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
     ]);
     expect(body.patients).toHaveLength(12);

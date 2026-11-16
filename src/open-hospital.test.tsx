@@ -25,7 +25,7 @@ const LIST = {
   units: [
     { id: "W4", name: "Ward W4", floor: 4, kind: "ranked" }, { id: "ER", name: "Emergency Room", floor: 0, kind: "shown" },
     { id: "ICU", name: "Intensive Care", floor: 2, kind: "unranked" }, { id: "MED3A", name: "Medicine 3A", floor: 3, kind: "ranked" },
-    { id: "MED3B", name: "Medicine 1A", floor: 1, kind: "ranked" }, { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
+    { id: "MED3B", name: "Medicine 3B", floor: 1, kind: "ranked" }, { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
   ],
 };
 const UNITS = drawnUnits(parseOpenUnits(JSON.stringify(LIST))!);
@@ -152,7 +152,7 @@ describe("the side panel", () => {
       "4F Ward W4 · 2 beds in use",
       "3F Medicine 3A · 3 beds in use",
       "2F Intensive Care · 1 bed in use",
-      "1F Medicine 1A · no answer yet",
+      "1F Medicine 3B · no answer yet",
       "GF Emergency Room · 2 beds in use",
     ]);
     expect(html).toContain('<b aria-current="page">Hospital</b>');

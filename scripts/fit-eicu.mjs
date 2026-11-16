@@ -1,5 +1,5 @@
 // Fits the synthetic generator's dynamics constants from the eICU-CRD Demo and writes
-// src/sim/calibration.json. Usage: npm run fit -- <folder holding the four .csv.gz files>
+// src/sim/calibration.json. Usage: npm run fit:calibration -- <folder holding the four .csv.gz files>
 // Pooled numbers only: per-stay estimates are medianed and never written out.
 
 import { writeFileSync } from "node:fs";

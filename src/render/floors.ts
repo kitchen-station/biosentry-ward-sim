@@ -175,7 +175,7 @@ function medicine(floor: number, unit: UnitId, name: string): FloorSpec {
     }),
   };
 }
-const MED1 = medicine(1, "MED3B", "MEDICINE 1A"); // unit id kept from when it shared 3F
+const MED1 = medicine(1, "MED3B", "MEDICINE 3B"); // on 1F; the name follows the unit id
 const MED3 = medicine(3, "MED3A", "MEDICINE 3A");
 
 const SURG: FloorSpec = {

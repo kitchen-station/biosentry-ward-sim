@@ -58,7 +58,7 @@ describe("floorSummary", () => {
   it("counts beds, stretchers, occupancy and the nurse ratio on 3F and 1F", () => {
     const a = at(3).units.find((u) => u.id === "MED3A")!;
     expect([a.beds.filter(Boolean).length, a.stretchers.filter(Boolean).length, a.census]).toEqual([3, 1, 4]); // 3 beds: the ICU-indicated one is a patient too
-    const b = at(1).units.find((u) => u.id === "MED3B")!; // Medicine 1A
+    const b = at(1).units.find((u) => u.id === "MED3B")!; // Medicine 3B
     expect([b.census, b.bodies, b.beds[3]?.dead]).toEqual([0, 1, true]); // a body holds its bed but is no patient
     expect(at(3).census).toBe(4);
     expect(at(3).occupancyPct).toBe(13); // 4 of 30
@@ -66,7 +66,7 @@ describe("floorSummary", () => {
     expect([at(1).census, at(1).ratio, at(1).awaitingMorgue, at(3).awaitingMorgue]).toEqual([0, 0, 1, 0]); // the body is not a patient
     expect(a.beds[5]?.icu).toBe(true);
     expect(floorName(at(3))).toMatch(/^3F: Medicine 3A, 4 patients/);
-    expect(floorName(at(1))).toMatch(/^1F: Medicine 1A, 0 patients/);
+    expect(floorName(at(1))).toMatch(/^1F: Medicine 3B, 0 patients/);
   });
 
   it("counts boarders on the floor they wait for, and a zero-nurse unit has no ratio", () => {
@@ -115,8 +115,8 @@ describe("floorSummary", () => {
   });
 });
 
-describe("Medicine 1A on its own floor", () => {
-  it("changes only that unit's floor and name: two days of the hospital are otherwise identical, draw for draw", () => {
+describe("Medicine 3B on its own floor", () => {
+  it("changes only that unit's floor: two days of the hospital are otherwise identical, draw for draw", () => {
     const twoDays = () => {
       const src = createSyntheticSource(101, true);
       const s = createHospitalSim(src, parseScenario(typical), 101);
@@ -126,12 +126,12 @@ describe("Medicine 1A on its own floor", () => {
     };
     const now = twoDays();
     const row = UNITS.find((u) => u.id === "MED3B")!;
-    expect([row.floor, row.name]).toEqual([1, "Medicine 1A"]);
+    expect([row.floor, row.name]).toEqual([1, "Medicine 3B"]);
     Object.assign(row, { floor: 3, name: "Medicine 3B" }); // the table as it was, both medicine wards on 3F
     let before: string;
-    try { before = twoDays(); } finally { Object.assign(row, { floor: 1, name: "Medicine 1A" }); }
+    try { before = twoDays(); } finally { Object.assign(row, { floor: 1, name: "Medicine 3B" }); }
     const was = '"id":"MED3B","name":"Medicine 3B","floor":3,';
     expect(before.split(was).length).toBe(2); // exactly once: the unit table inside the state
-    expect(before.replace(was, '"id":"MED3B","name":"Medicine 1A","floor":1,')).toBe(now);
+    expect(before.replace(was, '"id":"MED3B","name":"Medicine 3B","floor":1,')).toBe(now);
   }, 120_000);
 });

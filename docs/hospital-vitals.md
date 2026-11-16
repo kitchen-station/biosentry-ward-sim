@@ -49,7 +49,7 @@ The evaluator's worst single call was 13.9 to 14.5 ms, in the first second, when
 The contract's prototype measured 0.43 s without and 2.38 s with the engine on a loaded machine, about 12-13 microseconds per read and 1.35 ms per simulated minute. Those are the prototype's numbers, not this build's.
 
 ## On the page
-Only the standalone hospital build makes the engine. A viewer build, a watcher and the ward-only build never do, and no request is added. It is made with the world and replaced on every restart (scenario change, Shuffle, Reset). It is fed with `feedVitals` right after each `step` in the frame loop and in the chunked day skip, next to the ward-stats feed. It is display only.
+On the page, only the standalone hospital build makes the engine. A viewer build, a watcher and the ward-only build never do, and no request is added. Off the page, the headless runner in hospital mode (`WARD_MODE=hospital`) makes one too: it feeds it after each step and sends its people to the API as each unit's patients (`src/sim/hospital/publish.ts`), still display only. It is made with the world and replaced on every restart (scenario change, Shuffle, Reset). It is fed with `feedVitals` right after each `step` in the frame loop and in the chunked day skip, next to the ward-stats feed. It is display only.
 - **First day.** Everyone present at minute 0 opens as a new admission. For about the first simulated day roughly 4 in 10 are on oxygen (W4's admitted patients run near 15%) and NEWS2 5 or more is about twice W4's share. It settles after about a day. Measured in a review run, seed 101, `typical`:
 
 | Simulated time | Share at NEWS2 5 or more |
