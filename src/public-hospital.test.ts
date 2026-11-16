@@ -27,7 +27,8 @@ describe("the public page's switch between the two worlds", () => {
   });
   it("App gives the switch to the viewer build and to the hospital page as deployed, and to no other page", () => {
     const app = readFileSync("src/App.tsx", "utf8");
-    expect(app).toContain('worlds={VIEW_API ? { here: "ward", ward: import.meta.env.BASE_URL, hospital: `${import.meta.env.BASE_URL}hospital/` } : HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? { here: "hospital", ward: "/", hospital: import.meta.env.BASE_URL } : undefined}');
+    // Watching a server that runs the whole hospital, the page is that hospital and shows no switch.
+    expect(app).toContain('worlds={watch && hosp ? undefined : VIEW_API ? { here: "ward", ward: import.meta.env.BASE_URL, hospital: `${import.meta.env.BASE_URL}hospital/` } : HOSPITAL && import.meta.env.BASE_URL === "/hospital/" ? { here: "hospital", ward: "/", hospital: import.meta.env.BASE_URL } : undefined}');
   });
   it("the hospital page says it is simulated in the browser, not the server's ward", () => {
     expect(bar({ hospital })).toContain("Simulated in your browser, not the server&#x27;s ward W4");

@@ -536,6 +536,11 @@ summary {
   font-size: 15px;
 }
 
+/* The public hospital panel: where you are. Small buttons in a row that wraps. */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.crumbs button { font: inherit; padding: 2px 6px; white-space: nowrap; }
+.crumbs b { white-space: nowrap; }
+
 .beds {
   display: grid;
   gap: 2px;
@@ -616,6 +621,18 @@ summary {
 
   .command {
     height: 70vh;
+  }
+
+  /* Seven floor buttons must fit the short stage, or the ground floor falls off its edge. */
+  .rail {
+    top: 4px;
+    right: 4px;
+    gap: 2px;
+  }
+
+  .rail button {
+    padding: 1px 8px;
+    font-size: 12px;
   }
 }
 
