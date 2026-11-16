@@ -331,6 +331,14 @@ export function nextGate(g: Gate, e: GateEvent): Gate {
   return g;
 }
 
+/**
+ * What to say on the stage when a signed-in admin has no drawing: the open view did not answer, so nothing is drawn (the page
+ * never draws its own engine's patients beside the server's data). down: the server could not be reached. gone: its public
+ * drawing is off. null: there is a drawing, or the reader is not an admin.
+ */
+export const noDrawing = (admin: boolean, watching: boolean, probe: "down" | "gone" | null): string | null =>
+  !admin || watching ? null : probe === "gone" ? "No drawing: the server's public view is off. The lists still come from the server." : "Server not reachable. No drawing is shown.";
+
 /** Which page to show. With a token, or in a build with no view API, the open route plays no part. */
 export function screen(viewApi: string | undefined, token: string | null, gate: Gate, first: OpenWard | null): "ward" | "loading" | "watch" | "signin" {
   if (!viewApi || token !== null) return "ward";

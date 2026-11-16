@@ -38,6 +38,8 @@ Code: `src/admin-view.ts` (pure) and `src/admin-panels.tsx`. Tests: `src/admin-v
 - Read-only: the panel has no control, the top bar has only "Sign out", and the admin's page never reads a unit's live view (`/wards/{unit}/live` is for the unit's own clinicians), so it never learns `can_control`.
 - A row with no vitals in the answer says "Vitals not served yet." and shows none. Today that is every ER and intensive care row. A value the server marks absent shows as "none". Nothing is filled in.
 - Ages are measured against the `now` the route serves, so they hold for any run.
+- With no open view there is no drawing, and the stage says why: "Server not reachable. No drawing is shown." when the open route cannot be reached, or "No drawing: the server's public view is off. The lists still come from the server." when it answers 404. A viewer build starts from an empty world and never runs its own engine, so no patient of the page's own is ever drawn beside the server's data.
+- Vitals that are missing from an answer read "Vitals not served yet."; vitals that are there but out of shape read "Could not read the vitals in this answer." and none of them is shown.
 - A clinician's page is unchanged.
 
 ## The nine rules (wire contract, section 9.1), and where they are tested

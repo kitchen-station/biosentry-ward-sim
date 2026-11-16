@@ -7,7 +7,7 @@ import { fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, AD
 import { adminFloor, AdminPanel, type Load } from "./admin-panels";
 import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
-import { fetchOpenCard, fetchOpenWard, nextGate, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
+import { fetchOpenCard, fetchOpenWard, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
@@ -130,12 +130,14 @@ export function App() {
   // No token in a viewer build: ask the open route once.
   const [gate, setGate] = useState<Gate>("trying");
   const [first, setFirst] = useState<OpenWard | null>(null);
+  const [probe, setProbe] = useState<"down" | "gone" | null>(null); // why the last ask of the open view failed
   useEffect(() => {
     if (!VIEW_API || (token !== null && !admin) || gate !== "trying") return;
     let off = false;
     void fetchOpenWard({ fetch: window.fetch.bind(window), base: VIEW_API }).then((r) => {
       if (off) return;
       if (r.ok) setFirst(r.body);
+      setProbe(r.ok ? null : r.kind);
       setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));
     });
     return () => void (off = true);
@@ -159,12 +161,12 @@ export function App() {
     setGate((g) => nextGate(g, "signed_out"));
   };
   const watch = shown === "watch" && first ? { first, onBody: setFirst, onGone: () => setGate((g) => nextGate(g, "poll_gone")), onLeave: () => setGate((g) => nextGate(g, "leave")) } : undefined;
-  return <Ward token={token} admin={admin} onSignedOut={onSignedOut} watch={watch} />;
+  return <Ward token={token} admin={admin} onSignedOut={onSignedOut} watch={watch} stageNote={noDrawing(admin, !!watch, probe)} />;
 }
 
 type Watch = { first: OpenWard; onBody: (w: OpenWard) => void; onGone: () => void; onLeave: () => void };
 
-function Ward({ token, admin, onSignedOut, watch }: { token: string | null; admin: boolean; onSignedOut: () => void; watch?: Watch }) {
+function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string | null; admin: boolean; onSignedOut: () => void; watch?: Watch; stageNote?: string | null }) {
   const [pick, setPick] = useState<Pick>(() => parseQuery(window.location.search)); // only the standalone page reads it
   const [world, setWorld] = useState(() => newWorld(pick));
   const statsRef = useRef(createWardStats()); // beside the world, not in it: replaced with the world, fed after every step. A viewer never feeds it.
@@ -694,7 +696,7 @@ function Ward({ token, admin, onSignedOut, watch }: { token: string | null; admi
         page={page}
         s={world.s}
         src={world.src}
-        notice={viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
+        notice={stageNote ?? viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
         onSignIn={admin ? undefined : watch?.onLeave}
         admin={admin}
         serverHospital={!!watch && hosp}
@@ -734,6 +736,8 @@ function Ward({ token, admin, onSignedOut, watch }: { token: string | null; admi
       )}
       <main className="main" hidden={page === "analytics"}>
         <div className="floor">
+          {/* An admin with no open view: the stage says so. The canvas under it holds an empty ward: a viewer build never runs its own engine. */}
+          {stageNote && <p className="stagenote" role="status">{stageNote}</p>}
           <canvas
             ref={canvasRef}
             aria-label={

@@ -42,8 +42,8 @@ export interface AdminRow {
   ranked: { rank: number; score: number; trend: (typeof TRENDS)[number] } | null;
   /** A patient who is not ranked: why, and the NEWS2 band where the unit shows one. */
   reason: string | null; risk: (typeof RISKS)[number] | null;
-  /** null: the route served no vitals for this row. */
-  vitals: AdminVitals | null;
+  /** null: the route served no vitals for this row. "unreadable": it served something there that is out of shape, so none of it is shown. */
+  vitals: AdminVitals | null | "unreadable";
 }
 export interface AdminRows { unit: string; nowMs: number; rows: AdminRow[] }
 export interface AdminStay { id: string; name: string; bed: string; inMs: number | null; outMs: number | null; outcome: (typeof OUTCOMES)[number] | null; toUnit: string | null }
@@ -55,17 +55,18 @@ function value(v: unknown): AdminValue | null {
   return { value: present ? (v.data.value as number) : null, atMs: timeMs(v.provenance.observed_at), source: str(v.provenance.source, 20) ? v.provenance.source : null };
 }
 
-/** The five vitals of a row, or null when the row holds none (or one is out of shape: then nothing of it is shown). */
-function vitals(v: unknown): AdminVitals | null {
-  if (!isObj(v)) return null;
+/** The five vitals of a row. null: the row holds none (the field is missing or null). "unreadable": it holds something out of shape. */
+function vitals(v: unknown): AdminVitals | null | "unreadable" {
+  if (v === undefined || v === null) return null;
+  if (!isObj(v)) return "unreadable";
   const out = {} as Record<(typeof ADMIN_VITALS)[number], AdminValue>;
   for (const code of ADMIN_VITALS) {
     const one = value(v[code]);
-    if (!one) return null;
+    if (!one) return "unreadable";
     out[code] = one;
   }
   const bp = v.blood_pressure;
-  if (!isObj(bp) || !isObj(bp.data) || !isObj(bp.provenance)) return null;
+  if (!isObj(bp) || !isObj(bp.data) || !isObj(bp.provenance)) return "unreadable";
   const pair = bp.data.present === true && isObj(bp.data.value) && int(bp.data.value.systolic, 1, 400) && int(bp.data.value.diastolic, 1, 400) ? (bp.data.value as { systolic: number; diastolic: number }) : null;
   return { ...out, blood_pressure: { systolic: pair?.systolic ?? null, diastolic: pair?.diastolic ?? null, atMs: timeMs(bp.provenance.observed_at), source: str(bp.provenance.source, 20) ? bp.provenance.source : null } };
 }
@@ -91,7 +92,9 @@ function abstainedRow(v: unknown): AdminRow | null {
   if (!who || !str(v.reason, 500)) return null;
   const risk = v.news2_risk ?? null;
   if (risk !== null && !oneOf(risk, RISKS)) return null;
-  return { ...who, ranked: null, reason: v.reason, risk, vitals: vitals(v.last_seen) };
+  // A row of the ER or intensive care carries `vitals` (the stored vitals a ranked row has, with no score). Any other row that
+  // is not ranked carries `last_seen` (the last stored values, whatever their age). The page shows whichever the server sent.
+  return { ...who, ranked: null, reason: v.reason, risk, vitals: vitals(v.vitals ?? v.last_seen) };
 }
 
 export function parseAdminUnits(text: string): AdminUnit[] | null {
