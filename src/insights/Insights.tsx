@@ -8,6 +8,7 @@ import type { Patient } from "../sim/sim";
 import { WINDOW_AFTER_FULL_MIN, type WardSummary } from "../sim/ward-stats";
 import { OBS, obsScore, obsSpans, SCORE_BANDS, SCORE_COLOUR, summarise, timeInBands, TOTAL, TOTAL_BANDS, totalBand, type ObsVital } from "../obs-bands";
 import { axisNumber, LineChart, ObsChart, StackedBars, Strip, type Slot } from "./charts";
+import { Operations, type OpsView } from "./operations";
 
 export type Person = Pick<Patient, "id" | "name" | "bed" | "stay" | "history"> & Partial<Pick<Patient, "bpHistory">>;
 /** hospital: the standalone hospital world. ward: a standalone W4 only. viewer: the runner's ward, whose totals this page does not have. */
@@ -155,9 +156,16 @@ function withGaps<T>(rows: T[], at: (r: T) => number, step: number): Slot<T>[] {
 const last = <T,>(xs: T[]) => xs[xs.length - 1];
 const placeWord = (id: string) => (id === "MORGUE" ? "places" : "beds"); // the morgue holds drawers, not beds
 
-function Hospital({ mode, sum }: { mode: Mode; sum: WardSummary | null }) {
+function Hospital({ mode, sum, ops }: { mode: Mode; sum: WardSummary | null; ops?: OpsView }) {
   if (mode === "ward") return <p>This page simulates ward W4 only.</p>;
-  if (mode === "viewer") return <p>Not served: the server runs the whole hospital, but sends this page no totals per unit and hour.</p>;
+  if (mode === "viewer") {
+    return (
+      <>
+        {ops && <Operations ops={ops} />}
+        <p>Not served: the server runs the whole hospital, but sends this page no totals per unit and hour.</p>
+      </>
+    );
+  }
   const h = sum?.hospital;
   const units = arr(h?.units);
   const note = arr(h?.hours).length === 0 || units.length === 0 ? NO_DATA : undefined;
@@ -442,7 +450,7 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
 }
 
 /** `large`: the figure that starts large (tests; the page starts with none). */
-export default function Insights({ mode, summary, patients, label, vitals, large = null }: { mode: Mode; summary: WardSummary | null; patients: Person[]; label: (minute: number) => string; vitals?: VitalsView | null; large?: string | null }) {
+export default function Insights({ mode, summary, patients, label, vitals, ops, large = null }: { mode: Mode; summary: WardSummary | null; patients: Person[]; label: (minute: number) => string; vitals?: VitalsView | null; ops?: OpsView; large?: string | null }) {
   const [open, setOpen] = useState<string | null>(large);
   // Escape makes the large figure normal again. It is taken here, before the page's own Escape (up one level on the drawing).
   useEffect(() => {
@@ -462,7 +470,7 @@ export default function Insights({ mode, summary, patients, label, vitals, large
       <p>Synthetic hospital. Simulated patients. No outcome claim.</p>
       <h3>Hospital</h3>
       <div className="figs">
-        <Hospital mode={mode} sum={summary} />
+        <Hospital mode={mode} sum={summary} ops={ops} />
       </div>
       {mode === "hospital" ? (
         <>

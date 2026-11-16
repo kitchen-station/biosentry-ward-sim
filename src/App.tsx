@@ -6,6 +6,8 @@ import { floorOf } from "./hospital-panels";
 import { fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, ADMIN_REFRESH_MS, type AdminAnswer, type AdminPatient, type AdminRequest, type AdminRow, type AdminRows, type AdminStay, type AdminUnit } from "./admin-view";
 import { adminFloor, AdminPanel, type Load } from "./admin-panels";
 import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
+import { openOps } from "./open-ops";
+import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
@@ -518,6 +520,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   const views: OpenViews = watch && lastOpenRef.current ? { ...others, [OPEN_WARD]: lastOpenRef.current } : others;
   const viewsRef = useRef(views);
   viewsRef.current = views;
+  // Hospital operations, counted from the open views only. Public: a watcher sees it too.
+  const ops = VIEW_API && hosp && units.length > 0 ? openOps(units, views) : undefined;
 
   // shortcut: ages assume the run's origin is WARD_START_ISO (every run this runner starts); a run from another source needs a served now on the card
   const wardNowMs = Date.parse(WARD_START_ISO) + (viewClock.has() ? viewClock.read(performance.now()) : world.s.clockS) * 1000;
@@ -718,7 +722,14 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
       {page === "analytics" && (
         <main className="main insightsmain">
           {watch ? (
-            <p className="insights">Sign in to see ward analytics</p>
+            <>
+              <p className="insights">Sign in to see ward analytics</p>
+              {ops && (
+                <section className="insights" aria-label="Hospital operations, public view">
+                  <Operations ops={ops} />
+                </section>
+              )}
+            </>
           ) : (
             <AnalyticsBoundary onError={() => (Insights = lazy(loadInsights))}>
             <Suspense fallback={<p className="tag">loading</p>}>
@@ -728,6 +739,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
                 patients={world.s.patients}
                 label={(m) => stamp(world.src, m)}
                 vitals={vitalsRef.current?.world === world.s ? pageView(vitalsRef.current.v) : null}
+                ops={ops}
               />
             </Suspense>
             </AnalyticsBoundary>
