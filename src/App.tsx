@@ -4,7 +4,7 @@ import { floorSummary } from "./building";
 import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
 import { floorOf } from "./hospital-panels";
 import { fetchOpenWard, nextGate, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
-import { BedTimeline, Inspector, SelectList, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
+import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
@@ -650,7 +650,9 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
         </div>
-        <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} vitals={vitals} />
+        <SidePanel>
+          <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} vitals={vitals} />
+        </SidePanel>
       </main>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
