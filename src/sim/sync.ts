@@ -20,7 +20,13 @@ export interface SyncOptions {
   /** Random, 1 to 64 characters, generated once per page load: a sim can replace its own run. */
   clientId: string;
   fetch: typeof fetch;
+  /** Called at the moment the API accepts a new run, before anything else is sent to it: the runner saves its state then. */
+  onRun?: (runId: number) => void;
 }
+
+/** A fetch that gives up after `ms`: a request that hangs is then a network error, and what was queued is tried again later. */
+export const withTimeout = (f: typeof fetch, ms: number): typeof fetch =>
+  ((url: Parameters<typeof fetch>[0], init?: RequestInit) => f(url, { ...init, signal: AbortSignal.timeout(ms) })) as typeof fetch;
 
 export type StopReason = "other_live" | "superseded" | "bad_key";
 
@@ -41,7 +47,7 @@ const lastSample = (p: Patient) => {
   return Number.isFinite(latest) ? latest : null;
 };
 
-export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) {
+export function createSync({ apiUrl, key, clientId, fetch: send, onRun }: SyncOptions) {
   let s: Sim | null = null;
   let registration: object | null = null;
   let runId: number | null = null;
@@ -154,6 +160,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
           if (s !== world) return; // start() began another run while this one registered: the next flush registers that one
           runId = id;
           for (const p of registered) ackedPatients.add(p);
+          onRun?.(id);
         } catch (error) {
           if (s !== world) return; // as below: an answer for a world the sync has since left
           if (error instanceof HttpError && error.status === 409) return stop("other_live");
