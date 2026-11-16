@@ -116,6 +116,7 @@ export function AdminPanel({ units, view, rows, stays, patient, picked, onView, 
         <div className="scroll">
           <h2 className="ptitle">{unit.name}</h2>
           {KIND_NOTE[unit.kind] && <p className="tiny">{KIND_NOTE[unit.kind]}</p>}
+          {unit.note && <p className="tiny">{unit.note}</p>}
           {!ready(rows) || rows.unit !== unit.id ? (
             <p className="tiny">{state(ready(rows) ? "loading" : rows)}</p>
           ) : rows.rows.length === 0 ? (
