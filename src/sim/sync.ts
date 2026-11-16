@@ -189,7 +189,7 @@ export function createSync({ apiUrl, key, clientId, fetch: send }: SyncOptions) 
     registration = {
       client_id: clientId,
       source: "synthetic",
-      seed: FIXTURE_SEED,
+      seed: world.hospital?.seed ?? FIXTURE_SEED, // a hospital run names its own seed
       origin,
       ...(world.hospital && { units: RUN_UNITS }),
       patients: world.patients.map((p) => {

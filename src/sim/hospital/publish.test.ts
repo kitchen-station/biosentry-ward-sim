@@ -121,7 +121,7 @@ describe("the other units, published", () => {
   }, 300_000);
 
   it("a person who came from the ER to W4 and leaves it after a restart gets a new stay id, not the ER stay's", async () => {
-    const w = freshHospital(60);
+    const w = freshHospital(60, "pitch"); // the pitch ward, which this test was written on: in the typical default this patient is not moved to the ICU inside the 6 hours below
     const one = fake();
     await one.sync.start(w.s, w.src);
     const v = createVitals();
