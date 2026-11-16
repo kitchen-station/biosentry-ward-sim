@@ -4,16 +4,21 @@
 //
 // What keeps it safe:
 //  - The seed of a month is the seed before it plus one, so the sequence can be repeated from the first seed. Each switch is logged.
-//  - The state file is written again only once the API has accepted the new run (`maySave`). Until then the file on disk is
-//    still the old month, at or past its last day.
-//  - A runner that starts on such a file does not continue the old run: it starts the next month at once (`due` at start-up).
-//    A crash between "the API accepted the new run" and "the file was replaced" therefore starts the same seed again, in a
-//    newer run. The API holds one live run, the newest, so there are never two.
+//  - The state file is written again only once the API has accepted the new run (`maySave`), and the runner writes it at that
+//    very moment (the sync's `onRun`), with the new world already in place (`swap` is called before the run is asked for).
+//  - A runner that starts on a file whose month is over does not continue the old run: it starts the next month at once
+//    (`due` at start-up).
+//  - A runner whose last file is from just before the month's end, and whose old run the API now refuses as superseded,
+//    was killed after the API took the new run and before the file was written. It does not exit (the container would start
+//    it into the same refusal for ever): it starts the next month (`recover`). The same seed again, in a newer run. The API
+//    holds one live run, the newest, so there are never two.
 import { minuteOf, say, type Sim, type Speed } from "../sim";
 import type { VitalsSource } from "../source";
 
 export const MONTH_DAYS = 30;
 export const MONTH_MIN = MONTH_DAYS * 1440;
+/** How close to its end a month must be for a "superseded" answer to mean "the next month was already started". The runner saves every 10 s: at 60x that is 10 ward minutes. */
+export const MONTH_GRACE_MIN = 60;
 
 export interface World { s: Sim; src: VitalsSource }
 export interface MonthDeps {
@@ -31,8 +36,9 @@ export function createMonthLoop(d: MonthDeps) {
   let waiting = false; // a new month's run was asked for and the API has not accepted it yet
   let busy = false;
   const due = (s: Sim) => !!s.hospital && minuteOf(s) >= monthMin;
+  const nearEnd = (s: Sim) => !!s.hospital && minuteOf(s) >= monthMin - MONTH_GRACE_MIN;
 
-  async function next(old: World): Promise<World> {
+  async function next(old: World, swap: (w: World) => void): Promise<void> {
     const was = old.s.hospital!.seed;
     const fresh = d.fresh(old.s.speed, was + 1);
     fresh.s.rounds = old.s.rounds;
@@ -42,9 +48,17 @@ export function createMonthLoop(d: MonthDeps) {
     waiting = true;
     d.log(`Month ended at minute ${minuteOf(old.s)}: seed ${was} closes, seed ${was + 1} starts`);
     say(fresh.s, `New month: hospital seed ${was + 1}`);
+    swap(fresh); // before the run is asked for: a save at the moment of acceptance writes the new world
     await d.sync.start(fresh.s, fresh.src);
-    return fresh;
   }
+  const once = async (f: () => Promise<void>) => {
+    busy = true;
+    try {
+      await f();
+    } finally {
+      busy = false;
+    }
+  };
 
   return {
     /** The month of this world is over: at start-up, start the next one and do not continue the old run. */
@@ -57,15 +71,20 @@ export function createMonthLoop(d: MonthDeps) {
       }
       return !waiting;
     },
-    /** Call after stepping. The world to go on with: the same one, or the next month's when this one is over. One switch at a time. */
-    async turn(w: World): Promise<World> {
-      if (busy || !due(w.s)) return w;
-      busy = true;
-      try {
-        return await next(w);
-      } finally {
-        busy = false;
-      }
+    /** Call after stepping. When the month is over, starts the next one: `swap` gets the new world. One switch at a time. */
+    async turn(w: World, swap: (w: World) => void): Promise<void> {
+      if (busy || !due(w.s)) return;
+      await once(() => next(w, swap));
+    },
+    /**
+     * The API refused this world's run as superseded. True: the month was at its end, so the next month is started and the
+     * runner goes on. False: a newer run from somewhere else took over in mid-month; the runner stops, as it always did.
+     */
+    async recover(w: World, swap: (w: World) => void): Promise<boolean> {
+      if (busy || !nearEnd(w.s)) return busy;
+      d.log(`The old run was replaced near the month's end (minute ${minuteOf(w.s)}): the next month was started before a stop, so it starts again`);
+      await once(() => next(w, swap));
+      return true;
     },
   };
 }

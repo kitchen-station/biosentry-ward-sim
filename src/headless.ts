@@ -9,12 +9,12 @@ import { applyAction } from "./sim/actions";
 import { applyCommand, clinicianName, freshWard } from "./sim/commands";
 import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
 import { freshHospital, HOSPITAL_SCENARIOS } from "./sim/hospital/fresh";
-import { createMonthLoop } from "./sim/hospital/month";
+import { createMonthLoop, type World } from "./sim/hospital/month";
 import { publishHospital } from "./sim/hospital/publish";
 import { createVitals, feedVitals } from "./sim/hospital/vitals";
 import { loadWard, saveWard } from "./sim/persist";
 import { minuteOf, say, step, type Speed } from "./sim/sim";
-import { createSync, STOP_TEXT } from "./sim/sync";
+import { createSync, STOP_TEXT, withTimeout } from "./sim/sync";
 import { createTruthPoster, startedEpisodes } from "./sim/truth";
 import { createPublisher } from "./sim/view";
 
@@ -49,7 +49,9 @@ let { s, src } = saved ?? (hospital ? freshHospital(speed, scenario) : freshWard
 let vitals = createVitals();
 s.rounds = true; // the deployed ward: nurses re-take observations on the NEWS2 schedule (also for a ward saved before this existed)
 // A fixed client id: a runner that begins a new ward replaces its own run at once instead of waiting out the old one.
-const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch });
+// Every request gives up after 30 s, so a request that hangs cannot hold a flush, or a month's switch, for ever.
+// The state is saved at the moment the API accepts a new run: a stop right after that finds the new run in the file.
+const sync = createSync({ apiUrl, key, clientId: "ward-runner", fetch: withTimeout(fetch, 30_000), onRun: () => save() });
 const view = createPublisher();
 // Owner decision dashboard-7: started episodes go to the API, only from here. See docs/episode-truth.md.
 const poster = createTruthPoster({ apiUrl, key, fetch, now: Date.now, log: console.error });
@@ -78,8 +80,17 @@ function offerTruth() {
   }
 }
 
+// Hospital mode: the next month's world takes the place of the old one, with a new engine.
+const swap = (w: World) => {
+  [s, src] = [w.s, w.src];
+  vitals = createVitals(); // an old engine fed a new world would reuse its streams
+  spare = 0;
+};
+
 async function flush() {
   await sync.flush();
+  // Superseded at a month's end: this runner had started the next month and was stopped before its file was written.
+  if (hospital && sync.stopped === "superseded" && (await month.recover({ s, src }, swap))) return save();
   if (!sync.stopped) {
     offerTruth();
     // After a flush, so the file never holds less than the database was sent.
@@ -108,7 +119,7 @@ let spare = 0;
 // A saved hospital whose month is over is not continued: the next month starts at once (a restart at the boundary).
 const newMonth = hospital && saved !== null && month.due(s);
 if (newMonth) {
-  ({ s, src } = await month.turn({ s, src }));
+  await month.turn({ s, src }, swap);
   save();
 } else if (saved) await sync.resume(s, src, saved.run);
 else await sync.start(s, src);
@@ -125,13 +136,8 @@ setInterval(async () => {
   }
   if (hospital) publishHospital(s, vitals); // reads from this interval, sent as that unit's patients
   if (hospital && month.due(s)) {
-    const next = await month.turn({ s, src }); // the old world is marked ended first, so a tick meanwhile steps nothing
-    if (next.s !== s) {
-      [s, src] = [next.s, next.src];
-      vitals = createVitals(); // an old engine fed a new world would reuse its streams
-      spare = 0;
-      save(); // writes only if the API has already accepted the new run; else the next flush tries again
-    }
+    await month.turn({ s, src }, swap); // the old world is marked ended first, so a tick meanwhile steps nothing
+    save(); // already written at the moment of acceptance; if the API has not accepted yet, this writes nothing
   }
   void flush();
 }, 1000);
