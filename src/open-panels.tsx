@@ -1,10 +1,10 @@
 // The side panel of the public page when the server runs a whole hospital: where you are, what is on this level, and one
 // bed's card. Everything shown comes from the open answers (beds only). No name, vitals or score is ever here.
-import { bedSel, inOrder, openBedOf, OPEN_UNITS, type OpenViews } from "./open-hospital";
-import type { OpenBed } from "./open-view";
+import { bedSel, inOrder, openBedOf, type OpenViews } from "./open-hospital";
+import { CARD_VITALS, type OpenBed, type OpenCard } from "./open-view";
 import { RISK_LIGHT } from "./render/draw";
 import type { RunUnit } from "./sim/hospital/units";
-import { RISK_WORDS } from "./vital-cards";
+import { RISK_WORDS, VITAL_CARD } from "./vital-cards";
 
 const GREY = "#A899B5";
 const floorLabel = (floor: number) => (floor === 0 ? "GF" : `${floor}F`);
@@ -17,7 +17,45 @@ const KIND_NOTE: Record<RunUnit["kind"], string | null> = {
 const bedWord = (b: OpenBed) => (b.risk !== null ? RISK_WORDS[b.risk] : "Not ranked");
 
 /** Units from the top floor down, as the building stands. */
-const byFloor = () => [...OPEN_UNITS].sort((a, b) => b.floor - a.floor);
+const byFloor = (units: RunUnit[]) => [...units].sort((a, b) => b.floor - a.floor);
+
+/** What the page knows of the picked bed's card: asked once per pick, never polled. */
+export type CardState = { sel: string; data: OpenCard | "loading" | "empty" | "failed" };
+
+/** "12 min ago" in ward time. A time ahead of the ward's clock reads as now. */
+export function ago(atMs: number, nowMs: number): string {
+  const min = Math.floor((nowMs - atMs) / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  return h < 48 ? `${h} h ${min % 60} min ago` : `${Math.floor(h / 24)} days ago`;
+}
+
+const TREND_WORDS: Record<string, string> = { rising: "rising", falling: "falling", stable: "stable", insufficient: "not enough readings yet" };
+
+/** The card's own part: exactly what the bed route returned, and nothing else. */
+function CardBody({ card, nowMs }: { card: CardState["data"]; nowMs: number }) {
+  if (card === "loading") return <p className="story">Loading this bed…</p>;
+  if (card === "empty") return <p className="story">This bed is empty now.</p>;
+  if (card === "failed") return <p className="story">No answer from the server. Pick the bed again to ask once more.</p>;
+  if (card.state === "not_ranked") return <p className="story">Not ranked.{card.reason ? ` ${card.reason}` : ""}</p>;
+  const v = card.vitals;
+  return (
+    <>
+      <p className="story">NEWS2 {card.score}: {RISK_WORDS[card.risk]}. Trend: {TREND_WORDS[card.trend]}.</p>
+      <ul className="plist" aria-label="Latest vitals">
+        {CARD_VITALS.map((code) => (
+          <li key={code}>
+            {VITAL_CARD[code].label}: <b>{v[code].value.toFixed(VITAL_CARD[code].digits)}</b> {VITAL_CARD[code].unit} · {v[code].source} · {ago(v[code].atMs, nowMs)}
+          </li>
+        ))}
+        <li>
+          Blood pressure: <b>{v.blood_pressure.systolic}/{v.blood_pressure.diastolic}</b> mmHg · {v.blood_pressure.source} · {ago(v.blood_pressure.atMs, nowMs)}
+        </li>
+      </ul>
+    </>
+  );
+}
 
 function Crumbs({ unit, bed, onUp }: { unit: RunUnit | null; bed: string | null; onUp: (to: "hospital" | "floor") => void }) {
   return (
@@ -51,12 +89,16 @@ function Beds({ unit, beds, onSelect }: { unit: RunUnit; beds: OpenBed[]; onSele
  * `view`: the floor that is open, null for the whole building. `selected`: a bed, or anything else clicked on the drawing.
  * `onView` opens a floor or goes back to the building; `onSelect` picks a bed or clears the pick.
  */
-export function OpenHospitalPanel({ views, view, selected, speed, onView, onSelect }: {
-  views: OpenViews; view: number | null; selected: string | null; speed: number;
+export function OpenHospitalPanel({ units, views, view, selected, speed, card, nowMs, onView, onSelect }: {
+  units: RunUnit[]; views: OpenViews; view: number | null; selected: string | null; speed: number;
+  /** The picked bed's card, when it is for `selected`. */
+  card: CardState | null;
+  /** The ward's clock as a time, for "12 min ago". */
+  nowMs: number;
   onView: (floor: number | null) => void; onSelect: (id: string | null) => void;
 }) {
-  const picked = openBedOf(views, selected);
-  const here = picked ? [picked.unit] : view === null ? [] : OPEN_UNITS.filter((u) => u.floor === view);
+  const picked = openBedOf(views, selected, units);
+  const here = picked ? [picked.unit] : view === null ? [] : units.filter((u) => u.floor === view);
   const unit = here[0] ?? null;
   const up = (to: "hospital" | "floor") => {
     onSelect(null);
@@ -77,6 +119,7 @@ export function OpenHospitalPanel({ views, view, selected, speed, onView, onSele
 
   if (picked) {
     const { bed } = picked;
+    const data = card && card.sel === selected ? card.data : "loading";
     return (
       <aside className="panel command">
         <Crumbs unit={picked.unit} bed={bed.bed} onUp={up} />
@@ -84,10 +127,9 @@ export function OpenHospitalPanel({ views, view, selected, speed, onView, onSele
           <h2>Bed {bed.bed}</h2>
           <span className="pill">{bedWord(bed)}</span>
         </div>
-        <p className="story">{picked.unit.name}, {floorLabel(picked.unit.floor)}.</p>
-        {bed.rank !== null && <p className="story">Rank {bed.rank} in this unit.</p>}
-        {KIND_NOTE[picked.unit.kind] && <p className="story">{KIND_NOTE[picked.unit.kind]}</p>}
-        <p className="story">Read-only. Sign in to see this patient's vitals.</p>
+        <p className="tiny">Synthetic data</p>
+        <p className="story">{picked.unit.name}, {floorLabel(picked.unit.floor)}.{bed.rank !== null ? ` Rank ${bed.rank} in this unit.` : ""}</p>
+        <CardBody card={data} nowMs={nowMs} />
         <button onClick={() => up("floor")}>Back to {picked.unit.name}</button>
       </aside>
     );
@@ -120,7 +162,7 @@ export function OpenHospitalPanel({ views, view, selected, speed, onView, onSele
         This is a simulated hospital{speed > 0 ? `, running at ${speed}x: 1 minute here is ${speed} hospital minute${speed === 1 ? "" : "s"}` : ""}. Every patient is synthetic. Pick a floor, then a bed. Read-only. Sign in to control.
       </p>
       <ul className="beds" aria-label="Floors, top floor first">
-        {byFloor().map((u) => (
+        {byFloor(units).map((u) => (
           <li key={u.id}>
             <button onClick={() => onView(u.floor)}>
               {floorLabel(u.floor)} {u.name} · {views[u.id] ? `${views[u.id].beds.length} bed${views[u.id].beds.length === 1 ? "" : "s"} in use` : "no answer yet"}

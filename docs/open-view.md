@@ -15,14 +15,18 @@ A viewer build (`VITE_VIEW_API_URL` set) with no token asks `GET {VIEW_API}/ward
 
 Code: `src/open-hospital.ts` (pure) and `src/open-panels.tsx`. Tests: `src/open-hospital.test.tsx`.
 
-- While watching, the page also asks the same open route for the other units (`ER`, `ICU`, `MED3A`, `MED3B`, `SURG5A`), one unit at a time in turn. The unit list is the runner's own (`RUN_UNITS`): the API has no public list of units yet.
+- While watching, the page asks `GET {VIEW_API}/open-view` for the run's units (id, name, floor, kind) at once and then once a minute. It keeps only the units the building draws; a unit the page cannot draw is left out. A 404 means there is no list: the page asks no other unit and is the ward, as before.
+- It then asks the open route of each other listed unit, one unit at a time in turn.
 - If any of them answers, the server runs a whole hospital. The page then draws the building: building, floor, bed. The side panel has a breadcrumb ("Hospital › 3F Medicine 3A › Bed ..."), Escape goes up one level, and the top bar says "Hospital" and "Server clock".
 - If none answers (404: the server runs ward W4 alone), the page is the ward, exactly as described above. A unit that answered 404 is asked again once a minute, so the page follows the server without a reload.
 - What is real: which beds are in use in each unit, and each bed's NEWS2 band and rank where the unit is ranked. The ER's beds are grey (shown, not ranked) and intensive care's carry no NEWS2 colour at all.
 - What is not from the server: where a bed is drawn inside its unit. The open answer has no positions, so beds fill the unit's drawn beds in the list's order, ranked first. Figures outside W4 have one neutral look and no name, age, group or triage. Nurses outside W4, the ER queue and the morgue are not drawn.
-- A click selects a floor or a bed in use, nothing else. A bed's card shows the band, the rank and the unit, and "Sign in to see this patient's vitals".
+- A click selects a floor or a bed in use, nothing else.
+- **A bed's card.** Picking a bed asks `GET {VIEW_API}/wards/{unit}/open-view/beds/{bed}` once. The card shows exactly what comes back, under the words "Synthetic data". A ranked bed: the NEWS2 score and band, the trend, and the newest heart rate, respiratory rate, SpO2, temperature and blood pressure, each with its source and its age in ward time ("12 min ago"). Any other bed (a bed that is not ranked, the ER, intensive care): "Not ranked" and the reason, nothing else. A 404: "This bed is empty now." A failure: "No answer from the server. Pick the bed again to ask once more." The card is never polled and never retried by the page; another pick ends a request in flight. The page shows no name, and keeps no field the contract does not list.
+- The age of a vital is the ward's clock (the ward's start plus the clock the open answer gives) minus the time on the vital. A time ahead of the ward's clock reads "just now".
 - Pace (rule 8): no route is asked more often than every 2 s. W4 is asked every 2 s as before. Each other unit is asked once when the page opens (200 ms apart, so the building fills in about a second), then one of them every 2 s in turn, which is each of them every 10 s.
-- Rule 6 for these units: a bed label that passed the label pattern is shown as a text node in the list and the card. It is never used as HTML, a URL, a selector or a style.
+- Rule 5: the three requests above are all open routes; no other route is called without a token.
+- Rule 6 for these units: a bed label that passed the label pattern is shown as a text node in the list and the card, and is sent back as one encoded path part of the bed's own open route. A unit's name and a card's reason are text nodes too. None is ever used as HTML, a link, a selector or a style.
 
 ## The nine rules (wire contract, section 9.1), and where they are tested
 

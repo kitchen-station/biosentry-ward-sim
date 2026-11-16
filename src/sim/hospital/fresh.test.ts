@@ -1,18 +1,35 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { loadWard, saveWard } from "../persist";
 import { createSim, minuteOf, setSpeed, step } from "../sim";
-import { createSyntheticSource } from "../source";
+import { createSyntheticSource, FIXTURE_SEED } from "../source";
 import { refuseHospitalState, refuseWardState } from "./attach";
-import { freshHospital } from "./fresh";
+import { freshHospital, HOSPITAL_SCENARIOS, RUNNER_SEED } from "./fresh";
 
 const RUN = { runId: null, origin: "", cursor: 0, commandCursor: 0 };
 
 describe("the runner's hospital: a new one, a saved one, and the mode check", () => {
-  it("starts as the page's Pitch ward at the speed asked for", () => {
+  it("starts the typical hospital by default, at the speed asked for, with W4's 12 drawn from the seed", () => {
     const { s } = freshHospital(10);
     expect(s.hospital).toBeDefined();
+    expect(s.hospital!.seed).toBe(RUNNER_SEED);
     expect(s.speed).toBe(10);
     expect(s.patients).toHaveLength(12);
+    const names = (x: { s: { patients: { name: string }[] } }) => x.s.patients.map((p) => p.name);
+    const fixture = createSim(createSyntheticSource(FIXTURE_SEED, true)).patients.map((p) => p.name);
+    expect(names(freshHospital(10))).toEqual(names(freshHospital(10))); // the same every start
+    expect(names(freshHospital(10))).not.toEqual(fixture); // not the 12 hand-written pitch patients
+    expect(names(freshHospital(10, "pitch"))).toEqual(fixture); // they stay a named scenario
+  });
+
+  it("takes the page's named scenarios, and refuses a name it does not know", () => {
+    expect(HOSPITAL_SCENARIOS).toEqual(["typical", "pitch", "calm", "surge", "more-nurses", "critical"]);
+    for (const id of HOSPITAL_SCENARIOS) expect(freshHospital(60, id).s.hospital).toBeDefined();
+    expect(() => freshHospital(60, "nope")).toThrow(/Unknown hospital scenario "nope"/);
+    const head = readFileSync("src/headless.ts", "utf8");
+    expect(head).toContain('const scenario = process.env.WARD_SCENARIO ?? "typical";');
+    expect(head.match(/freshHospital\((speed|s\.speed), scenario\)/g)).toHaveLength(2); // a new run and a reset
   });
 
   it("a state file is refused by the other mode, and accepted by its own", () => {
