@@ -511,7 +511,7 @@ export function W4HospitalSections({ s, p, onSelect }: { s: Sim; p: Patient; onS
         <p className="mono">Never shown to a clinician.</p>
         <ul className="plist mono">
           <li>Rhythm: {p.irregular ? "in AF now" : "not in AF now"}</li>
-          <li>Deterioration injected by demo control: {p.injected ? "yes" : "no"}</li>
+          <li>Deterioration injected by a control on this page: {p.injected ? "yes" : "no"}</li>
         </ul>
       </div>
     </>

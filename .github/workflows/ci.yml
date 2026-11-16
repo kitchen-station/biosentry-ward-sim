@@ -60,11 +60,8 @@ jobs:
           cache: npm
       - run: npm ci
       # VITE_ values end up in the public JS. VITE_VIEW_API_URL is the public address of the API, which is
-      # not a secret. Never set VITE_INGEST_KEY or any passphrase here. Unset, the site is the standalone demo.
+      # not a secret. Never set VITE_INGEST_KEY or any passphrase here. Unset, the site is the standalone page, which has no server.
       - run: npm run build
         env:
           VITE_VIEW_API_URL: ${{ vars.VITE_VIEW_API_URL }}
-      # The standalone hospital page, at /hospital/ beside the ward page. It is built with no VITE_ value at all:
-      # it must not know the API address, and it has no key to leak.
-      - run: npm run build:hospital
       - run: npx --yes wrangler@4.155.0 pages deploy dist --project-name=biosentry-ward-sim --branch=main --commit-hash=${{ github.sha }}

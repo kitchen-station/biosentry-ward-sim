@@ -138,7 +138,7 @@ vitals in every hospital unit but the morgue come from this one generator, displ
 | Observation sets at NEWS 5 or more (E1) | 34.66% | about 20% | The README's explanation: the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more, every 30 minutes at 7 or more). The repo cites no source for how often real wards meet that frequency. RCP's figure is for NEWS 2012 |
 | Observation sets at NEWS 7 or more (E2) | 16.25% | about 10% | The same reason |
 
-The README lists three known misses: the published-figure checks D3, E1 and E2. The two calibration checks C5 and C9 are also expected failures in the test suite. A4 is a known miss that only this report makes, in its lag-1 row (the sd row passes). So the report shows six.
+The README's table lists three known misses, the published-figure checks D3, E1 and E2, and names the other three. The two calibration checks C5 and C9 are also expected failures in the test suite. A4 is a known miss that only this report makes, in its lag-1 row (the sd row passes). So the report shows six.
 
 A known miss that starts passing makes the command exit 1, as the test suite's expected-failure marker does. The marker must then come off.
 

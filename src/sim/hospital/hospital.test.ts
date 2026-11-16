@@ -4,7 +4,7 @@ import dohStandard from "../../../scenarios/hospital/doh-standard.json?raw";
 import surge from "../../../scenarios/hospital/surge.json?raw";
 import typical from "../../../scenarios/hospital/typical.json?raw";
 import { GIVEN, INITIALS, LEGACY, SURNAMES } from "./names";
-import { PARAMS } from "./params";
+import { PARAMS, UNITS } from "./params";
 import { drawCourse, drawPerson, givenIndex, GROUPS, lookOf, stayDeathP, TRIAGES } from "./people";
 import { parseScenario, type Scenario } from "./scenario";
 import { stream } from "./rng";
@@ -625,6 +625,18 @@ function a3Off<T>(f: () => T): T {
   PARAMS.returns.enabled.value = false;
   try { return f(); } finally { PARAMS.returns.enabled.value = keep; }
 }
+/**
+ * Runs `f` with unit MED3B under the name the pinned hashes below were recorded with. The unit was renamed "Medicine 3B" to match
+ * its id; the name is part of the hashed state. The pins are unchanged: they still pass with only the name put back, which is
+ * the proof that the rename changed nothing else.
+ */
+function recordedName<T>(f: () => T): T {
+  const row = UNITS.find((u) => u.id === "MED3B")!;
+  const keep = row.name;
+  row.name = "Medicine 1A";
+  try { return f(); } finally { row.name = keep; }
+}
+
 /** Runs `f` with A2's response switched off, then puts the values back. */
 function a2Off<T>(f: () => T): T {
   const C = PARAMS.course, keep = [C.escalate.value, PARAMS.obs.excessDeathPerHour.value, C.stayDeathScale.value] as const;
@@ -636,7 +648,7 @@ describe("A1 and A2 leave every old output as it was", () => {
   it("seeds 101-103 under all three scenarios, 6 days: events, old hourly columns and the final state hash as on main", () => {
     const hash = createHash("sha256");
     let recorded = 0;
-    a2Off(() => {
+    recordedName(() => a2Off(() => {
       for (const k of ["standard", "typical", "surge"] as const) {
         for (const seed of [101, 102, 103]) {
           const h = createHospital(seed, SC[k]);
@@ -645,7 +657,7 @@ describe("A1 and A2 leave every old output as it was", () => {
           hash.update(withoutA1A2({ events: events.filter((e) => !A2_KINDS.has(e.kind)), hourly, h }));
         }
       }
-    });
+    }));
     expect(recorded).toBeGreaterThan(20); // courses were drawn and recorded in these runs
     expect(hash.digest("hex").slice(0, 16)).toBe("9096414920e7a93f");
   }, 240_000);
@@ -1007,7 +1019,7 @@ describe("A3 leaves every v3 output as it was when returns are off", () => {
   // Recorded from origin/main 8616326 (A2, no A3 code): 6 days, seeds 101-103, three scenarios, A2's response on, the hospital-level harness.
   it("hashes events, hourly rows and the final state as on main", () => {
     const hash = createHash("sha256");
-    a3Off(() => {
+    recordedName(() => a3Off(() => {
       for (const k of ["standard", "typical", "surge"] as const) {
         for (const seed of [101, 102, 103]) {
           const h = createHospital(seed, SC[k]);
@@ -1016,7 +1028,7 @@ describe("A3 leaves every v3 output as it was when returns are off", () => {
           hash.update(withoutA3({ events, hourly, h }));
         }
       }
-    });
+    }));
     expect(hash.digest("hex").slice(0, 16)).toBe("b64d6ecc52607896");
   }, 240_000);
 });

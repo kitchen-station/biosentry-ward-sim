@@ -1,6 +1,6 @@
 // Fits the synthetic generator to real open data and writes src/sim/fitted.json: aggregate
 // statistics only, never a recording or a single patient's values.
-// Usage: npm run fit -- <folder holding eicu-crd-demo-2.0.1, bidmc-1.0.0, mitdb-1.0.0, afdb-1.0.0>
+// Usage: npm run fit -- <folder holding eicu-crd-demo-2.0.1, bidmc-1.0.0, mitdb-1.0.0, afdb-1.0.0, ltafdb-1.0.0>
 
 import { createReadStream, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";

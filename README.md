@@ -9,7 +9,7 @@ The simulation is deployed. You do not need to install anything to see it.
 | Ward simulation | <https://biosentry-ward-sim.pages.dev> | This simulation, in the browser. No sign-in. |
 | Dashboard | <https://biosentry-dashboard.pages.dev> | The BioSentry clinician's list on a sample ward. Any passphrase is accepted. |
 
-Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only, and the dashboard reads the same ward. The page's switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", opens the hospital page, which has no server and runs alone in your browser. When the team server runs a whole hospital, the ward page draws that hospital instead (building, floor, bed, from the public unit list and the open view of each unit; a picked bed shows its public card; see `docs/open-view.md`) and the switch is not shown.
+Both public sites deploy from `main` and show synthetic patients. The ward page has a server behind it: it reads the team server's run of ward W4 and draws it read-only, and the dashboard reads the same ward. When the team server runs a whole hospital, the ward page draws that hospital (building, floor, bed, from the public unit list and the open view of each unit; a picked bed shows its public card; see `docs/open-view.md`). There is no second public page: the hospital that runs alone in a browser is a developer's page now (`npm run dev` with no `VITE_` value).
 
 The connected version (this simulation writes to the BioSentry API and the dashboard reads the same ward, live) runs on the team's server and is private to the team. The dashboard repository's `deploy/README.md` says how it is built.
 
@@ -193,7 +193,7 @@ A build with `VITE_VIEW_API_URL` set is a viewer. It never makes a ward: a clini
 
 With no token, the viewer first asks `GET /wards/W4/open-view`; while the answer stays valid it asks again 2 s after each answer. If the API answers a valid body, the page shows the ward read-only ("watching") with no controls and no names. Anything else shows the sign-in form. See [docs/open-view.md](docs/open-view.md).
 
-The viewer page has a two-way switch, "Live ward W4 (server)" and "Whole hospital (demo in your browser)", each with its own clock label. The second opens `/hospital/`: the standalone hospital page, built by `npm run build:hospital` (base `/hospital/`, into `dist/hospital`, with no `VITE_` value set) and uploaded beside the ward page by the deploy job. It is the page's own made-up hospital, run in the visitor's browser, and says "Simulated in your browser, not the server's ward W4". It does not show the runner's ward. Watching with no token, the side panel says what the page is, explains the speed ("1 minute here is 10 ward minutes"), links the dashboard, and lists the beds, highest rank first, with colour, rank and risk word only; a row selects the bed and shows the same, with no name and no vitals.
+The viewer page has no link to another page. The standalone hospital page (the page's own made-up hospital, run in the browser, labelled "Simulated in your browser, not the server's ward W4") is no longer built or uploaded by the deploy job; it is what `npm run dev` shows with no `VITE_` value set. Watching with no token while the server runs ward W4 alone, the side panel says what the page is, explains the speed ("1 minute here is 10 ward minutes"), links the dashboard, and lists the beds, highest rank first, with colour, rank and risk word only; a row selects the bed and shows the same, with no name and no vitals.
 
 ```bash
 VITE_VIEW_API_URL=http://127.0.0.1:8000 npm run dev
@@ -268,7 +268,7 @@ Counting a change when the score differs from 15 minutes earlier, the synthetic 
 
 `src/sim/calibration.json` (from `npm run fit:calibration`, cohort of 885 eICU stays, adult, alive, awake, 12 hours or more) supplies the hour each 24-hour rhythm peaks and the held-out range used by `src/sim/calibration.test.ts`. Its 25% scaling (`LIVE_WANDER`) is gone: the ward now runs at full fitted size. Its RR and SpO2 checks at 5 minutes are marked as known misses, because this generator takes that noise from BIDMC.
 
-`src/sim/fitted.json` replaces the generator's hand-set constants. It holds aggregate statistics only: no recording and no single patient's values. To rebuild it, put the four datasets in one folder and run:
+`src/sim/fitted.json` replaces the generator's hand-set constants. It holds aggregate statistics only: no recording and no single patient's values. To rebuild it, put the five datasets (eICU-CRD Demo, BIDMC, MIT-BIH Arrhythmia, MIT-BIH AF and Long Term AF) in one folder and run:
 
 ```bash
 npm run fit -- ~/Documents/datasets
@@ -289,7 +289,7 @@ npm run fit -- ~/Documents/datasets
 
 Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test.ts` checks the generator's variability and 5-minute correlation, and its systolic step sizes at 30 and 180 minutes, against those held-out hospitals. That checks realism only. It says nothing about how well BioSentry predicts, and no model result may be reported from this synthetic data.
 
-`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss and occupancy pass. The 24-hour heart rate and respiratory rate swings also pass, but the simulator was set from those figures, so that agreement is by construction. Three checks are marked as known misses:
+`src/sim/published.test.ts` runs the ward for 30 simulated days, six times, and checks the last 20 days against published ward figures, using fixed tolerances. Heart rate, respiratory rate, systolic, oxygen use, patch data loss and occupancy pass. The 24-hour heart rate and respiratory rate swings also pass, but the simulator was set from those figures, so that agreement is by construction. Three checks here are marked as known misses. There are six in all: the other three are the 5-minute change sizes of breathing and SpO2 (C5 and C9, in `src/sim/calibration.test.ts`) and temperature's 5-minute correlation (A4, in `npm run realism` only); see [docs/realism.md](docs/realism.md).
 
 | Known miss | Sim | Published |
 |---|---|---|
@@ -297,7 +297,7 @@ Every fourth eICU hospital (46 of 186) is kept out of fitting. `src/sim/sim.test
 | Observation sets at NEWS 7+ | about 16% | about 10% |
 | SpO2, low end | 1st to 10th percentiles 90 to 94 | 86 to 91 (Welch 2015) |
 
-Patients spend about 14% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
+Patients spend about 15% of their time at NEWS2 5 or more. Observation sets show more because the test samples sick patients at the NEWS2 minimum frequency (hourly at 5 or more), and real wards often fall short of that. Respiratory rate adds the most points. The tolerances are judgement. RCP's figures are for NEWS 2012, not NEWS2. A marked check turns the build red once it starts passing, so the marker must then come off.
 
 Limits:
 

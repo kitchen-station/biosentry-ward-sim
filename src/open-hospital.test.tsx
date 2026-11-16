@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { floorSummary } from "./building";
+import { FLOORS } from "./render/floors";
+import { slabTag } from "./render/scene";
 import { bedSel, drawnUnits, inOrder, openBedOf, openHospital, openRisk, OPEN_FIRST_MS, OPEN_RETRY_MS, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
 import { ago, OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenUnits, OPEN_POLL_MS, parseOpenCard, parseOpenUnits, type OpenBed, type OpenCard, type OpenWard } from "./open-view";
@@ -23,7 +25,7 @@ const LIST = {
   units: [
     { id: "W4", name: "Ward W4", floor: 4, kind: "ranked" }, { id: "ER", name: "Emergency Room", floor: 0, kind: "shown" },
     { id: "ICU", name: "Intensive Care", floor: 2, kind: "unranked" }, { id: "MED3A", name: "Medicine 3A", floor: 3, kind: "ranked" },
-    { id: "MED3B", name: "Medicine 1A", floor: 1, kind: "ranked" }, { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
+    { id: "MED3B", name: "Medicine 3B", floor: 1, kind: "ranked" }, { id: "SURG5A", name: "Surgery 5A", floor: 5, kind: "ranked" },
   ],
 };
 const UNITS = drawnUnits(parseOpenUnits(JSON.stringify(LIST))!);
@@ -68,6 +70,20 @@ describe("the hospital made from the open answers", () => {
     expect(cells("ICU").map((c) => c.risk)).toEqual([undefined]); // never scored: no NEWS2 colour at all
     expect(cells("MED3B")).toEqual([]); // no answer for it: drawn empty
     expect(new Set(h.people.map((p) => p.n)).size).toBe(h.people.length); // one number per bed
+  });
+
+  it("puts nothing of the placeholder person on the drawing: a bed's tag has no initials, and a sign counts beds in use only", () => {
+    const floors = floorSummary(h, openRisk(VIEWS, UNITS));
+    const cells = floors.flatMap((f) => f.units).flatMap((u) => [...u.beds, ...u.stretchers, ...u.over]).filter((c) => c !== null);
+    expect(cells).toHaveLength(8);
+    expect(cells.every((c) => c.initials === "")).toBe(true); // no name was given, so none can show
+    const spec = (floor: number) => FLOORS.find((s) => s.floor === floor)!;
+    expect(slabTag(spec(0), floors, true)).toBe("GF ER 2"); // not "0 waiting": the open answer has no queue
+    expect(slabTag(spec(3), floors, true)).toMatch(/^3F \S+ 3$/); // not "3/30": the open answer has no capacity
+    expect(slabTag(spec(4), floors, true)).toMatch(/ 2$/);
+    expect(slabTag(spec(0), floors)).toMatch(/waiting$/); // the standalone page's own sign is unchanged
+    const er = floors.find((f) => f.floor === 0)!.units.find((u) => u.id === "ER")!;
+    expect([er.queue.length, floors.find((f) => f.floor === 0)!.boarders]).toEqual([0, 0]); // so no "+N" and no "N boarding" tag is drawn
   });
 
   it("finds the unit and bed a click or a row means, and nothing for anything else", () => {
@@ -136,7 +152,7 @@ describe("the side panel", () => {
       "4F Ward W4 · 2 beds in use",
       "3F Medicine 3A · 3 beds in use",
       "2F Intensive Care · 1 bed in use",
-      "1F Medicine 1A · no answer yet",
+      "1F Medicine 3B · no answer yet",
       "GF Emergency Room · 2 beds in use",
     ]);
     expect(html).toContain('<b aria-current="page">Hospital</b>');
@@ -291,9 +307,8 @@ describe("one bed's card, from the server", () => {
 describe("the page's wiring", () => {
   const app = readFileSync("src/App.tsx", "utf8");
 
-  it("draws the building only when another unit has answered, hides the two-world switch then, and takes clicks only on floors and beds", () => {
+  it("draws the building only when another unit has answered, and takes clicks only on floors and beds", () => {
     expect(app).toContain("const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);");
-    expect(app).toContain("worlds={watch && hosp ? undefined :");
     expect(app).toContain("serverHospital={!!watch && hosp}");
     expect(app).toContain('const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit;');
   });

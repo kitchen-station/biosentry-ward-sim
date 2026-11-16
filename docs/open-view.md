@@ -17,7 +17,7 @@ Code: `src/open-hospital.ts` (pure) and `src/open-panels.tsx`. Tests: `src/open-
 
 - While watching, the page asks `GET {VIEW_API}/open-view` for the run's units (id, name, floor, kind) at once and then once a minute. It keeps only the units the building draws; a unit the page cannot draw is left out. A 404 means there is no list: the page asks no other unit and is the ward, as before.
 - It then asks the open route of each other listed unit, one unit at a time in turn.
-- If any of them answers, the server runs a whole hospital. The page then draws the building: building, floor, bed. The side panel has a breadcrumb ("Hospital › 3F Medicine 3A › Bed ..."), Escape goes up one level, and the top bar says "Hospital" and "Server clock". The two-way switch is not shown then.
+- If any of them answers, the server runs a whole hospital. The page then draws the building: building, floor, bed. The side panel has a breadcrumb ("Hospital › 3F Medicine 3A › Bed ..."), Escape goes up one level, and the top bar says "Hospital" and "Server clock".
 - If none answers (404: the server runs ward W4 alone), the page is the ward, exactly as described above. A unit that answered 404 is asked again once a minute, so the page follows the server without a reload.
 - What is real: which beds are in use in each unit, and each bed's NEWS2 band and rank where the unit is ranked. The ER's beds are grey (shown, not ranked) and intensive care's carry no NEWS2 colour at all.
 - What is not from the server: where a bed is drawn inside its unit. The open answer has no positions, so beds fill the unit's drawn beds in the list's order, ranked first. Figures outside W4 have one neutral look and no name, age, group or triage. Nurses outside W4, the ER queue and the morgue are not drawn.
@@ -27,10 +27,6 @@ Code: `src/open-hospital.ts` (pure) and `src/open-panels.tsx`. Tests: `src/open-
 - Pace (rule 8): no route is asked more often than every 2 s. W4 is asked every 2 s as before. Each other unit is asked once when the page opens (200 ms apart, so the building fills in about a second), then one of them every 2 s in turn, which is each of them every 10 s.
 - Rule 5: the three requests above are all open routes; no other route is called without a token.
 - Rule 6 for these units: a bed label that passed the label pattern is shown as a text node in the list and the card, and is sent back as one encoded path part of the bed's own open route. A unit's name and a card's reason are text nodes too. None is ever used as HTML, a link, a selector or a style.
-
-## The link to the hospital
-
-In a viewer build the top bar has a two-way switch: "Live ward W4 (server)" and "Whole hospital (demo in your browser)", with a clock label for each. The second goes to `{BASE_URL}hospital/`. That page is the standalone hospital build (no API address, no key), uploaded by the deploy job beside the ward page. It runs in the visitor's browser and is labelled "Simulated in your browser, not the server's ward W4". It reads nothing from the API. Served under `/hospital/` it has the same switch, so the way back is the first button. Tests: `src/public-hospital.test.ts`.
 
 ## The nine rules (wire contract, section 9.1), and where they are tested
 

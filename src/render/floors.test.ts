@@ -80,7 +80,7 @@ describe("the floor maps", () => {
       [0, ["ER", "MORGUE"]], [1, ["MED3B"]], [2, ["ICU"]], [3, ["MED3A"]], [4, ["W4"]], [5, ["SURG5A"]],
     ]);
     for (const u of UNITS) expect(FLOORS[slabIndex(u.floor)].floor, u.id).toBe(u.floor);
-    expect([row("MED3B").name, row("MED3A").name, FLOORS[1].name, FLOORS[3].name]).toEqual(["Medicine 1A", "Medicine 3A", "MEDICINE 1A", "MEDICINE 3A"]);
+    expect([row("MED3B").name, row("MED3A").name, FLOORS[1].name, FLOORS[3].name]).toEqual(["Medicine 3B", "Medicine 3A", "MEDICINE 3B", "MEDICINE 3A"]);
   });
 
   // The monitored ward's standard: beds never side by side, a trolley's aisle (two clear tiles) beyond every foot,

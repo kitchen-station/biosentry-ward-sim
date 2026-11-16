@@ -100,17 +100,11 @@ function Clock({ src, read, speed }: { src: VitalsSource; read: () => number; sp
   );
 }
 
-const WORLDS = [
-  ["ward", "Live ward W4 (server)"],
-  ["hospital", "Whole hospital (demo in your browser)"],
-] as const;
-
 export function TopBar({
   s,
   src,
   notice,
   onSignIn,
-  worlds,
   onSignOut,
   onReset,
   onSpeed,
@@ -128,8 +122,6 @@ export function TopBar({
   notice: string | null;
   /** Watching with no token: a pill and a button that opens the sign-in form. */
   onSignIn?: () => void;
-  /** The deployed site's two worlds: the server's ward W4 and the hospital demo that runs in the visitor's browser. `here` is the one on screen. */
-  worlds?: { here: "ward" | "hospital"; ward: string; hospital: string };
   /** Viewer mode, signed in: drops the token and asks the open route again. */
   onSignOut?: () => void;
   /** Left out in viewer mode unless the clinician may control the runner's ward, which has no clock of its own here. */
@@ -147,16 +139,6 @@ export function TopBar({
       <span className="pill">{hospital || serverHospital ? "Hospital" : "W4"}</span>
       {serverHospital && <span className="tiny">Server clock</span>}
       {hospital && <span className="pill" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
-      {worlds && (
-        <div className="speeds" role="group" aria-label="World">
-          {WORLDS.map(([key, text]) => (
-            <button key={key} className={worlds.here === key ? "on" : ""} aria-pressed={worlds.here === key} onClick={() => worlds.here === key || window.location.assign(worlds[key])}>
-              {text}
-            </button>
-          ))}
-        </div>
-      )}
-      {worlds && <span className="tiny">{worlds.here === "ward" ? "Server ward clock" : "Demo hospital clock"}</span>}
       {page && (
         <nav aria-label="View">
           <a href="#simulation" aria-current={page === "simulation" ? "page" : undefined}>Simulation</a>
@@ -494,7 +476,7 @@ function MachinePanel({
       stats: [["Samples received", received], ["Patches on", `${patched} of ${s.patients.length}`]],
     },
     gate: {
-      status: "Demo rule",
+      status: "Stand-in rule",
       text: src.synthetic
         ? "Stands in for the planned signal-quality model: 15-minute median of 8 or more usable readings."
         : "Stands in for the planned signal-quality model: 2 of 3 readings, temperature holds 8 hours.",
@@ -746,7 +728,7 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
         <Stat label="Tasks queued" value={queued} />
       </div>
       <Activity src={src} lines={s.log.filter((line) => line.text.includes(m.name)).slice(-5).reverse()} />
-      <p className="tiny">Staff loop: demo design, not a product feature.</p>
+      <p className="tiny">Staff loop: set by the simulation, not a product feature.</p>
     </>
   );
 }
@@ -842,7 +824,7 @@ export function Inspector({
             </li>
           )}
         </ul>
-        {watching && <p className="tiny">Staff (nurse, charge nurse, physician) walk a loop. That loop is demo design, not a product feature.</p>}
+        {watching && <p className="tiny">Staff (nurse, charge nurse, physician) walk a set loop. It is not a product feature.</p>}
         {s.hospital && <p className="tiny">ICU: no NEWS2 colour. Waiting room: triage colour.</p>}
       </aside>
     );
