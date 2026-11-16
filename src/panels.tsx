@@ -115,11 +115,14 @@ export function TopBar({
   onReset,
   onSpeed,
   hospital,
+  serverHospital = false,
   readClock,
   page,
 }: {
   s: Sim;
   src: VitalsSource;
+  /** Watching the server's run and it is a whole hospital: the bar names the hospital, not ward W4. */
+  serverHospital?: boolean;
   /** Viewer mode: the clock runs on between reads (see clock.ts). Left out, the clock reads the sim itself. */
   readClock?: () => number;
   notice: string | null;
@@ -141,7 +144,8 @@ export function TopBar({
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
-      <span className="pill">{hospital ? "Hospital" : "W4"}</span>
+      <span className="pill">{hospital || serverHospital ? "Hospital" : "W4"}</span>
+      {serverHospital && <span className="tiny">Server clock</span>}
       {hospital && <span className="pill" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
       {worlds && (
         <div className="speeds" role="group" aria-label="World">
@@ -160,7 +164,7 @@ export function TopBar({
         </nav>
       )}
       <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
-      <span className="pill" title={s.speed === 0 ? "Simulation speed" : `Simulation speed: 1 minute here is ${s.speed} ward minute${s.speed === 1 ? "" : "s"}`}>
+      <span className="pill" title={s.speed === 0 ? "Simulation speed" : `Simulation speed: 1 minute here is ${s.speed} ${serverHospital ? "hospital" : "ward"} minute${s.speed === 1 ? "" : "s"}`}>
         {s.speed === 0 ? "Paused" : `${s.speed}x`}
       </span>
       {notice && (
