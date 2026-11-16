@@ -6,14 +6,24 @@
 //  - Not from the server: where in the unit a bed is drawn. The open answer has no positions, so beds fill the unit's
 //    drawn beds in the list's order (ranked first). Figures have no name, age, group or triage: one neutral look.
 //  - Never drawn: nurses outside W4, the ER queue, the morgue. The open answer does not hold them.
-import { fetchOpenWard, OPEN_POLL_MS, OPEN_WARD, type OpenBed, type OpenRequest, type OpenWard, type Timers } from "./open-view";
+import { fetchOpenUnits, fetchOpenWard, OPEN_POLL_MS, OPEN_WARD, type OpenBed, type OpenRequest, type OpenUnit, type OpenWard, type Timers } from "./open-view";
 import { UNITS, type UnitId } from "./sim/hospital/params";
 import { fnv1a } from "./sim/hospital/rng";
 import type { Hospital, Person, Unit } from "./sim/hospital/types";
-import { RUN_UNITS, type RunUnit } from "./sim/hospital/units";
+import type { RunUnit } from "./sim/hospital/units";
 
-// shortcut: the unit list is the runner's own (W4 first) until the API has a public route for it; then fetch it here.
-export const OPEN_UNITS: RunUnit[] = RUN_UNITS;
+/**
+ * The server's unit list (GET /open-view) as the page uses it: only the units the building draws, each on the floor the server
+ * gives it (the page's own floor when the server says "not known"). A unit the page cannot draw is left out, not guessed at.
+ */
+export function drawnUnits(list: OpenUnit[]): RunUnit[] {
+  const out: RunUnit[] = [];
+  for (const u of list) {
+    const own = UNITS.find((x) => x.id === u.id && x.id !== "MORGUE");
+    if (own) out.push({ id: u.id, name: u.name, floor: u.floor ?? own.floor, kind: u.kind });
+  }
+  return out;
+}
 /** A unit that answered "gone" (404: the server's run does not hold it) is asked again only this often. */
 export const OPEN_RETRY_MS = 60_000;
 /** Until every unit has been asked once, the next one is asked this soon, so the building fills in about a second. */
@@ -31,8 +41,6 @@ export const bedSel = (unit: string, bed: string) => (unit === OPEN_WARD ? W4_ST
 /** Ranked beds first, in rank order; then the rest by label. The order the panel lists and the drawing fills. */
 export const inOrder = (beds: OpenBed[]): OpenBed[] =>
   [...beds].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.bed.localeCompare(b.bed, "en", { numeric: true }));
-
-const kindOf = (unit: string) => OPEN_UNITS.find((u) => u.id === unit)?.kind;
 
 function person(unit: UnitId, b: OpenBed, slot: number | null): Person {
   const n = bedNumber(unit, b.bed);
@@ -54,19 +62,20 @@ export function openHospital(views: OpenViews, minute: number): Hospital {
 }
 
 /** NEWS2 band by the drawing's key, for every bed outside W4: a band, null for not ranked, and no entry at all in a unit that is never scored. */
-export function openRisk(views: OpenViews): Record<string, string | null> {
+export function openRisk(views: OpenViews, units: RunUnit[]): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   for (const [unit, w] of Object.entries(views)) {
-    if (unit === OPEN_WARD || kindOf(unit) === "unranked") continue;
+    const kind = units.find((u) => u.id === unit)?.kind;
+    if (unit === OPEN_WARD || kind === undefined || kind === "unranked") continue; // a unit the list does not name gets no colour
     for (const b of w.beds) out[`h:${bedNumber(unit, b.bed)}`] = b.risk;
   }
   return out;
 }
 
 /** The unit and bed a selection means, or null: a bed row, a click on a bed in the drawing, or W4's own stub. */
-export function openBedOf(views: OpenViews, sel: string | null): { unit: RunUnit; bed: OpenBed } | null {
+export function openBedOf(views: OpenViews, sel: string | null, units: RunUnit[]): { unit: RunUnit; bed: OpenBed } | null {
   if (sel === null) return null;
-  for (const unit of OPEN_UNITS) {
+  for (const unit of units) {
     const bed = views[unit.id]?.beds.find((b) => bedSel(unit.id, b.bed) === sel || (unit.id === OPEN_WARD && sel === `bed:${b.bed}`));
     if (bed) return { unit, bed };
   }
@@ -111,6 +120,31 @@ export function startUnitsPoll(req: Omit<OpenRequest, "ward" | "signal"> & { uni
     wait(asked < req.units.length ? OPEN_FIRST_MS : OPEN_POLL_MS);
   };
   if (req.units.length > 0) wait(0);
+  return () => {
+    off = true;
+    ctl.abort();
+    timers.clearTimeout(handle);
+  };
+}
+
+/**
+ * Asks for the run's units now and then every OPEN_RETRY_MS, so the page follows a server that starts or stops running a whole
+ * hospital. `onUnits(null)`: the server has no list (404: the route is off, or the page is older than the server's run). A server
+ * that is down says nothing: the last list stays. Returns stop.
+ */
+export function startUnitsList(req: Omit<OpenRequest, "ward" | "signal"> & { onUnits: (units: RunUnit[] | null) => void }): () => void {
+  const timers: Timers = req.timers ?? { setTimeout: (f, ms) => globalThis.setTimeout(f, ms), clearTimeout: (h) => globalThis.clearTimeout(h as never) };
+  const ctl = new AbortController();
+  let off = false;
+  let handle: unknown;
+  const run = async () => {
+    const r = await fetchOpenUnits({ fetch: req.fetch, base: req.base, timers, signal: ctl.signal });
+    if (off) return;
+    if (r.ok) req.onUnits(drawnUnits(r.body));
+    else if (r.kind === "gone") req.onUnits(null);
+    handle = timers.setTimeout(run, OPEN_RETRY_MS);
+  };
+  handle = timers.setTimeout(run, 0);
   return () => {
     off = true;
     ctl.abort();

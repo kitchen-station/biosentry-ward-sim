@@ -128,11 +128,12 @@ export async function readCapped(res: Response, cap = OPEN_CAP_BYTES): Promise<s
 export interface Timers { setTimeout: (f: () => void, ms: number) => unknown; clearTimeout: (h: unknown) => void }
 const BROWSER_TIMERS: Timers = { setTimeout: (f, ms) => globalThis.setTimeout(f, ms), clearTimeout: (h) => globalThis.clearTimeout(h as never) };
 
-export type OpenResult = { ok: true; body: OpenWard } | { ok: false; kind: "down" | "gone" };
+export type OpenAnswer<T> = { ok: true; body: T } | { ok: false; kind: "down" | "gone" };
+export type OpenResult = OpenAnswer<OpenWard>;
 export interface OpenRequest { fetch: typeof fetch; base: string; ward?: string; timers?: Timers; signal?: AbortSignal }
 
-/** One request. down: 5xx, network error, timeout. gone: any other status or a bad body. */
-export async function fetchOpenWard({ fetch: f, base, ward = OPEN_WARD, timers = BROWSER_TIMERS, signal }: OpenRequest): Promise<OpenResult> {
+/** One request to an open route. down: 5xx, network error, timeout. gone: any other status or a bad body. */
+async function openGet<T>({ fetch: f, base, timers = BROWSER_TIMERS, signal }: OpenRequest, path: string, parse: (text: string) => T | null): Promise<OpenAnswer<T>> {
   const ctl = new AbortController();
   const join = () => ctl.abort(); // the caller's signal and the 5 s timeout both end this request
   if (signal?.aborted) join();
@@ -144,13 +145,13 @@ export async function fetchOpenWard({ fetch: f, base, ward = OPEN_WARD, timers =
       reject(new Error("timeout"));
     }, OPEN_TIMEOUT_MS);
   });
-  const work = (async (): Promise<OpenResult> => {
+  const work = (async (): Promise<OpenAnswer<T>> => {
     // A simple GET: no headers key, so no Authorization and no custom header, and no cookie.
-    const res = await f(`${base}/wards/${encodeURIComponent(ward)}/open-view`, { credentials: "omit", cache: "no-store", redirect: "error", signal: ctl.signal });
+    const res = await f(`${base}${path}`, { credentials: "omit", cache: "no-store", redirect: "error", signal: ctl.signal });
     if (res.status >= 500) return { ok: false, kind: "down" };
     if (res.status !== 200) return { ok: false, kind: "gone" };
     const text = await readCapped(res);
-    const body = text === null ? null : parseOpenWard(text, ward);
+    const body = text === null ? null : parse(text);
     return body ? { ok: true, body } : { ok: false, kind: "gone" };
   })();
   work.catch(() => {}); // a late failure after the timeout is not reported
@@ -163,6 +164,96 @@ export async function fetchOpenWard({ fetch: f, base, ward = OPEN_WARD, timers =
     signal?.removeEventListener("abort", join);
   }
 }
+
+/** One unit's beds. */
+export const fetchOpenWard = (req: OpenRequest): Promise<OpenResult> =>
+  openGet(req, `/wards/${encodeURIComponent(req.ward ?? OPEN_WARD)}/open-view`, (text) => parseOpenWard(text, req.ward ?? OPEN_WARD));
+
+// ---- The run's units (GET /open-view) ----
+const UNIT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$/;
+const KINDS = ["ranked", "shown", "unranked"] as const;
+export interface OpenUnit { id: string; name: string; floor: number | null; kind: (typeof KINDS)[number] }
+
+/** Strict, as parseOpenWard: 1 to 12 units, each id once. */
+export function parseOpenUnits(text: string): OpenUnit[] | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isObj(v) || v.synthetic !== true || !Array.isArray(v.units) || v.units.length < 1 || v.units.length > 12) return null;
+  const seen = new Set<string>();
+  const units: OpenUnit[] = [];
+  for (const u of v.units) {
+    if (!isObj(u) || typeof u.id !== "string" || !UNIT_ID.test(u.id) || seen.has(u.id)) return null;
+    if (typeof u.name !== "string" || u.name.length < 1 || u.name.length > 60 || !oneOf(u.kind, KINDS)) return null;
+    const floor = u.floor ?? null;
+    if (floor !== null && !int(floor, -5, 200)) return null;
+    seen.add(u.id);
+    units.push({ id: u.id, name: u.name, floor, kind: u.kind });
+  }
+  return units;
+}
+
+export const fetchOpenUnits = (req: Omit<OpenRequest, "ward">): Promise<OpenAnswer<OpenUnit[]>> => openGet(req, "/open-view", parseOpenUnits);
+
+// ---- One bed's card (GET /wards/{unit}/open-view/beds/{bed}) ----
+const SOURCES = ["device", "nurse", "lab", "derived", "model", "reference"] as const;
+const TRENDS = ["rising", "falling", "stable", "insufficient"] as const;
+export const CARD_VITALS = ["heart_rate", "respiratory_rate", "spo2", "temperature"] as const;
+type Source = (typeof SOURCES)[number];
+export interface OpenVital { value: number; atMs: number; source: Source }
+export interface OpenPressure { systolic: number; diastolic: number; atMs: number; source: Source }
+export type OpenCard = { unit: string; bed: string; floor: number | null; kind: (typeof KINDS)[number] } & (
+  | { state: "ranked"; score: number; risk: Risk; trend: (typeof TRENDS)[number]; vitals: Record<(typeof CARD_VITALS)[number], OpenVital> & { blood_pressure: OpenPressure } }
+  | { state: "not_ranked"; reason: string | null }
+);
+
+/** A time the API wrote: an ISO string with a zone. Anything else is refused. */
+const timeMs = (v: unknown): number | null => {
+  if (typeof v !== "string" || v.length > 40 || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(v)) return null;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/** Strict: the card must be for the unit and bed asked for, and a ranked card must hold all of its parts. Extra keys are never read. */
+export function parseOpenCard(text: string, unit: string, bed: string): OpenCard | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isObj(v) || v.unit !== unit || v.bed !== bed || v.synthetic !== true || !oneOf(v.kind, KINDS)) return null;
+  const floor = v.floor ?? null;
+  if (floor !== null && !int(floor, -5, 200)) return null;
+  const place = { unit, bed, floor, kind: v.kind };
+  if (v.state === "not_ranked") {
+    const reason = v.reason ?? null;
+    if (reason !== null && (typeof reason !== "string" || reason.length < 1 || reason.length > 300)) return null;
+    if ((v.score ?? null) !== null || (v.risk ?? null) !== null || (v.vitals ?? null) !== null || (v.trend ?? null) !== null) return null;
+    return { ...place, state: "not_ranked", reason };
+  }
+  if (v.state !== "ranked" || !int(v.score, 0, 20) || !oneOf(v.risk, RISKS) || !oneOf(v.trend, TRENDS) || !isObj(v.vitals)) return null;
+  const vitals = {} as Record<(typeof CARD_VITALS)[number], OpenVital>;
+  for (const code of CARD_VITALS) {
+    const m = v.vitals[code];
+    if (!isObj(m) || !num(m.value, 0, 1000) || !oneOf(m.source, SOURCES)) return null;
+    const atMs = timeMs(m.observed_at);
+    if (atMs === null) return null;
+    vitals[code] = { value: m.value, atMs, source: m.source };
+  }
+  const bp = v.vitals.blood_pressure;
+  if (!isObj(bp) || !int(bp.systolic, 1, 400) || !int(bp.diastolic, 1, 400) || !oneOf(bp.source, SOURCES)) return null;
+  const bpAt = timeMs(bp.observed_at);
+  if (bpAt === null) return null;
+  return { ...place, state: "ranked", score: v.score, risk: v.risk, trend: v.trend, vitals: { ...vitals, blood_pressure: { systolic: bp.systolic, diastolic: bp.diastolic, atMs: bpAt, source: bp.source } } };
+}
+
+/** One request, made when a bed is picked. The caller never repeats it by itself. */
+export const fetchOpenCard = (req: Omit<OpenRequest, "ward"> & { unit: string; bed: string }): Promise<OpenAnswer<OpenCard>> =>
+  openGet(req, `/wards/${encodeURIComponent(req.unit)}/open-view/beds/${encodeURIComponent(req.bed)}`, (text) => parseOpenCard(text, req.unit, req.bed));
 
 /** Polls: the next request starts OPEN_POLL_MS after the last one ended, one at a time. Returns stop. A "gone" answer stops it. */
 export function startOpenPoll(req: OpenRequest & { onBody: (b: OpenWard) => void; onDown: () => void; onGone: () => void }): () => void {

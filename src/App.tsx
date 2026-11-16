@@ -3,9 +3,9 @@ import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
 import { floorOf } from "./hospital-panels";
-import { openBedOf, openHospital, openRisk, OPEN_UNITS, startUnitsPoll, type OpenViews } from "./open-hospital";
-import { OpenHospitalPanel } from "./open-panels";
-import { fetchOpenWard, nextGate, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
+import { openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type OpenViews } from "./open-hospital";
+import { OpenHospitalPanel, type CardState } from "./open-panels";
+import { fetchOpenCard, fetchOpenWard, nextGate, OPEN_WARD, screen, startOpenPoll, toLive, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
@@ -13,7 +13,8 @@ import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack"
 import { buildQuery, buildWorld, drawSeed, NAMED, parseQuery, seedText } from "./scenarios";
 import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
 import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
-import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource } from "./sim/source";
+import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, WARD_START_ISO, type VitalsSource } from "./sim/source";
+import type { RunUnit } from "./sim/hospital/units";
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { AnalyticsBoundary } from "./insights/Boundary";
 import { createWardStats, feed, summary } from "./sim/ward-stats";
@@ -156,6 +157,11 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   const [others, setOthers] = useState<OpenViews>({});
   const othersRef = useRef(others);
   othersRef.current = others;
+  // The run's units, from the server's public list. Empty: the server has no list, so the page is the ward alone.
+  const [units, setUnits] = useState<RunUnit[]>([]);
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
+  const unitIds = units.map((u) => u.id).filter((id) => id !== OPEN_WARD).join(",");
   const lastOpenRef = useRef<OpenWard | null>(watch?.first ?? null);
   const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);
   const hospRef = useRef(hosp);
@@ -247,13 +253,21 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Watching: the run's units, asked at once and then once a minute. No list: no other unit is asked, and none stays drawn.
+  useEffect(() => {
+    if (!watch) return;
+    return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => setUnits(list ?? []) });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Watching: the other units, one request per poll in turn. A unit the server does not hold is dropped.
   useEffect(() => {
     if (!watch) return;
+    setOthers((o) => Object.fromEntries(Object.entries(o).filter(([id]) => unitIds.split(",").includes(id)))); // a unit that left the list is not kept
+    if (unitIds === "") return;
     return startUnitsPoll({
       fetch: window.fetch.bind(window),
       base: VIEW_API!,
-      units: OPEN_UNITS.map((u) => u.id).filter((id) => id !== OPEN_WARD),
+      units: unitIds.split(","),
       onUnit: (unit, body) =>
         setOthers((o) => {
           if (body) return { ...o, [unit]: body };
@@ -263,7 +277,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
           return rest;
         }),
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [unitIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Viewer mode: each answer replaces the drawn ward.
   useEffect(() => {
@@ -318,7 +332,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current))) : createRenderer(canvas);
+    const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current, unitsRef.current))) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -478,8 +492,24 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
   };
 
   const vitals = vitalsRef.current?.world === world.s ? vitalsRef.current.v : null;
-  const floors = world.s.hospital ? floorSummary(world.s.hospital, { ...Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null])), ...(vitals ? riskBySel(vitals) : watch ? openRisk(others) : {}) }) : [];
+  const floors = world.s.hospital ? floorSummary(world.s.hospital, { ...Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null])), ...(vitals ? riskBySel(vitals) : watch ? openRisk(others, units) : {}) }) : [];
   const views: OpenViews = watch && lastOpenRef.current ? { ...others, [OPEN_WARD]: lastOpenRef.current } : others;
+  const viewsRef = useRef(views);
+  viewsRef.current = views;
+
+  // Watching a hospital: a picked bed's card is asked for once. Not polled, not retried; another pick ends a request in flight.
+  const [card, setCard] = useState<CardState | null>(null);
+  const cardFor = watch && hosp ? selected : null;
+  useEffect(() => {
+    const pick = openBedOf(viewsRef.current, cardFor, unitsRef.current);
+    if (!cardFor || !pick) return setCard(null);
+    setCard({ sel: cardFor, data: "loading" });
+    const ctl = new AbortController();
+    void fetchOpenCard({ fetch: window.fetch.bind(window), base: VIEW_API!, unit: pick.unit.id, bed: pick.bed.bed, signal: ctl.signal }).then((r) => {
+      if (!ctl.signal.aborted) setCard({ sel: cardFor, data: r.ok ? r.body : r.kind === "gone" ? "empty" : "failed" });
+    });
+    return () => ctl.abort();
+  }, [cardFor]);
 
   // The same steps as skipDay (sim.ts), in chunks so the page stays responsive. Hospital worlds only.
   const skipDayChunked = () => {
@@ -632,7 +662,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
               if (justDragged.current) return void (justDragged.current = false);
               if (watch && !hosp) return; // the ward alone: nothing to select without a token
               const hit = targetAt(e);
-              const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit) ? "" : hit; // watching: a floor or a bed in use, nothing else
+              const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit; // watching: a floor or a bed in use, nothing else
               if (!hosp) return select(id);
               if (id?.startsWith("floor:")) return go({ slab: Number(id.slice(6)) });
               if (id && viewRef.current !== null) return go({ thing: id, floor: viewRef.current });
@@ -688,7 +718,7 @@ function Ward({ token, onSignedOut, watch }: { token: string | null; onSignedOut
         </div>
         <SidePanel>
           {watch && hosp ? (
-            <OpenHospitalPanel views={views} view={view} selected={selected} speed={world.s.speed} onView={(floor) => go({ rail: floor })} onSelect={select} />
+            <OpenHospitalPanel units={units} views={views} view={view} selected={selected} speed={world.s.speed} card={card} nowMs={Date.parse(WARD_START_ISO) + (viewClock.has() ? viewClock.read(performance.now()) : world.s.clockS) * 1000} onView={(floor) => go({ rail: floor })} onSelect={select} />
           ) : (
             <Inspector key={selected ?? ""} s={world.s} src={world.src} selected={selected} onSelect={select} onTimeline={() => setTimeline(true)} floors={floors} building={HOSPITAL && view === null} send={send} watching={!!watch} vitals={vitals} />
           )}
