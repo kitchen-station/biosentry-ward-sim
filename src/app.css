@@ -783,6 +783,12 @@ nav a[aria-current="page"] {
 .insights .floorrow > h5 { grid-column: 1 / -1; }
 .insights .figs { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); align-items: start; }
 .insights .figs > p { grid-column: 1 / -1; }
+/* Hospital operations while watching the server: one table and three short lists, across the whole row. */
+.insights .ops { grid-column: 1 / -1; display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+.insights .ops .numbers { overflow-x: auto; }
+.insights .ops table { border-collapse: collapse; }
+.insights .ops th, .insights .ops td { text-align: left; padding: 2px 12px 2px 0; border-top: 1px solid var(--cream-300); vertical-align: top; }
+.insights .ops ul { margin: 0; padding-left: 18px; }
 .insights .fig { min-width: 0; }
 /* A figure made large: over the page, as wide as it allows, with its numbers under the chart. */
 .insights .fig.enlarged { position: fixed; inset: 8px; z-index: 20; overflow: auto; padding: 12px; background: var(--cream-100); border: 2px solid var(--ink-900); box-shadow: 0 0 0 4px var(--ink-900); align-content: start; grid-template-columns: minmax(0, 1fr); }

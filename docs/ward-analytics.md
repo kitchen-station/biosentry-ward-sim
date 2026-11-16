@@ -70,6 +70,20 @@ No panel shows the browser engine's numbers while the page watches the server. T
 
 A figure with a "Larger, with numbers" button grows to fill the page. "Close (Esc)" or the Escape key brings it back. That Escape closes only the large view. The large view adds a table of the numbers behind the chart for a chosen window (last 1 h to all the page holds): the count of readings, the last, lowest, middle (median) and highest value, and the time in each NEWS2 band where the series has bands. The table is a summary of this page. It is our own design, not a NEWS2 practice. It reads the same values as the chart, so a chart that is "Not served" has no button. A missing reading is not counted and adds no time to a band.
 
+## Hospital operations (watching the server)
+
+While the page watches a server that runs the hospital, the Hospital section starts with "Operations now". A watcher who is not signed in sees it too, under the sign-in line: it holds no patient, no name and no bed.
+
+- It is counted from the server's public view only (`src/open-ops.ts`): per unit, the beds in use and, where the unit is ranked, the beds at NEWS2 7 or more and at 5 or 6. Intensive care and the emergency room are not scored.
+- Bed counts are this page's copy of the simulator's unit table (the drawing uses the same copy). The server does not send them, and the panel says so.
+- Each count is read against a line, and the panel prints what kind of source that line is. It never calls a study or an unconfirmed figure a rule:
+  - ward beds in use above 85%, and 90% or more: Bagust, Place and Posnett, BMJ 1999, a simulation study;
+  - intensive care 60%, 70% and 85%: the DOH's 2021 COVID-19 tiers, seen in news reports only, source not confirmed;
+  - the emergency room: no agreed standard, so only patients against built bays;
+  - NEWS2 7 or more on a ward: the RCP's emergency trigger.
+- "Issues now" lists the units past a line. With nothing past a line it says so.
+- "Not served" lists what the server does not send: nurses and patients per nurse, emergency room waiting and boarding, patients waiting for an intensive care bed, patients outside their own department, transfers and deaths in 24 hours. No number of this page stands in for any of them.
+
 ## Where the data comes from
 
 The ward builds a summary while it runs: `src/sim/ward-stats.ts`. It is pure. It only reads the simulation, calls no random stream and writes nothing on the `Sim`. A test shows a run that is fed ends in the same state as one that is not. It is made with the world, replaced on reset or on a scenario change, and fed after every `step()` in the frame loop and in the hospital world's +1 day. The Entrance panel's Skip 1 day is not fed, and its span shows as skipped. It is not in `Sim`, so saves and the golden run are unchanged. `src/headless.ts` does not use it.

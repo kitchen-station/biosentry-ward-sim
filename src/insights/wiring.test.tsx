@@ -50,7 +50,7 @@ describe("App.tsx", () => {
     expect(page).not.toMatch(/\bsummary\(/);
   });
 
-  it("shows a watcher only the sign-in line", () => {
+  it("shows a watcher the sign-in line (and the public operations panel: src/open-ops.test.tsx pins what that branch may hold)", () => {
     const at = app.indexOf("{watch ? (");
     expect(app.slice(at, at + 150)).toContain("Sign in to see ward analytics");
   });
