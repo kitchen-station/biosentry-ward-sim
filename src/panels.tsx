@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Flip } from "./flip";
 import { Sparkline } from "./chart";
 import { NotRankedRow, RankedRow, RISK_WORDS, VITAL_CARD, VitalCards } from "./vital-cards";
@@ -744,6 +744,39 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
       <Activity src={src} lines={s.log.filter((line) => line.text.includes(m.name)).slice(-5).reverse()} />
       <p className="tiny">Staff loop: demo design, not a product feature.</p>
     </>
+  );
+}
+
+const SIDE_KEY = "biosentry.sidePanel";
+
+/** The side panel can fold to a narrow tab. The choice is kept in localStorage; without it the panel is open. */
+export function SidePanel({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SIDE_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const toggle = () => {
+    setOpen(!open);
+    try {
+      localStorage.setItem(SIDE_KEY, open ? "closed" : "open");
+    } catch {
+      /* the page works without storage */
+    }
+  };
+  return (
+    <div className={open ? "side" : "side shut"}>
+      <button type="button" className="sidetab" aria-expanded={open} aria-controls="side-body" onClick={toggle}>
+        {open ? "Hide panel ▸" : "◂ Show panel"}
+      </button>
+      {open && (
+        <div id="side-body" className="sidebody">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 

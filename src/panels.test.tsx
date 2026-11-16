@@ -5,7 +5,7 @@ import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource
 
 // VIEW_API is read when panels loads, so the viewer build is set first.
 vi.stubEnv("VITE_VIEW_API_URL", "http://api");
-const { Inspector, TopBar } = await import("./panels");
+const { Inspector, SidePanel, TopBar } = await import("./panels");
 
 // The viewer's source, as App builds it: no inject, startAf or admit.
 const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
@@ -48,5 +48,31 @@ describe("a patient's buttons in viewer mode", () => {
     const html = panel(noop);
     for (const label of ["Start deterioration", "Start AF", "Detach patch"]) expect(html).toContain(label);
     expect(html).not.toContain("Apply patch"); // the patient already has a patch
+  });
+});
+
+describe("the side panel's fold", () => {
+  const render = () => renderToStaticMarkup(<SidePanel><p>body</p></SidePanel>);
+  const stored = (v: string | null) => vi.stubGlobal("localStorage", { getItem: () => v, setItem: () => {} });
+
+  it("is open by default, with a button that says so", () => {
+    stored(null);
+    const html = render();
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain("<p>body</p>");
+  });
+
+  it("starts shut when the browser remembers it, and the button says so", () => {
+    stored("closed");
+    const html = render();
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("side shut");
+    expect(html).not.toContain("<p>body</p>");
+  });
+
+  it("is open when storage throws", () => {
+    vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
+    expect(render()).toContain("<p>body</p>");
+    vi.unstubAllGlobals();
   });
 });
