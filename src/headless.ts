@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { applyAction } from "./sim/actions";
-import { applyCommand, clinicianName, freshWard, skipAhead, SKIPS } from "./sim/commands";
+import { applyCommand, clinicianName, freshWard, skipAhead, skipMayGoOn, SKIPS, stepOneSecond } from "./sim/commands";
 import { refuseHospitalState, refuseWardState } from "./sim/hospital/attach";
 import { freshHospital, HOSPITAL_SCENARIOS } from "./sim/hospital/fresh";
 import { createMonthLoop, type World } from "./sim/hospital/month";
@@ -158,6 +158,8 @@ async function reset(by: string) {
 // A clinician's skip: the world moves ahead that many ward minutes at once, at 60x fidelity whatever the speed (as skipDay).
 // The hospital's readings are published every ward minute and everything is sent every ward hour. A month that ends inside
 // the skip closes as always: the skip stops there, the rest of it is dropped, and the next month starts.
+// An API that is not taking the data stops the skip too, after the hour it did not take: stepping on would queue more rows
+// than the sync keeps, and it would drop the oldest. What is queued stays queued and is sent when the API is back.
 let skipping = false;
 async function skip(minutes: number, by: string) {
   const word = SKIPS.find(([m]) => m === minutes)?.[1];
@@ -168,15 +170,20 @@ async function skip(minutes: number, by: string) {
     await skipAhead(minutes, {
       tick: () => {
         if (s.ended || (hospital && month.due(s))) return false;
-        const speed = s.speed;
-        s.speed = 60; // one ward second a step; set back at once, so nothing else ever sees it
-        step(s, src);
-        s.speed = speed;
+        stepOneSecond(s, src); // the speed is 60 for this one step only, and set back even if it throws
         if (hospital) feedVitals(vitals, s.hospital!, s.clockS);
         return true;
       },
       minute: () => void (hospital && publishHospital(s, vitals)),
-      hour: flush,
+      hour: async () => {
+        await flush();
+        const out = s.outbox;
+        const queued = out ? Math.max(out.observations.length, out.bins.length, out.events.length) : 0;
+        if (skipMayGoOn(sync.acked.minute, minuteOf(s), queued)) return true;
+        console.error(`Skip stopped at minute ${minuteOf(s)}: the API is not taking data (${queued} rows queued). The rest of the skip is dropped.`);
+        say(s, "Skip stopped: the server is not taking data");
+        return false;
+      },
     });
     if (hospital && month.due(s)) {
       await month.turn({ s, src }, swap);

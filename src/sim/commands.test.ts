@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { applyCommand, commandNotice, freshWard, sendCommand, skipAhead, SKIPS, type Command } from "./commands";
-import { createSim, patientById, step, type Sim } from "./sim";
+import { applyCommand, commandNotice, freshWard, sendCommand, skipAhead, SKIP_QUEUE_MARK, skipMayGoOn, SKIPS, stepOneSecond, type Command } from "./commands";
+import { createSim, minuteOf, patientById, step, type Sim } from "./sim";
+import { createSync } from "./sync";
 import { createSyntheticSource, FIXTURE_SEED } from "./source";
 
 function ward() {
@@ -161,9 +162,9 @@ describe("sending a command from the viewer", () => {
 });
 
 describe("skip ahead", () => {
-  const counted = (stopAfter = Infinity) => {
+  const counted = (stopAfter = Infinity, hoursTaken = Infinity) => {
     const n = { tick: 0, minute: 0, hour: 0 };
-    return { n, world: { tick: () => n.tick < stopAfter && ((n.tick += 1), true), minute: () => void (n.minute += 1), hour: async () => void (n.hour += 1) } };
+    return { n, world: { tick: () => n.tick < stopAfter && ((n.tick += 1), true), minute: () => void (n.minute += 1), hour: async () => (n.hour += 1) <= hoursTaken } };
   };
 
   it("the four choices are the API's four, in ward minutes", () => {
@@ -187,19 +188,75 @@ describe("skip ahead", () => {
     expect(none.n).toEqual({ tick: 0, minute: 0, hour: 0 }); // nothing stepped, nothing sent
   });
 
+  it("an hour the API did not take stops the skip there: nothing more is stepped", async () => {
+    const { n, world } = counted(Infinity, 2); // the third hour's flush is not taken
+    expect(await skipAhead(1440, world)).toBe(3 * 3600);
+    expect(n).toEqual({ tick: 3 * 3600, minute: 180, hour: 3 });
+    // The rule: the whole queue was taken at this very minute, and little is queued.
+    expect(skipMayGoOn(120, 120, 0)).toBe(true);
+    expect(skipMayGoOn(120, 120, SKIP_QUEUE_MARK)).toBe(true);
+    expect(skipMayGoOn(120, 120, SKIP_QUEUE_MARK + 1)).toBe(false);
+    expect(skipMayGoOn(60, 120, 0)).toBe(false); // the last batch the API took was an hour ago
+    expect(skipMayGoOn(null, 120, 0)).toBe(false); // nothing acknowledged yet
+    expect(SKIP_QUEUE_MARK).toBeLessThan(50_000); // below what the sync keeps (MAX_QUEUED)
+    expect(readFileSync("src/sim/sync.ts", "utf8")).toContain("const MAX_QUEUED = 50_000;");
+  });
+
+  it("the API goes down during a 1 day skip: the skip stops after the hour it did not take, and no row is dropped", async () => {
+    let down = false;
+    const f = (async (url: string, init?: RequestInit) => {
+      if (down) throw new Error("offline");
+      if (init?.method !== "POST") return new Response("{}", { status: 200 });
+      return url.endsWith("/sim/runs") ? new Response('{"run_id":7}', { status: 201 }) : new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const run = async (minutes: number, goesDown: boolean) => {
+      const { s, src } = freshWard(10);
+      const sync = createSync({ apiUrl: "http://api", key: "k", clientId: "t", fetch: f });
+      down = false;
+      await sync.start(s, src);
+      down = goesDown;
+      const stepped = await skipAhead(minutes, {
+        tick: () => (stepOneSecond(s, src), true),
+        minute: () => {},
+        hour: async () => {
+          await sync.flush();
+          const out = s.outbox!;
+          return skipMayGoOn(sync.acked.minute, minuteOf(s), Math.max(out.observations.length, out.bins.length, out.events.length));
+        },
+      });
+      return { stepped, s, sync };
+    };
+    const lost = await run(1440, true);
+    expect(lost.stepped).toBe(3600); // one hour, then it stops: 23 hours are not stepped
+    expect(lost.sync.dropped).toBe(0); // nothing trimmed
+    expect(lost.s.outbox!.observations.length).toBeGreaterThan(0); // the hour is still queued, for when the API is back
+    expect(lost.s.outbox!.observations.length).toBeLessThan(SKIP_QUEUE_MARK);
+    expect(lost.sync.stopped).toBeNull(); // the run itself goes on
+    // With the API up, the same rule lets a skip run whole and leaves nothing queued.
+    const fine = await run(180, false);
+    expect(fine.stepped).toBe(180 * 60);
+    expect([fine.s.outbox!.observations.length, fine.sync.dropped, fine.sync.acked.minute]).toEqual([0, 0, minuteOf(fine.s)]);
+  });
+
+  it("one ward second sets the speed back even when the step throws", () => {
+    const { s, src } = freshWard(10);
+    Object.defineProperty(s, "patients", { get: () => { throw new Error("boom"); } });
+    expect(() => stepOneSecond(s, src)).toThrow("boom");
+    expect(s.speed).toBe(10); // a live run is never left at 60x
+    const paused = freshWard(10);
+    paused.s.speed = 0;
+    const before = paused.s.clockS;
+    stepOneSecond(paused.s, paused.src);
+    expect([paused.s.speed, paused.s.clockS - before]).toEqual([0, 1]); // a paused ward is stepped too, and stays paused
+  });
+
   it("with the runner's tick, a ward at 10x ends where an hour at 60x ends, and its speed is never changed", async () => {
     const a = freshWard(10);
     const speeds = new Set<number>();
     await skipAhead(60, {
-      tick: () => {
-        const speed = a.s.speed;
-        a.s.speed = 60;
-        step(a.s, a.src);
-        a.s.speed = speed;
-        return true;
-      },
+      tick: () => (stepOneSecond(a.s, a.src), true),
       minute: () => void speeds.add(a.s.speed),
-      hour: async () => void speeds.add(a.s.speed),
+      hour: async () => (speeds.add(a.s.speed), true),
     });
     const b = freshWard(60);
     for (let tick = 0; tick < 3600; tick += 1) step(b.s, b.src);
@@ -237,6 +294,11 @@ describe("skip ahead", () => {
     expect(runner.match(/sync\.pullCommands\(/g)).toHaveLength(1); // the one reader of the feed
     // A month that ends inside the skip stops it and is turned as always.
     expect(runner).toContain("if (s.ended || (hospital && month.due(s))) return false;");
-    expect(runner).toMatch(/hour: flush,\n    \}\);\n    if \(hospital && month\.due\(s\)\) \{\n      await month\.turn\(\{ s, src \}, swap\);/);
+    expect(runner).toMatch(/return false;\n      \},\n    \}\);\n    if \(hospital && month\.due\(s\)\) \{\n      await month\.turn\(\{ s, src \}, swap\);/);
+    // Every step of a skip goes through the one function that sets the speed back, and every hour through the stop rule.
+    expect(runner).toContain("stepOneSecond(s, src);");
+    expect(runner).not.toMatch(/s\.speed = 60/);
+    expect(runner).toMatch(/hour: async \(\) => \{\n        await flush\(\);/);
+    expect(runner).toContain("if (skipMayGoOn(sync.acked.minute, minuteOf(s), queued)) return true;");
   });
 });
