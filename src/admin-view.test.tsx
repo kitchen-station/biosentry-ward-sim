@@ -73,6 +73,17 @@ describe("what the admin's routes return, as the page keeps it", () => {
     expect(withSeen(VITALS)).toMatchObject({ heart_rate: { value: 96 } }); // served for the ER: read as any other row's
   });
 
+  it("reads an ER or intensive care row's `vitals`, which the API serves for those units, before `last_seen`", () => {
+    const row = (extra: object) => parseAdminRows(JSON.stringify({ ...ER_ROWS, abstained: [{ ...ER_ROWS.abstained[0], ...extra }] }), "ER")!.rows[0];
+    // The merged API shape: `vitals` and `vital_trends` set, `last_seen` null, still no score and no rank.
+    const er = row({ vitals: VITALS, vital_trends: { heart_rate: [96], respiratory_rate: [21], spo2: [94], temperature: [37.8] }, last_seen: null });
+    expect(er.vitals).toMatchObject({ heart_rate: { value: 96, source: "device" }, blood_pressure: { systolic: 104, diastolic: 62, source: "nurse" } });
+    expect([er.ranked, er.reason]).toEqual([null, "Emergency Room is shown, not ranked: NEWS2 is a ward score."]);
+    expect(row({ vitals: null, last_seen: VITALS }).vitals).toMatchObject({ spo2: { value: 94 } }); // a ward's not-ranked row
+    expect(row({ vitals: null, last_seen: null }).vitals).toBeNull();
+    expect(row({ vitals: { heart_rate: 1 }, last_seen: VITALS }).vitals).toBe("unreadable"); // what was sent first is what is judged
+  });
+
   it("stays and a patient's page", () => {
     expect(stays.map((s) => [s.name, s.outcome, s.toUnit, s.outMs])).toEqual([["Reyes, Marta", "discharged", null, NOW - 40 * 60_000], ["Santos, Paolo", "transferred", "ICU", NOW - 10 * 60_000], ["Still Here", null, null, null]]);
     expect(parseAdminStays(JSON.stringify([{ ...STAYS_BODY[0], outcome: "vanished" }]))).toBeNull();

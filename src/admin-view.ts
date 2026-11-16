@@ -92,7 +92,9 @@ function abstainedRow(v: unknown): AdminRow | null {
   if (!who || !str(v.reason, 500)) return null;
   const risk = v.news2_risk ?? null;
   if (risk !== null && !oneOf(risk, RISKS)) return null;
-  return { ...who, ranked: null, reason: v.reason, risk, vitals: vitals(v.last_seen) };
+  // A row of the ER or intensive care carries `vitals` (the stored vitals a ranked row has, with no score). Any other row that
+  // is not ranked carries `last_seen` (the last stored values, whatever their age). The page shows whichever the server sent.
+  return { ...who, ranked: null, reason: v.reason, risk, vitals: vitals(v.vitals ?? v.last_seen) };
 }
 
 export function parseAdminUnits(text: string): AdminUnit[] | null {
