@@ -11,7 +11,7 @@ import { openOps } from "./open-ops";
 import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
-import { BedTimeline, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
+import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
@@ -414,7 +414,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     seen.observe(holder);
     const redraw = () => renderer.redraw();
     canvas.addEventListener("contextrestored", redraw);
-    document.fonts?.addEventListener("loadingdone", redraw); // the tags' pixel font arrives after the first frames
+    document.fonts?.addEventListener("loadingdone", redraw); // the tags' sans font arrives after the first frames
+    void document.fonts?.load('500 8px "HarmonyOS Sans"'); // the canvas names it, but the page may not have used that weight yet
 
     let raf = 0;
     let last = performance.now();
@@ -741,11 +742,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   return (
     <div className="app hw-has-bottomnav">
       <PhoneNav page={page} />
-      <div className="hw-shell">
-      <aside className="hw-shell__side wardside">
-        <ViewNav page={page} />
-      </aside>
-      <div className="wardmain">
+      <div className="shell">
+      <div className="shellbrand"><Brand /></div>
       <TopBar
         s={world.s}
         src={world.src}
@@ -769,6 +767,14 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
             : undefined
         }
       />
+      <aside className="wardside">
+        <ViewNav page={page} brand={false} />
+        <div className="floaters">
+          <Directory floors={floors} view={view} onView={(floor) => go({ rail: floor })} ward={{ name: "Ward W4", count: world.s.patients.length, noun: "patients" }} />
+          <CurrentFloor floors={floors} view={view} ward={{ name: "Ward W4", rows: [["Patients", world.s.patients.length], ["Ranked", world.s.patients.filter((p) => p.rank !== null).length], ["Not ranked", world.s.patients.filter((p) => p.rank === null).length], ["Speed", world.s.speed === 0 ? "Paused" : `${world.s.speed}x`]] }} />
+        </div>
+      </aside>
+      <div className="wardmain">
       {page === "analytics" && (
         <main className="main insightsmain">
           {watch ? (
@@ -862,10 +868,6 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
           </div>
-          <div className="floaters">
-            <Directory floors={floors} view={view} onView={(floor) => go({ rail: floor })} ward={{ name: "Ward W4", count: world.s.patients.length, noun: "patients" }} />
-            <CurrentFloor floors={floors} view={view} ward={{ name: "Ward W4", rows: [["Patients", world.s.patients.length], ["Ranked", world.s.patients.filter((p) => p.rank !== null).length], ["Not ranked", world.s.patients.filter((p) => p.rank === null).length], ["Speed", world.s.speed === 0 ? "Paused" : `${world.s.speed}x`]] }} />
-          </div>
           {!watch && <EventConsole s={world.s} src={world.src} />}
         </div>
         <SidePanel>
@@ -885,11 +887,12 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
           )}
         </SidePanel>
       </main>
-      <footer className="notice">
-        <span>Advisory only. BioSentry does not replace a monitor alarm. Set in HarmonyOS Sans.</span>
-        {world.s.hospital && <span>{admin ? "Synthetic patients. Hospital admin: every unit, read-only." : watch ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
-      </footer>
       </div>
+      <footer className="notice">
+        <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
+        {world.s.hospital && <span>{admin ? "Synthetic patients. Hospital admin: every unit, read-only." : watch ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
+        <span className="credit">Set in HarmonyOS Sans</span>
+      </footer>
       </div>
     </div>
   );

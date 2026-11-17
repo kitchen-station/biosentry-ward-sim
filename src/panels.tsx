@@ -757,7 +757,7 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
 }
 
 /** The product mark: our own, in every logo slot. */
-function Brand() {
+export function Brand() {
   return (
     <span className="brand">
       <span className="mark" aria-hidden="true"><i className="hw-icon fa-solid fa-heart-pulse" /></span>
@@ -772,10 +772,10 @@ const VIEW_LINKS = [
 ] as const;
 
 /** The view switch: the two pages, as the side nav on a wide screen. The links change the URL hash and nothing else. */
-export function ViewNav({ page }: { page: "simulation" | "analytics" }) {
+export function ViewNav({ page, brand = true }: { page: "simulation" | "analytics"; brand?: boolean }) {
   return (
     <nav className="hw-sidenav" aria-label="View">
-      <Brand />
+      {brand && <Brand />}
       <p className="hw-sidenav__group">Ward</p>
       {VIEW_LINKS.map((l) => (
         <a key={l.id} className="hw-sidenav__link" href={`#${l.id}`} aria-current={page === l.id ? "page" : undefined}>
@@ -783,7 +783,6 @@ export function ViewNav({ page }: { page: "simulation" | "analytics" }) {
           <span className="hw-sidenav__label">{l.label}</span>
         </a>
       ))}
-      <p className="sidefoot hw-sidenav__label">Set in HarmonyOS Sans</p>
     </nav>
   );
 }
@@ -793,13 +792,13 @@ export function PhoneNav({ page }: { page: "simulation" | "analytics" }) {
   const drawer = useRef<HTMLDialogElement>(null);
   return (
     <>
-      <header className="hw-appbar hw-only-mobile">
+      <header className="hw-appbar hw-only-compact">
         <button className="hw-appbar__action" aria-label="Open menu" onClick={() => drawer.current?.showModal?.()}>
           <i className="hw-icon fa-solid fa-bars" aria-hidden="true" />
         </button>
         <p className="hw-appbar__title">BioSentry</p>
       </header>
-      <nav className="hw-bottomnav hw-only-mobile" aria-label="Primary">
+      <nav className="hw-bottomnav hw-only-compact" aria-label="Primary">
         {VIEW_LINKS.map((l) => (
           <a key={l.id} className="hw-bottomnav__item" href={`#${l.id}`} aria-current={page === l.id ? "page" : undefined}>
             <span className="hw-bottomnav__icon" aria-hidden="true"><i className={`hw-icon fa-solid ${l.icon}`} /></span>
@@ -826,14 +825,14 @@ export function StageTitle({ title, count, noun }: { title: string; count: numbe
 
 const occupancyTone = (pct: number | null) => (pct === null ? "" : pct >= 90 ? " hw-tag--danger" : pct >= 75 ? " hw-tag--warning" : " hw-tag--success");
 
-/** Floating over the stage: the building's floors as cards. Prev and Next step through them; the open one is marked. */
+/** The building's floors, in the side column. Prev and Next step through them; the open one is marked. */
 export function Directory({ floors, view, onView, ward }: { floors: FloorSummary[]; view: number | null; onView: (floor: number | null) => void; ward?: { name: string; count: number; noun: string } }) {
   if (floors.length === 0) {
     return (
-      <section className="hw-card floatcard dir" aria-label="Directory">
-        <div className="dirhead"><div><span className="hw-eyebrow">Directory</span><h2>Ward</h2></div></div>
+      <section className="dir" aria-label="Floors">
+        <div className="dirhead"><div><span className="hw-eyebrow">Ward</span><h2>Floors</h2></div></div>
         <div className="dirlist">
-          <div className="hw-card hw-card--outlined dirrow" aria-current="true">
+          <div className="dirrow" aria-current="true">
             <span className="eyebrow">Ward</span>
             <b>{ward?.name ?? "W4"}</b>
             <span className="hw-tag">{ward?.count ?? 0} {ward?.noun ?? "patients"}</span>
@@ -853,9 +852,9 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
   const at = Math.max(0, items.findIndex((i) => i.floor === view));
   const step = (d: number) => onView(items[(at + d + items.length) % items.length].floor);
   return (
-    <section className="hw-card floatcard dir" aria-label="Building directory">
+    <section className="dir" aria-label="Floors">
       <div className="dirhead">
-        <div><span className="hw-eyebrow">Directory</span><h2>Building directory</h2></div>
+        <div><span className="hw-eyebrow">Building</span><h2>Floors</h2></div>
         <div className="dirnav">
           <button className="hw-button hw-button--sm" onClick={() => step(-1)}>Prev</button>
           <button className="hw-button hw-button--sm" onClick={() => step(1)}>Next</button>
@@ -863,7 +862,7 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
       </div>
       <div className="dirlist" role="group" aria-label="Floors">
         {items.map((f) => (
-          <button key={f.eyebrow} className="hw-card hw-card--outlined hw-card--interactive dirrow" aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => onView(f.floor)}>
+          <button key={f.eyebrow} className="dirrow" aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => onView(f.floor)}>
             <span className="eyebrow">{f.eyebrow}</span>
             <b>{f.title}</b>
             <span className={`hw-tag${f.tone}`}>{f.tag}</span>
@@ -875,7 +874,7 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
   );
 }
 
-/** Under the directory: the open floor, or the building, or ward W4, in numbers. */
+/** Under the floor list: the open floor, or the building, or ward W4, in numbers. */
 export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; view: number | null; ward: { name: string; rows: [string, string | number][] } }) {
   const f = view === null ? null : floors.find((x) => x.floor === view) ?? null;
   const rows: [string, string | number][] =
@@ -883,7 +882,7 @@ export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; v
     : f ? [["Units", f.units.map((u) => u.name).join(", ")], ["Beds in use", `${f.census} of ${f.capacity}`], ["Occupancy", f.occupancyPct === null ? "--" : `${f.occupancyPct}%`], ["Nurses", f.nurses]]
     : [["Floors", floors.length], ["People", floors.reduce((n, x) => n + x.census, 0)], ["Beds", floors.reduce((n, x) => n + x.capacity, 0)], ["Nurses", floors.reduce((n, x) => n + x.nurses, 0)]];
   return (
-    <section className="hw-card floatcard curfloor" aria-label="Current floor">
+    <section className="curfloor" aria-label="Current floor">
       <span className="hw-eyebrow">Current floor</span>
       <h2>{floors.length === 0 ? ward.name : f ? f.name : "Whole building"}</h2>
       <dl>
@@ -897,7 +896,7 @@ export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; v
 
 const eventLine = (src: VitalsSource, l: { minute: number; text: string }) => `${clockText(src, l.minute)} ${l.text}`;
 
-/** The strip along the bottom of the stage: the run's latest events. Copy, Download, Clear and Expand act on this page only. */
+/** The log under the stage: the run's latest events. Copy, Download, Clear and Expand act on this page only. */
 export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
   const [open, setOpen] = useState(false);
   // shortcut: Clear hides events up to the last one's minute (the log is capped and a viewer rebuilds it, so no index is stable); later events at that same minute stay hidden too
@@ -914,9 +913,9 @@ export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
     URL.revokeObjectURL(url);
   };
   return (
-    <section className="hw-card hw-card--outlined floatcard events" aria-label="Event console" data-open={open}>
+    <section className="events" aria-label="Event log" data-open={open}>
       <div className="evhead">
-        <span className="hw-eyebrow">Event console</span>
+        <span className="hw-eyebrow">Event log</span>
         <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>Copy</button>
         <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={download}>Download</button>
         <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => setClearedTo(s.log.at(-1)?.minute ?? -1)}>Clear</button>
