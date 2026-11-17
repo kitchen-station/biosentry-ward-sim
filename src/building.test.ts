@@ -86,7 +86,7 @@ describe("floorSummary", () => {
     const w4 = at(4).units[0];
     expect(w4.census).toBe(2);
     expect(w4.beds.slice(0, 3).map((c) => (c ? c.risk : "empty"))).toEqual(["high", null, "empty"]);
-    expect(RISK_LIGHT[w4.beds[0]!.risk!]).toBe("#FF6B6B");
+    expect(RISK_LIGHT[w4.beds[0]!.risk!]).toBe("#E02128");
   });
 
   it("outside W4 a cell takes its risk by its click key; intensive care and bodies have none", () => {
@@ -102,7 +102,7 @@ describe("floorSummary", () => {
     expect(cells("W4").beds.slice(0, 2).map((c) => c!.risk)).toEqual(["high", null]); // W4 as before
     expect(icu.n).toBeGreaterThan(0);
     expect(cellDot(cells("MED3A").beds[0]!)).toBe(RISK_LIGHT.medium);
-    expect(cellDot({ ...cells("MED3A").beds[0]!, risk: null })).toBe("#A899B5");
+    expect(cellDot({ ...cells("MED3A").beds[0]!, risk: null })).toBe("#A6ADB8");
     expect(cellDot(cells("ICU").beds[0]!)).toBe(GROUP_COLOURS.minor);
   });
 

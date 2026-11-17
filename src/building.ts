@@ -4,10 +4,10 @@ import { PARAMS, type Group, type Triage, type UnitId } from "./sim/hospital/par
 import type { Hospital, Person } from "./sim/hospital/types";
 
 export const GROUP_COLOURS: Record<Group, string> = {
-  cardiac: "#FF6B6B", stroke: "#6C8EF5", hypertensive: "#FFA07A", respiratory: "#4ECDC4",
-  infection: "#6BCF7F", trauma: "#FFD93D", minor: "#A899B5",
+  cardiac: "#E7434A", stroke: "#3979F9", hypertensive: "#F4840C", respiratory: "#2BB5B0",
+  infection: "#09AA71", trauma: "#FCC800", minor: "#A6ADB8",
 };
-export const TRIAGE_COLOURS: Record<Triage, string> = { emergent: "#FF6B6B", urgent: "#FFD93D", non_urgent: "#6BCF7F" };
+export const TRIAGE_COLOURS: Record<Triage, string> = { emergent: "#E02128", urgent: "#FCC800", non_urgent: "#09AA71" };
 const TRIAGE_RANK: Record<Triage, number> = { emergent: 0, urgent: 1, non_urgent: 2 };
 
 // sel: what a click selects (a W4 patient keeps the ward's own id); slot: the bed slot, or W4's bed index.

@@ -17,17 +17,17 @@ const R = iso(MAP_W, 0);
 const B = iso(MAP_W, MAP_H);
 const L = iso(0, MAP_H);
 
-const INK = "#1A1320";
-const CREAM = "#FFF8E7";
-const WALLS: Faces = ["#D9D2C0", "#F2EEE4", "#DCD6C8"];
-const EDGE = ["#BDB4A0", "#ABA290"]; // the slim line at each floor edge, south and east
-const PAVE: Faces = ["#6E6580", "#4F485B", "#433D4D"];
-const PARAPET: Faces = ["#E6E1D4", "#CFC8B8", "#BDB6A6"];
-const PAD: Faces = ["#4B566A", "#39424F", "#2C343F"];
-const LIT = "#E8DCB2"; // a ribbon segment with people behind it; low contrast with DIM on purpose
-const DIM = "#C3D0D4";
-const MULLION = "#9AA6AE";
-const CORE = "#A9C9D3"; // the glass stair core
+const INK = "#C9D0DA"; // the soft grey line along the corners
+const CREAM = "#FFFFFF";
+const WALLS: Faces = ["#FFFFFF", "#F4F6F9", "#E4E8EE"];
+const EDGE = ["#D5DBE3", "#C8CFD9"]; // the slim line at each floor edge, south and east
+const PAVE: Faces = ["#E1E7EE", "#CFD6DF", "#C2CAD5"];
+const PARAPET: Faces = ["#F4F6F9", "#DDE2E9", "#CDD3DC"];
+const PAD: Faces = ["#A4AFC0", "#8D99AC", "#7E8A9E"];
+const LIT = "#FBE8A9"; // a ribbon segment with people behind it; low contrast with DIM on purpose
+const DIM = "#D6E4F1";
+const MULLION = "#BAC4D0";
+const CORE = "#BBD7EE"; // the glass stair core
 export const PLATE = { x0: -1, y0: -1, x1: MAP_W + 1, y1: MAP_H + 3 };
 const DOORS: [number, number][] = [[5.5, 9.5], [13, 18]]; // GF's south face: the entrance, the emergency bay
 const RIBBON = { from: 12, to: 25 }; // px above the floor
@@ -115,14 +115,14 @@ function paintStorey(ctx: Ctx, floor: number, roof: boolean, lit: number) {
   });
   leftFaceBand(ctx, CORE_AT[0], MAP_H, CORE_AT[1] - CORE_AT[0], 2, STOREY, CORE); // the stair core, storey to storey
   if (floor === 0) {
-    leftFaceBand(ctx, DOORS[0][0], MAP_H, DOORS[0][1] - DOORS[0][0], 0, 22, "#A8DCE6"); // the entrance, under a canopy
+    leftFaceBand(ctx, DOORS[0][0], MAP_H, DOORS[0][1] - DOORS[0][0], 0, 22, "#C9E1F5"); // the entrance, under a canopy
     box(ctx, DOORS[0][0] - 0.3, MAP_H, DOORS[0][1] - DOORS[0][0] + 0.6, 0.8, 2, PARAPET, 23);
-    leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 0, 20, "#8592A3"); // the emergency bay and its red band
-    leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 24, 31, "#E8645F");
+    leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 0, 20, "#A3AEBE"); // the emergency bay and its red band
+    leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 24, 31, "#E7434A");
   }
   inkEdges(ctx, STOREY);
   if (roof) {
-    rightFaceBand(ctx, MAP_W, 15.2, 2, 12, 28, "#E8645F"); // the hospital cross, near the top
+    rightFaceBand(ctx, MAP_W, 15.2, 2, 12, 28, "#E7434A"); // the hospital cross, near the top
     rightFaceBand(ctx, MAP_W, 15.2, 2, 18, 22, CREAM, 3);
     rightFaceBand(ctx, MAP_W, 15.95, 0.5, 14, 26, CREAM);
     paintRoof(ctx);
@@ -145,8 +145,8 @@ function paintRoof(ctx: Ctx) {
 
 function paintPlate(ctx: Ctx) {
   box(ctx, PLATE.x0, PLATE.y0, PLATE.x1 - PLATE.x0, PLATE.y1 - PLATE.y0, 3, PAVE, -3);
-  box(ctx, 14, MAP_H + 1, 3.2, 1.3, 11, ["#FFFDF5", "#E3DFD0", "#CFCABA"]); // the ambulance
-  leftFaceBand(ctx, 14, MAP_H + 2.3, 3.2, 4, 6, "#E8645F");
+  box(ctx, 14, MAP_H + 1, 3.2, 1.3, 11, ["#FFFFFF", "#E3E8EE", "#D3DAE3"]); // the ambulance
+  leftFaceBand(ctx, 14, MAP_H + 2.3, 3.2, 4, 6, "#E7434A");
   for (const x of [14.4, 16.2]) leftFaceBand(ctx, x, MAP_H + 2.3, 0.6, 0, 2, INK);
 }
 
@@ -187,7 +187,7 @@ export function createFacade(floors: number[]) {
     outline(ctx: Ctx, y: number, nudge: number, width: number) {
       const at = (p: [number, number], up: number) => [p[0] + nudge * 2, p[1] + y + nudge - up];
       const pts = [at(L, STOREY), at(T, STOREY), at(R, STOREY), at(R, 0), at(B, 0), at(L, 0)];
-      ctx.strokeStyle = CREAM;
+      ctx.strokeStyle = "#3979F9";
       ctx.lineWidth = width;
       ctx.beginPath();
       pts.forEach(([x, py], k) => (k === 0 ? ctx.moveTo(x, py) : ctx.lineTo(x, py)));
@@ -202,7 +202,7 @@ export function createFacade(floors: number[]) {
       shown.sort((a, b) => a.at[0] + a.at[1] - (b.at[0] + b.at[1]));
       for (const { t, j, at } of shown) {
         const [sx, sy] = iso(at[0] + 0.5, at[1] + 0.5);
-        ctx.fillStyle = "rgba(26,19,32,.28)";
+        ctx.fillStyle = "rgba(70,84,104,.18)";
         ctx.fillRect(sx - 5, sy - 1, 10, 2);
         ctx.drawImage(figure(TRIAGE_COLOURS[t], j), sx - 6, sy - 20);
       }

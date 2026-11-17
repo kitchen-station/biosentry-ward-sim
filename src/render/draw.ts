@@ -33,24 +33,31 @@ const OY = 48;
 export const LOGICAL_W = (MAP_W + MAP_H) * HALF_W + MARGIN * 2;
 export const LOGICAL_H = OY + (MAP_W + MAP_H) * HALF_H + 10;
 
-const INK = "#1A1320";
-const CREAM = "#FFF8E7";
-const FONT = '8px "VT323", monospace';
-const FONT_SMALL = '7px "VT323", monospace';
+// Calm light palette: flat pastel floors, white walls with soft grey edges, hw-ui status colours for risk.
+const INK = "#1F2A37"; // label text
+const CREAM = "#FFFFFF";
+const LINE = "#C5CDD8"; // the thin edge of a label
+const DARK_TAG = "#27303F";
+const SHADOW = "rgba(70,84,104,.18)";
+const SELECT = "#0A59F7"; // hw-ui blue: the selection outline
+const HOVER = "#9DBDFC";
+const SOFT: [string, string, string] = ["#FFFFFF", "#E3E8EE", "#D3DAE3"]; // white fittings
+const FONT = '500 7.5px "HarmonyOS Sans", system-ui, sans-serif';
+const FONT_SMALL = '500 6.5px "HarmonyOS Sans", system-ui, sans-serif';
 
 export const CHIP_COLOURS = {
-  idle: "#A899B5",
-  thinking: "#4ECDC4",
-  working: "#FFD93D",
-  waiting: "#6C8EF5",
-  success: "#6BCF7F",
+  idle: "#A6ADB8",
+  thinking: "#3979F9",
+  working: "#FCC800",
+  waiting: "#9DBDFC",
+  success: "#09AA71",
 };
 
 export const RISK_LIGHT: Record<string, string> = {
-  low: "#6BCF7F",
-  low_medium: "#FFD93D",
-  medium: "#FFA07A",
-  high: "#FF6B6B",
+  low: "#09AA71", // hw-ui mint, yellow, orange, red
+  low_medium: "#FCC800",
+  medium: "#F4840C",
+  high: "#E02128",
 };
 
 export const iso = (x: number, y: number): [number, number] => [
@@ -149,39 +156,33 @@ const hex = (colour: string): [number, number, number] => [
 
 // [grout, light, dark] per room type; each room reads as its own space.
 const FLOORS: Record<Tint, [string, string, string]> = {
-  bay: ["#97B09F", "#BBD0C1", "#AEC5B6"],
-  hdu: ["#93AFC0", "#C3D8E4", "#B5CDDB"],
-  side: ["#B8A48F", "#E8D5C2", "#DECAB5"],
-  station: ["#C9B98F", "#F4E9C7", "#EADDB5"],
-  office: ["#8F6843", "#C79A6B", "#BD9062"],
-  utility: ["#B9C2C7", "#EEF1F2", "#E2E7EA"],
-  family: ["#B3A7C2", "#DDD3E6", "#D2C7DD"],
-  comms: ["#4B566A", "#6B7A8F", "#637286"],
-  waiting: ["#C9B98F", "#F4E9C7", "#EADDB5"],
-  cold: ["#9AA6AE", "#D5DDE2", "#C9D2D8"],
+  bay: ["#CCE3D7", "#DDEFE5", "#DDEFE5"],
+  hdu: ["#CADBEE", "#DCE9F7", "#DCE9F7"],
+  side: ["#E6D9C9", "#F4EBDF", "#F4EBDF"],
+  station: ["#EEE0B8", "#FAF1D3", "#FAF1D3"],
+  office: ["#DED3C4", "#EBE2D5", "#EBE2D5"],
+  utility: ["#DDE3EA", "#EDF0F4", "#EDF0F4"],
+  family: ["#D8D0EA", "#E8E2F4", "#E8E2F4"],
+  comms: ["#C6CFDC", "#D8DFEA", "#D8DFEA"],
+  waiting: ["#F0DFC0", "#FBF0DB", "#FBF0DB"],
+  cold: ["#CAD6DF", "#DCE5EC", "#DCE5EC"],
 };
 
 const roomIn = (spec: FloorSpec, x: number, y: number) =>
   spec.rooms.find((r) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
 
 function floorColour(spec: FloorSpec, tx: number, ty: number, u: number, v: number): [number, number, number] {
-  const grout = u - tx < 0.05 || v - ty < 0.05;
-  const checker = (tx + ty) % 2 === 0;
+  const grout = u - tx < 0.04 || v - ty < 0.04; // a hairline between tiles; every room is one flat colour
   const ch = spec.map[ty]?.[tx];
-  if (ch === "+") return hex(grout ? "#8F8571" : "#B5A98D");
+  if (ch === "+") return hex(grout ? "#C9D0DA" : "#DCE1E8");
   if (ty >= CORRIDOR.y0 && ty <= CORRIDOR.y1) {
-    if (v > 9.4 && v < 9.54) return hex("#4ECDC4"); // wayfinding stripe
-    return hex(grout ? "#CBBE9F" : checker ? "#EFE5CB" : "#E6DABC");
+    if (v > 9.4 && v < 9.54) return hex("#BBD0F5"); // wayfinding stripe
+    return hex(grout ? "#E6EAEF" : "#F3F5F8");
   }
   const room = roomIn(spec, tx, ty);
-  if (!room) return hex("#B8AE98"); // under the walls
-  const [g, light, dark] = FLOORS[room.floor];
-  if (room.floor === "office") {
-    const plank = Math.floor(v * 3);
-    if (Math.floor(v * 3 + 0.08) !== plank) return hex(g);
-    return hex(plank % 2 === 0 ? light : dark);
-  }
-  return hex(grout ? g : checker ? light : dark);
+  if (!room) return hex("#E4E8ED"); // under the walls
+  const [g, light] = FLOORS[room.floor];
+  return hex(grout ? g : light);
 }
 
 function bakeFloor(spec: FloorSpec): HTMLCanvasElement {
@@ -209,11 +210,11 @@ function bakeFloor(spec: FloorSpec): HTMLCanvasElement {
   return canvas;
 }
 
-const WALL: [string, string, string] = ["#FFF8E7", "#C9D6CE", "#A9BAB0"];
-const WALL_EDGE: [string, string, string] = ["#E8D9A0", "#B9A98A", "#A3947A"];
+const WALL: [string, string, string] = ["#FFFFFF", "#EEF1F5", "#DDE2E9"];
+const WALL_EDGE: [string, string, string] = ["#E9EDF2", "#D6DCE4", "#C8CFD9"];
 
 const isWall = (map: string[], x: number, y: number) => ["#", "+", "g"].includes(map[y]?.[x] ?? "");
-const GLASS: [string, string, string] = ["rgba(216,240,245,.85)", "rgba(168,220,230,.55)", "rgba(143,202,214,.55)"];
+const GLASS: [string, string, string] = ["rgba(226,240,250,.85)", "rgba(190,218,240,.5)", "rgba(170,203,232,.5)"];
 
 /** Walls are drawn thin inside their tile, so rooms read as rooms and the floor stays visible. */
 function wallItem(map: string[], x: number, y: number): Item {
@@ -235,32 +236,38 @@ function wallItem(map: string[], x: number, y: number): Item {
       if (across) box(ctx, x, y + 0.35, 1, T, h, colours);
     }
     if (y === 0 && x > 0 && x < MAP_W - 1) {
-      leftFaceBand(ctx, x, 1, 1, 0, 5, "#8FA99B");
-      if (x % 2 === 0 && x < 31) leftFaceBand(ctx, x, 1, 1, 8, 16, "#BFE6F2", 3);
+      leftFaceBand(ctx, x, 1, 1, 0, 5, "#CBD3DD");
+      if (x % 2 === 0 && x < 31) leftFaceBand(ctx, x, 1, 1, 8, 16, "#D3E5F6", 3);
     }
-    if (x === 0 && y > 0 && y < MAP_H - 1) rightFaceBand(ctx, 1, y, 1, 0, 5, "#7F978A");
+    if (x === 0 && y > 0 && y < MAP_H - 1) rightFaceBand(ctx, 1, y, 1, 0, 5, "#C4CCD7");
   });
 }
 
-const SHEET: [string, string, string] = ["#FFFDF5", "#E3DFD0", "#CFCABA"];
+const SHEET = SOFT;
+const SCREEN: [string, string, string] = ["#6B7688", "#586274", "#586274"];
+const CHAIR: [string, string, string] = ["#C3CCD8", "#A2AEBD", "#909CAC"];
+const DESK: [string, string, string] = ["#E4DCD0", "#CBC1B3", "#BAAF9F"];
+const TABLE = DESK;
+const SEAT: [string, string, string] = ["#CFC7F0", "#B4AADF", "#A398D0"];
+const COVER: [string, string, string] = ["#F4F6F9", "#D8DEE6", "#C8D0DA"];
 
 /** body: a sheet over the whole length, head included, and no blanket colour. */
 function bedItem(bedX: number, headY: number, footY: number, patient: number | null, body = false): Item {
   const y0 = Math.min(headY, footY);
   const north = headY < footY;
-  const frame: [string, string, string] = ["#D9D3C4", "#9F9A8E", "#8A8579"];
+  const frame: [string, string, string] = ["#E3E8EE", "#BCC6D2", "#AAB5C2"];
   const sheet = SHEET;
   const blanket: [string, string, string] =
-    patient === null ? ["#D9E4EC", "#B8C7D2", "#A5B5C1"] : ["#7DA7D9", "#5E89BC", "#4F78A9"];
+    patient === null ? ["#E6EDF4", "#CBD6E1", "#BAC6D3"] : ["#A9C5F6", "#86A9EA", "#7597D8"];
   return bake(y0 + 1 + bedX, bedX, y0, 1, 2, 16, (ctx) => {
     const x = bedX + 0.12;
     box(ctx, x, y0, 0.76, 2, 4, frame);
     box(ctx, x, y0, 0.76, 2, 2, sheet, 4);
     const blanketY = north ? y0 + 0.75 : y0;
-    if (body) box(ctx, x + 0.06, y0 + 0.1, 0.64, 1.8, 4, ["#F2EEE2", "#CFCABA", "#BDB8A8"], 4);
+    if (body) box(ctx, x + 0.06, y0 + 0.1, 0.64, 1.8, 4, COVER, 4);
     else box(ctx, x, blanketY, 0.76, 1.25, patient === null ? 2 : 3, blanket, 4);
     if (!body) box(ctx, x + 0.1, north ? y0 + 0.08 : y0 + 1.42, 0.56, 0.5, 2, sheet, 6);
-    box(ctx, x, north ? y0 : y0 + 1.92, 0.76, 0.08, 12, ["#E8D9A0", "#C7B583", "#B3A172"]);
+    box(ctx, x, north ? y0 : y0 + 1.92, 0.76, 0.08, 12, ["#D5DCE5", "#B8C2CE", "#A8B3C0"]);
     if (patient !== null && !body) {
       const [sx, sy] = iso(bedX + 0.5, north ? y0 + 0.36 : y0 + 1.66);
       ctx.drawImage(sprite(PATIENT_HEAD, patientPalette(patient)), sx - 3, sy - 13);
@@ -273,79 +280,79 @@ function tileItem(spec: FloorSpec, ch: string, x: number, y: number): Item | nul
   switch (ch) {
     case "=":
       return bake(depth, x, y, 1, 1, 26, (ctx) => {
-        box(ctx, x, y, 1, 1, 6, ["#D8B27C", "#A9835A", "#94714D"]);
-        box(ctx, x, y, 1, 1, 1, ["#F4E9C7", "#D9CDA6", "#C7BA92"], 6);
+        box(ctx, x, y, 1, 1, 6, ["#E6EBF1", "#C4CED9", "#B3BECB"]);
+        box(ctx, x, y, 1, 1, 1, SOFT, 6);
         if (x === STATIONS.screen[0]) {
-          box(ctx, x + 0.2, y + 0.35, 0.6, 0.15, 12, ["#3D2E4A", "#1A1320", "#1A1320"], 7);
-          leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 9, 18, "#4ECDC4", 1);
-          leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 13, 14, "#FFF8E7", 2);
+          box(ctx, x + 0.2, y + 0.35, 0.6, 0.15, 12, SCREEN, 7);
+          leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 9, 18, "#63D5A8", 1);
+          leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 13, 14, CREAM, 2);
         } else if ((x + 1) % 2 === 0) {
-          box(ctx, x + 0.3, y + 0.4, 0.4, 0.15, 7, ["#3D2E4A", "#1A1320", "#1A1320"], 7);
+          box(ctx, x + 0.3, y + 0.4, 0.4, 0.15, 7, SCREEN, 7);
         }
       });
     case "c":
       return bake(depth, x, y, 1, 1, 10, (ctx) => {
-        box(ctx, x + 0.2, y + 0.2, 0.6, 0.6, 4, ["#C79A6B", "#8F6843", "#7A5838"]);
-        box(ctx, x + 0.2, y + 0.2, 0.6, 0.12, 9, ["#C79A6B", "#8F6843", "#7A5838"]);
+        box(ctx, x + 0.2, y + 0.2, 0.6, 0.6, 4, CHAIR);
+        box(ctx, x + 0.2, y + 0.2, 0.6, 0.12, 9, CHAIR);
       });
     case "M":
       return bake(depth, x, y, 1, 1, 20, (ctx) => {
-        box(ctx, x + 0.05, y + 0.1, 0.9, 0.8, 16, ["#D5DDE2", "#9AA6AE", "#87939B"]);
-        [3, 8, 13].forEach((h) => leftFaceBand(ctx, x + 0.05, y + 0.9, 0.9, h, h + 1, "#5E6B75", 3));
+        box(ctx, x + 0.05, y + 0.1, 0.9, 0.8, 16, ["#E8EDF2", "#C6CFD9", "#B5BFCB"]);
+        [3, 8, 13].forEach((h) => leftFaceBand(ctx, x + 0.05, y + 0.9, 0.9, h, h + 1, "#A5B0BE", 3));
       });
     case "V":
       return bake(depth, x, y, 1, 1, 26, (ctx) => {
-        box(ctx, x + 0.3, y + 0.3, 0.4, 0.4, 10, ["#D9D3C4", "#9F9A8E", "#8A8579"]);
-        box(ctx, x + 0.2, y + 0.35, 0.6, 0.15, 9, ["#3D2E4A", "#1A1320", "#1A1320"], 10);
-        leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 12, 18, "#4ECDC4", 1);
+        box(ctx, x + 0.3, y + 0.3, 0.4, 0.4, 10, ["#E6EBF1", "#C4CED9", "#B3BECB"]);
+        box(ctx, x + 0.2, y + 0.35, 0.6, 0.15, 9, SCREEN, 10);
+        leftFaceBand(ctx, x + 0.2, y + 0.5, 0.6, 12, 18, "#63D5A8", 1);
       });
     case "D":
       return bake(depth, x, y, 1, 1, 20, (ctx) => {
-        box(ctx, x, y, 1, 1, 6, ["#8F6843", "#6E4F31", "#5D4229"]);
-        box(ctx, x + 0.25, y + 0.3, 0.5, 0.15, 8, ["#3D2E4A", "#1A1320", "#1A1320"], 6);
-        leftFaceBand(ctx, x + 0.25, y + 0.45, 0.5, 8, 13, "#A8E6E0", 1);
+        box(ctx, x, y, 1, 1, 6, DESK);
+        box(ctx, x + 0.25, y + 0.3, 0.5, 0.15, 8, SCREEN, 6);
+        leftFaceBand(ctx, x + 0.25, y + 0.45, 0.5, 8, 13, "#9ADBD0", 1);
       });
     case "L":
       // A bookshelf in the doctors' office, a supply cabinet everywhere else.
       if (roomIn(spec, x, y)?.floor === "office") {
         return bake(depth, x, y, 1, 1, 20, (ctx) => {
-          box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 16, ["#8F6843", "#6E4F31", "#5D4229"]);
-          ["#FF6B6B", "#FFD93D", "#6C8EF5", "#6BCF7F"].forEach((c, i) =>
+          box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 16, DESK);
+          ["#F08A8E", "#FCD34D", "#7FA8F5", "#7FD9B4"].forEach((c, i) =>
             leftFaceBand(ctx, x + 0.15 + i * 0.18, y + 0.9, 0.14, 3, 14, c),
           );
         });
       }
       return bake(depth, x, y, 1, 1, 16, (ctx) => {
-        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 12, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
-        leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, 6, 7, "#A9B4BA", 1);
+        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 12, SOFT);
+        leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, 6, 7, "#B8C2CE", 1);
       });
     case "K":
       return bake(depth, x, y, 1, 1, 24, (ctx) => {
-        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 20, ["#3D2E4A", "#2A2036", "#1A1320"]);
-        [5, 9, 13, 17].forEach((h) => leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, h, h + 1, "#4ECDC4", 2));
+        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 20, ["#9AA6B8", "#8591A5", "#76829A"]);
+        [5, 9, 13, 17].forEach((h) => leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, h, h + 1, "#63D5A8", 2));
       });
     case "S":
       return bake(depth, x, y, 1, 1, 14, (ctx) => {
-        box(ctx, x + 0.15, y + 0.15, 0.7, 0.7, 7, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
-        box(ctx, x + 0.3, y + 0.3, 0.4, 0.4, 1, ["#A8E6E0", "#A8E6E0", "#A8E6E0"], 7);
+        box(ctx, x + 0.15, y + 0.15, 0.7, 0.7, 7, SOFT);
+        box(ctx, x + 0.3, y + 0.3, 0.4, 0.4, 1, ["#BFE3F5", "#BFE3F5", "#BFE3F5"], 7);
       });
     case "W":
       return bake(depth, x, y, 1, 1, 14, (ctx) => {
-        box(ctx, x + 0.3, y + 0.25, 0.4, 0.5, 4, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
-        box(ctx, x + 0.65, y + 0.25, 0.2, 0.5, 9, ["#FFFDF5", "#D9D3C4", "#C4BEAF"]);
+        box(ctx, x + 0.3, y + 0.25, 0.4, 0.5, 4, SOFT);
+        box(ctx, x + 0.65, y + 0.25, 0.2, 0.5, 9, SOFT);
       });
     case "T":
       return bake(depth, x, y, 1, 1, 10, (ctx) => {
-        box(ctx, x + 0.15, y + 0.15, 0.7, 0.7, 5, ["#C79A6B", "#8F6843", "#7A5838"]);
+        box(ctx, x + 0.15, y + 0.15, 0.7, 0.7, 5, TABLE);
       });
     case "H":
       return bake(depth, x, y, 1, 1, 12, (ctx) => {
-        box(ctx, x + 0.1, y + 0.15, 0.8, 0.7, 4, ["#B197FC", "#8E72E0", "#7459C4"]);
-        box(ctx, x + 0.1, y + 0.15, 0.8, 0.2, 8, ["#B197FC", "#8E72E0", "#7459C4"]);
+        box(ctx, x + 0.1, y + 0.15, 0.8, 0.7, 4, SEAT);
+        box(ctx, x + 0.1, y + 0.15, 0.8, 0.2, 8, SEAT);
       });
     case "U":
       return bake(depth, x, y, 1, 1, 12, (ctx) => {
-        box(ctx, x + 0.05, y + 0.1, 0.9, 0.8, 7, ["#E2E7EA", "#A9B4BA", "#97A3AA"]);
+        box(ctx, x + 0.05, y + 0.1, 0.9, 0.8, 7, ["#EEF1F5", "#D0D7E0", "#C0C8D3"]);
       });
     case "P":
       return bake(depth, x, y, 1, 1, 18, (ctx) => {
@@ -357,8 +364,8 @@ function tileItem(spec: FloorSpec, ch: string, x: number, y: number): Item | nul
     case "N":
     case "R":
       return bake(depth, x, y, 1, 1, 22, (ctx) => {
-        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 16, ["#4B566A", "#39424F", "#2C343F"]);
-        leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, 6, 13, "#1A1320", 2);
+        box(ctx, x + 0.1, y + 0.1, 0.8, 0.8, 16, ["#93A0B3", "#7F8CA1", "#707D93"]);
+        leftFaceBand(ctx, x + 0.1, y + 0.9, 0.8, 6, 13, "#5B6678", 2);
       });
     default:
       return null;
@@ -427,10 +434,10 @@ export function tag(ctx: Ctx, text: string, cx: number, bottom: number, dot?: st
   const h = 9;
   const x = Math.round(cx - w / 2);
   const y = Math.round(bottom - h - 2);
-  ctx.fillStyle = INK;
+  ctx.fillStyle = inverted ? DARK_TAG : LINE;
   ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
   ctx.fillRect(Math.round(cx) - 1, y + h, 3, 2);
-  ctx.fillStyle = inverted ? INK : CREAM;
+  ctx.fillStyle = inverted ? DARK_TAG : CREAM;
   ctx.fillRect(x, y, w, h);
   if (dot) {
     ctx.fillStyle = dot;
@@ -455,10 +462,10 @@ function label(ctx: Ctx, text: string, x: number, y: number, colour: string, fon
 function floorText(ctx: Ctx, spec: FloorSpec) {
   for (const room of spec.rooms) {
     const [x, y] = iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
-    label(ctx, room.label, x, y, room.floor === "comms" ? "#E8D9A0" : "rgba(26,19,32,.55)");
+    label(ctx, room.label, x, y, "rgba(55,68,88,.62)");
   }
   const [wx, wy] = iso(3, 8.6);
-  label(ctx, spec.name, wx, wy, "rgba(26,19,32,.6)", FONT);
+  label(ctx, spec.name, wx, wy, "rgba(55,68,88,.75)", FONT);
 }
 
 export const roomCentre = (room: SpecRoom) => iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
@@ -478,7 +485,7 @@ function onFootprint(x: number, y: number, tx: number, ty: number, w: number, d:
 }
 function outline(ctx: Ctx, tx: number, ty: number, w: number, d: number, selected: boolean) {
   const [a, right, b, left] = [iso(tx, ty), iso(tx + w, ty), iso(tx + w, ty + d), iso(tx, ty + d)];
-  ctx.strokeStyle = selected ? "#FFD93D" : CREAM;
+  ctx.strokeStyle = selected ? SELECT : HOVER;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(a[0], a[1]);
@@ -500,12 +507,11 @@ const bedPoint = (bed: Bed): [number, number] => {
 /** Initials; "XX ICU" for an ICU-indicated person once admitted; a body's tag is inverted and has no dot. */
 const cellText = (c: Cell) => (c.icu && !c.dead ? `${c.initials} ICU` : c.initials);
 // The dot: the NEWS2 risk when the cell has one, grey when not ranked, else the group colour (intensive care, bodies).
-export const cellDot = (c: Cell) => (typeof c.risk === "string" ? RISK_LIGHT[c.risk] : c.risk === null ? "#A899B5" : GROUP_COLOURS[c.group]);
+export const cellDot = (c: Cell) => (typeof c.risk === "string" ? RISK_LIGHT[c.risk] : c.risk === null ? "#A6ADB8" : GROUP_COLOURS[c.group]);
 const cellTag = (ctx: Ctx, c: Cell, x: number, bottom: number) => tag(ctx, cellText(c), x, bottom, c.dead ? undefined : cellDot(c), c.dead);
 const inTag = (x: number, y: number, cx: number, bottom: number, text: string, dot: boolean) =>
   Math.abs(x - cx) <= text.length * 2 + (dot ? 6 : 3) && y >= bottom - 12 && y <= bottom;
-const TROLLEY: [string, string, string] = ["#7DA7D9", "#5E89BC", "#4F78A9"];
-const COVER: [string, string, string] = ["#F2EEE2", "#CFCABA", "#BDB8A8"];
+const TROLLEY: [string, string, string] = ["#A9C5F6", "#86A9EA", "#7597D8"];
 
 /** A hospital floor other than W4: baked once; who is where comes from its scene (render/scene.ts) at each paint. */
 export function createFloor(spec: FloorSpec) {
@@ -525,7 +531,7 @@ export function createFloor(spec: FloorSpec) {
   function drawSpot(ctx: Ctx, tile: Tile, c: Cell, morgue: boolean) {
     const [x, y] = tile;
     const [sx, sy] = iso(x + 0.5, y + 0.5);
-    ctx.fillStyle = "rgba(26,19,32,.28)";
+    ctx.fillStyle = SHADOW;
     ctx.fillRect(sx - 6, sy - 1, 12, 2);
     if (c.dead || morgue) {
       box(ctx, x + 0.1, y + 0.2, 0.8, 0.6, 2, COVER, 3);
@@ -548,7 +554,7 @@ export function createFloor(spec: FloorSpec) {
           depth: depthOf(m.tile),
           draw: () => {
             const [sx, sy] = iso(m.tile[0] + 0.5, m.tile[1] + 0.5);
-            ctx.fillStyle = "rgba(26,19,32,.28)";
+            ctx.fillStyle = SHADOW;
             ctx.fillRect(sx - 5, sy - 1, 10, 2);
             ctx.drawImage(nurses[m.i % nurses.length], sx - 6, sy - 20);
           },
@@ -558,7 +564,7 @@ export function createFloor(spec: FloorSpec) {
           draw: () => {
             if (!f.walk) return drawSpot(ctx, f.tile, f.cell, f.body);
             const [sx, sy] = iso(f.tile[0] + 0.5, f.tile[1] + 0.5);
-            ctx.fillStyle = "rgba(26,19,32,.28)";
+            ctx.fillStyle = SHADOW;
             ctx.fillRect(sx - 5, sy - 1, 10, 2);
             ctx.drawImage(figure(f.colour, personN(f.id)), sx - 6, sy - 20);
           },
@@ -589,9 +595,9 @@ export function createFloor(spec: FloorSpec) {
       for (const d of scene.drawers) {
         if (!d.full) continue;
         const [x, y] = iso(d.tile[0] + 0.5, d.tile[1] + 0.9);
-        ctx.fillStyle = INK;
+        ctx.fillStyle = LINE;
         ctx.fillRect(x - 2, y - 17, 4, 3);
-        ctx.fillStyle = Math.floor(now * 2 + d.tile[0]) % 6 === 0 ? CREAM : "#FFD93D";
+        ctx.fillStyle = Math.floor(now * 2 + d.tile[0]) % 6 === 0 ? CREAM : "#FCC800";
         ctx.fillRect(x - 1, y - 16, 2, 1);
       }
       const [lx, ly] = iso(MAP_W - 1 + 0.5, CORRIDOR.y0 + 0.5);
@@ -731,7 +737,7 @@ export function createW4() {
   function drawStaff(s: Sim, id: string) {
     const m = staffById(s, id);
     const [sx, sy] = iso(m.x + 0.5, m.y + 0.5);
-    ctx.fillStyle = "rgba(26,19,32,.28)";
+    ctx.fillStyle = SHADOW;
     ctx.fillRect(sx - 5, sy - 1, 10, 2);
     ctx.fillRect(sx - 3, sy - 2, 6, 4);
     const walking = m.path.length > 0;
@@ -759,7 +765,7 @@ export function createW4() {
       const [bx, by] = t.path[leg + 1];
       const x = ax + (bx - ax) * (t.at - leg);
       const y = ay + (by - ay) * (t.at - leg);
-      box(ctx, x + 0.1, y + 0.2, 0.8, 0.6, 2, ["#7DA7D9", "#5E89BC", "#4F78A9"], 3);
+      box(ctx, x + 0.1, y + 0.2, 0.8, 0.6, 2, TROLLEY, 3);
       const [sx, sy] = iso(x + 0.5, y + 0.5);
       ctx.drawImage(sprite(PATIENT_HEAD, patientPalette(BEDS.findIndex((b) => b.label === t.bed))), sx - 3, sy - 13);
       tag(ctx, TROLLEY_TAG[t.kind], sx, sy - 14);
@@ -794,9 +800,9 @@ export function createW4() {
       const [lx, ly] = iso(bed.head[0] + 0.9, bed.head[1] + (bed.north ? 0.15 : 0.85));
       const risk = p.decision.kind === "ranked" ? p.decision.news2.risk : null;
       const blink = risk === "high" && Math.floor(now * 3) % 2 === 0;
-      ctx.fillStyle = INK;
+      ctx.fillStyle = CREAM;
       ctx.fillRect(lx - 3, ly - 15, 7, 6);
-      ctx.fillStyle = blink ? CREAM : risk ? RISK_LIGHT[risk] : "#A899B5";
+      ctx.fillStyle = blink ? "#F5A3A6" : risk ? RISK_LIGHT[risk] : "#A6ADB8";
       ctx.fillRect(lx - 2, ly - 14, 5, 4);
     }
     for (const bed of BEDS) {
@@ -805,7 +811,7 @@ export function createW4() {
       if (!isSelected && !ids.includes(hovered ?? "")) continue;
       const y0 = Math.min(bed.head[1], bed.foot[1]);
       const [a, right, b, left] = [iso(bed.head[0], y0), iso(bed.head[0] + 1, y0), iso(bed.head[0] + 1, y0 + 2), iso(bed.head[0], y0 + 2)];
-      ctx.strokeStyle = isSelected ? "#FFD93D" : CREAM;
+      ctx.strokeStyle = isSelected ? SELECT : HOVER;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(a[0], a[1]);
@@ -878,9 +884,9 @@ export function createW4() {
       MACHINES.forEach(([id, tile, name, lift], i) => {
         const [x, y] = iso(tile[0] + 0.5, tile[1] + 0.5);
         if (i < 4) {
-          ctx.fillStyle = Math.floor(now * 4 + i) % 3 === 0 ? "#FFD93D" : "#4ECDC4";
+          ctx.fillStyle = Math.floor(now * 4 + i) % 3 === 0 ? "#FCC800" : "#63D5A8";
           ctx.fillRect(x - 6, y - 11, 3, 2);
-          ctx.fillStyle = "#6BCF7F";
+          ctx.fillStyle = "#09AA71";
           ctx.fillRect(x - 1, y - 11, 3, 2);
         }
         tag(ctx, name, x, y - lift, undefined, id === selected || id === hovered);
@@ -957,7 +963,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       backing = backingFor(scale, ratio);
       canvas.width = LOGICAL_W * backing;
       canvas.height = LOGICAL_H * backing;
-      ctx.fillStyle = "#2A2036"; // an opaque canvas clears to black; until the next frame show the stage, as transparent did
+      ctx.fillStyle = "#EEF2F7"; // an opaque canvas clears to black; until the next frame show the stage, as transparent did
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       canvas.style.width = `${LOGICAL_W * scale}px`;
       canvas.style.height = `${LOGICAL_H * scale}px`;
@@ -993,7 +999,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     /** Paints the frame; true when it painted (the stack's closed building may skip one that would not change). */
     frame(s: Sim, selected: string | null, hovered: string | null, dt: number, now: number): boolean {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = "#2A2036";
+      ctx.fillStyle = "#EEF2F7";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       moveCamera(s, selected, dt);
       const pixels = backing * cam.zoom;

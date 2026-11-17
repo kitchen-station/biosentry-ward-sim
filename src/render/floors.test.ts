@@ -194,7 +194,7 @@ describe("from the hospital to what is drawn", () => {
     expect(order.length).toBe(45);
     expect(gf.queue.map((q) => q.id)).toEqual(order.slice(0, 40).map((p) => `h:${p.n}`));
     expect(gf.queue.filter((q) => q.seated).length).toBe(21);
-    expect(gf.queue[0].colour).toBe("#FF6B6B"); // emergent first
+    expect(gf.queue[0].colour).toBe("#E02128"); // emergent first
     expect(gf.more).toContainEqual({ id: "queue:ER", tile: spec.queue!.more, text: "+5" });
     expect(gf.more).toContainEqual({ id: "unit:ER", tile: spec.units![0].more, text: "+1" }); // slot 50 has no corridor spot
     expect(gf.spots.find((p) => p.id === `h:${cast.trolley.n}`)!.tile).toEqual(spec.units![0].spots[2]);
@@ -213,7 +213,7 @@ describe("from the hospital to what is drawn", () => {
     const gf = floorScene(h, FLOORS[slabIndex(0)], floorSummary(h, { [`h:${calm.n}`]: "high" }));
     const q = gf.queue.find((x) => x.id === `h:${calm.n}`)!;
     expect(q.cell.risk).toBe("high"); // the cell carries it
-    expect(q.colour).toBe("#6BCF7F"); // the drawn colour is the triage colour, not the risk red
+    expect(q.colour).toBe("#09AA71"); // the drawn colour is the triage colour, not the risk red
   });
 
   it("the slab tags say one short live line", () => {

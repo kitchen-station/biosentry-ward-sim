@@ -69,7 +69,7 @@ export const PERSON = {
 
 export const PORTRAIT = [...HEAD_FRONT, ...BODY.slice(0, 4)];
 
-const INK = "#1A1320";
+const INK = "#5B6678"; // a soft slate outline, not black
 
 const staffPalette = (skin: string, hair: string, top: string, shade: string, trim: string, legs: string): Palette => ({
   k: INK,
@@ -80,15 +80,15 @@ const staffPalette = (skin: string, hair: string, top: string, shade: string, tr
   d: shade,
   w: trim,
   p: legs,
-  b: "#3D2E4A",
+  b: "#5B6678",
 });
 
 export const STAFF_PALETTES: Record<string, Palette> = {
-  "rn-delacruz": staffPalette("#C98F63", "#2A1D1A", "#3AA89F", "#2F8C84", "#FFF8E7", "#2F8C84"),
-  "rn-reyes": staffPalette("#E0AD7F", "#4A2F22", "#E8783C", "#C75F2A", "#FFF8E7", "#C75F2A"),
-  "rn-manalo": staffPalette("#B97F55", "#1A1320", "#8E72E0", "#7459C4", "#FFD93D", "#7459C4"),
-  "md-santos": staffPalette("#D9A273", "#2F2430", "#FCFAF0", "#E4DCC6", "#FF6B6B", "#3D2E4A"),
-  "md-aquino": staffPalette("#C48A5B", "#8D8496", "#FCFAF0", "#E4DCC6", "#4ECDC4", "#3D2E4A"),
+  "rn-delacruz": staffPalette("#C98F63", "#2A1D1A", "#4DB5AC", "#3A9C93", "#FFFFFF", "#3A9C93"),
+  "rn-reyes": staffPalette("#E0AD7F", "#4A2F22", "#E79A68", "#D0834F", "#FFFFFF", "#D0834F"),
+  "rn-manalo": staffPalette("#B97F55", "#1A1320", "#9A8DE0", "#8174CC", "#FCC800", "#8174CC"),
+  "md-santos": staffPalette("#D9A273", "#2F2430", "#FFFFFF", "#E4E8EE", "#E7434A", "#5B6678"),
+  "md-aquino": staffPalette("#C48A5B", "#8D8496", "#FFFFFF", "#E4E8EE", "#63D5A8", "#5B6678"),
 };
 
 export const PATIENT_HEAD = [
@@ -111,10 +111,10 @@ export const patientPalette = (i: number): Palette => ({
 
 // Outside W4: generic nurses in ward blue scrubs, and the waiting room's people, whose top is their triage colour.
 export const NURSE_PALETTES: Palette[] = SKINS.slice(0, 3).map((skin, i) =>
-  staffPalette(skin, HAIRS[i * 2 % HAIRS.length], "#6C8EF5", "#5576D9", "#FFF8E7", "#5576D9"),
+  staffPalette(skin, HAIRS[i * 2 % HAIRS.length], "#7FA3EA", "#6890D8", "#FFFFFF", "#6890D8"),
 );
 export const figurePalette = (top: string, i: number): Palette =>
-  staffPalette(SKINS[i % SKINS.length], HAIRS[(i * 2 + 1) % HAIRS.length], top, top, top, "#5E6B7D");
+  staffPalette(SKINS[i % SKINS.length], HAIRS[(i * 2 + 1) % HAIRS.length], top, top, top, "#7A869A");
 
 export const ENVELOPE = [
   "kkkkkkkkk",
@@ -125,7 +125,7 @@ export const ENVELOPE = [
   "kwwwwwwwk",
   "kkkkkkkkk",
 ];
-export const ENVELOPE_PALETTE: Palette = { k: INK, w: "#FFF8E7" };
+export const ENVELOPE_PALETTE: Palette = { k: INK, w: "#FFFFFF" };
 
 export const PLANT = [
   "...g.g...",
@@ -139,4 +139,4 @@ export const PLANT = [
   "..kttttk.",
   "...kkkk..",
 ];
-export const PLANT_PALETTE: Palette = { g: "#4E9A5B", G: "#6BCF7F", k: INK, t: "#C96F4A" };
+export const PLANT_PALETTE: Palette = { g: "#5FB08A", G: "#8AD3AE", k: INK, t: "#D9B9A0" };
