@@ -241,6 +241,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   const unitIds = units.map((u) => u.id).filter((id) => id !== OPEN_WARD).join(",");
   const lastOpenRef = useRef<OpenWard | null>(watch?.first ?? null);
   const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);
+  // Watching a hospital: draw nothing until the units have answered, so the page never shows ward W4 alone and then the building. The canvas does not exist until then.
+  const loading = !!watch && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0));
   const hospRef = useRef(hosp);
   hospRef.current = hosp;
   const theme = useTheme();
@@ -409,7 +411,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const canvas = canvasRef.current!;
+    const canvas = canvasRef.current;
+    if (!canvas) return; // still on the loading line
     setRenderDark(theme === "dark"); // before the renderer bakes its floors and facade
     const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current, unitsRef.current)), !!watch) : createRenderer(canvas);
     rendererRef.current = renderer;
@@ -529,7 +532,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
       clearInterval(perfLog);
       observer.disconnect();
     };
-  }, [hosp, theme]); // the building's drawing or the ward's: watching, that follows what the server runs
+  }, [hosp, theme, loading]); // the building's drawing or the ward's: watching, that follows what the server runs
 
   // Viewer mode: the runner takes the command and the next answer shows it. Nothing is changed here.
   const send = canControl
@@ -730,7 +733,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const justDragged = useRef(false);
   useEffect(() => {
-    const canvas = canvasRef.current!;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const wheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
@@ -742,7 +746,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     };
     canvas.addEventListener("wheel", wheel, { passive: false });
     return () => canvas.removeEventListener("wheel", wheel);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const targetAt = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -751,8 +755,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     );
   };
 
-  // Watching a hospital: draw nothing until the units have answered, so the page never shows ward W4 alone and then the building.
-  if (watch && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0))) return <p className="tag" role="status">Loading the hospital</p>;
+  if (loading) return <p className="tag" role="status">Loading the hospital</p>;
   return (
     <div className="app hw-has-bottomnav">
       <PhoneNav page={page} />
