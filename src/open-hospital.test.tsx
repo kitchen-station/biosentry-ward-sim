@@ -146,7 +146,7 @@ describe("the side panel", () => {
   it("first says what this is in one sentence, with the speed in words, and lists the floors from the top", () => {
     const html = panel(null, null);
     expect(text(html)).toContain("This is a simulated hospital, running at 10x: 1 minute here is 10 hospital minutes. Every patient is synthetic. Pick a floor, then a bed. Read-only. Sign in to control.");
-    const rows = [...html.matchAll(/<li><button>([^<]+)<\/button><\/li>/g)].map((m) => m[1]);
+    const rows = [...html.matchAll(/<li><button[^>]*>([^<]+)<\/button><\/li>/g)].map((m) => m[1]);
     expect(rows).toEqual([
       "5F Surgery 5A · no answer yet",
       "4F Ward W4 · 2 beds in use",
@@ -161,7 +161,7 @@ describe("the side panel", () => {
 
   it("on a floor lists the unit's beds, ranked first, under a breadcrumb back to the hospital", () => {
     const html = panel(3, null);
-    expect(html).toMatch(/<nav class="crumbs" aria-label="Where you are"><button>Hospital<\/button> › <b aria-current="page">3F Medicine 3A<\/b><\/nav>/);
+    expect(html).toMatch(/<nav class="crumbs" aria-label="Where you are"><button[^>]*>Hospital<\/button> › <b aria-current="page">3F Medicine 3A<\/b><\/nav>/);
     expect([...html.matchAll(/<\/i> ([^<]+)<\/button>/g)].map((m) => m[1])).toEqual(["Bed MED3A-30 · Rank 1 · Medium risk", "Bed MED3A-12 · Rank 2 · Low risk", "Bed MED3A-7 · Not ranked"]);
     expect(text(panel(0, null))).toContain("Shown, not ranked: NEWS2 is a ward score.");
     expect(text(panel(2, null))).toContain("Not scored: NEWS2 is a ward score, not an intensive care score.");
@@ -170,7 +170,7 @@ describe("the side panel", () => {
 
   it("a ranked bed's card shows what the bed route returned: score, band, trend and five vitals each with source and age", () => {
     const html = panel(3, sel, card);
-    expect(html).toMatch(/<button>Hospital<\/button> › <button>3F Medicine 3A<\/button> › <b aria-current="page">Bed MED3A-30<\/b>/);
+    expect(html).toMatch(/<button[^>]*>Hospital<\/button> › <button[^>]*>3F Medicine 3A<\/button> › <b aria-current="page">Bed MED3A-30<\/b>/);
     expect(text(html)).toContain("Bed MED3A-30 Medium risk Synthetic data Medicine 3A, 3F. Rank 1 in this unit. NEWS2 6: Medium risk. Trend: rising.");
     expect([...html.matchAll(/<li>(.*?)<\/li>/g)].map((m) => text(m[1]).trim())).toEqual([
       "Heart rate: 96 /min · device · 1 min ago",

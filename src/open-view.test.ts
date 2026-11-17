@@ -303,7 +303,7 @@ describe("sign out", () => {
     expect(renderToStaticMarkup(createElement(TopBar, { s, src, notice: null }))).not.toContain("Sign out");
     expect(renderToStaticMarkup(createElement(TopBar, { s, src, notice: null, onSignIn: () => {} }))).not.toContain("Sign out");
     const el = TopBar({ s, src, notice: null, onSignOut: () => {} });
-    expect(renderToStaticMarkup(el)).toContain("<button>Sign out</button>");
+    expect(renderToStaticMarkup(el)).toContain(">Sign out</button>");
   });
   it("a sign-out tries the open route again; sign-in once shown is kept", () => {
     expect(nextGate("signin", "signed_out")).toBe("trying");
@@ -327,7 +327,7 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     // The speed shows as read-only text. A speed button or the speed group must not appear.
     for (const word of ["1x", "10x", "60x"]) expect(bar).not.toContain(`>${word}</button>`);
     expect(bar).not.toContain('aria-label="Simulation speed"');
-    expect(bar).toMatch(/<span class="pill" title="Simulation speed: 1 minute here is 60 ward minutes">60x<\/span>/);
+    expect(bar).toMatch(/<span class="hw-tag" title="Simulation speed: 1 minute here is 60 ward minutes">60x<\/span>/);
     expect(bar.match(/<button/g)).toHaveLength(1); // the sign-in button only
     for (const x of ["<select", "<input", 'role="button"', 'role="radio"', 'role="slider"']) expect(bar).not.toContain(x);
     // The pill is not inside a button.
@@ -403,8 +403,8 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     expect(a).toContain("const timer = setTimeout(ask, fails === 0 ? 0 : firstAskWaitMs(fails));");
     before(a, 'if (!r.ok && r.kind === "down" && !admin) return setFails((n) => n + 1);', 'setGate((g) => nextGate(g, r.ok ? "probe_ok" : "probe_fail"));');
     // What is shown meanwhile: the line, as a status, and the sign-in form only when the reader asks for it.
-    expect(a).toContain('<span className="pill solid" role="status">{UNREACHABLE}</span>');
-    expect(a).toContain("<button onClick={() => { setFails(0); setGate((g) => nextGate(g, \"probe_fail\")); }}>Sign in instead</button>");
+    expect(a).toContain('<span className="hw-tag hw-tag--warning" role="status">{UNREACHABLE}</span>');
+    expect(a).toContain("<button className=\"hw-button hw-button--sm\" onClick={() => { setFails(0); setGate((g) => nextGate(g, \"probe_fail\")); }}>Sign in instead</button>");
     expect(UNREACHABLE).toBe("Server not reachable, trying again");
     // A 404 (the server's public view is off) still goes to sign-in at once: nothing to wait for.
     expect(nextGate("trying", "probe_fail")).toBe("signin");

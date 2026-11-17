@@ -22,6 +22,7 @@
     "lab-worker": "vite build --ssr src/compare.ts --outDir dist/compare --logLevel warn && vite build --ssr src/lab-worker.ts --outDir dist/lab --logLevel warn && node dist/lab/lab-worker.js"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "7.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

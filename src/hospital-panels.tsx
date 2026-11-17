@@ -304,7 +304,7 @@ function PersonPanel({ h, p, onSelect, vitals }: { h: Hospital; p: Person; onSel
           <p className="mono">{p.age} {p.sex} · {p.id}</p>
           <p className="mono">Synthetic person, hospital record{p.visit > 1 ? ` · visit ${p.visit}, a returning patient` : ""}</p>
         </div>
-        <span className="pill"><Flip value={status.pill} /></span>
+        <span className="hw-tag"><Flip value={status.pill} /></span>
       </div>
       <h3>Came in for</h3>
       <p className="story">{p.complaint} ({p.group}). Triage: {p.triage.replace("_", "-")}.</p>
@@ -334,7 +334,7 @@ function BedPanel({ h, unit, slot, onSelect }: { h: Hospital; unit: UnitId; slot
   const who = unit === "W4" ? h.people.filter((p) => p.unit === "W4")[slot] : h.people.find((p) => p.unit === unit && p.slot === slot);
   return (
     <>
-      <div className="chead"><h2>{slotName(unit, u.beds, u.stretchers, slot)}</h2><span className="pill"><Flip value={who ? "Occupied" : "Empty"} /></span></div>
+      <div className="chead"><h2>{slotName(unit, u.beds, u.stretchers, slot)}</h2><span className="hw-tag"><Flip value={who ? "Occupied" : "Empty"} /></span></div>
       <p className="mono">{u.name}</p>
       {who ? <p className="story">Occupant: <PersonLink p={who} onSelect={onSelect} /> ({who.age} {who.sex}, {who.group}).</p> : <p className="story">Empty.</p>}
     </>
@@ -355,7 +355,7 @@ function UnitPanel({ h, id, floors, vitals, onSelect }: { h: Hospital; id: UnitI
   const display = id === "W4" ? "" : " (display)";
   return (
     <>
-      <div className="chead"><h2>{u.name}</h2><span className="pill">Floor {u.floor === 0 ? "GF" : u.floor}</span></div>
+      <div className="chead"><h2>{u.name}</h2><span className="hw-tag">Floor {u.floor === 0 ? "GF" : u.floor}</span></div>
       <div className="vitals">
         <Stat label="Beds" value={u.beds} />
         <Stat label="Stretchers" value={`${used} used of ${u.stretchers}`} />
@@ -407,7 +407,7 @@ function QueuePanel({ h, onSelect, vitals }: { h: Hospital; onSelect: (id: strin
   const t = todayCounts(h, "ER");
   return (
     <>
-      <div className="chead"><h2>ER queue</h2><span className="pill"><Flip value={`${waiting.length} waiting`} /></span></div>
+      <div className="chead"><h2>ER queue</h2><span className="hw-tag"><Flip value={`${waiting.length} waiting`} /></span></div>
       <div className="vitals">
         <Stat label="In consult" value={er.filter((p) => p.where === "consult").length} />
         <Stat label="In work-up" value={er.filter((p) => p.where === "workup").length} />
@@ -441,7 +441,7 @@ function MorguePanel({ h, onSelect }: { h: Hospital; onSelect: (id: string) => v
   const drawers = bodies.filter((p) => p.where === "morgue" && p.slot !== null && p.slot < u.beds).length;
   return (
     <>
-      <div className="chead"><h2>Morgue</h2><span className="pill"><Flip value={`${bodies.length} bodies`} /></span></div>
+      <div className="chead"><h2>Morgue</h2><span className="hw-tag"><Flip value={`${bodies.length} bodies`} /></span></div>
       <div className="vitals">
         <Stat label="Drawers used" value={`${drawers} of ${u.beds}`} />
         <Stat label={`Released, 24 h${releasedPartial(h) ? " (partial)" : ""}`} value={releasedLast24h(h)} />

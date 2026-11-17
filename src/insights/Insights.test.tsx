@@ -192,7 +192,7 @@ describe("the Analytics page", () => {
   it("has no link, no style string, and only fixed class names", () => {
     expect(html).not.toMatch(/href=|\sstyle=/);
     const classes = new Set([...html.matchAll(/class="([^"]*)"/g)].map((m) => m[1]));
-    expect([...classes].sort()).toEqual(["chart", "chart obs", "fig", "figs", "floorrow", "insights", "legend", "scroll", "unit"]);
+    expect([...classes].sort()).toEqual(["chart", "chart obs", "fig", "figs", "floorrow", "hw-button hw-button--sm", "hw-native-select", "insights", "legend", "scroll", "unit"]);
   });
 
   it("uses no dangerouslySetInnerHTML and no dependency", () => {

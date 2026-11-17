@@ -493,7 +493,7 @@ describe("the open stack's two layers", () => {
       expect(world).toMatch(/^setTransform\(/);
       expect(main.log.slice(0, 2)).toEqual([I, `drawImage(${name(layers[0])},0,0)`]);
       expect(main.log.slice(-2)).toEqual([I, `drawImage(${name(layers[1])},0,0)`]);
-      expect(L0.slice(0, 5)).toEqual([I, 'fillStyle="#2A2036"', "fillRect(0,0,1000,382)", world, "imageSmoothingEnabled=false"]);
+      expect(L0.slice(0, 5)).toEqual([I, 'fillStyle="#EEF2F7"', "fillRect(0,0,1000,382)", world, "imageSmoothingEnabled=false"]);
       expect(L1.slice(0, 4)).toEqual([I, "clearRect(0,0,1000,382)", world, "imageSmoothingEnabled=false"]);
       const ghost = (i: number, alpha: number) => ["save()", `globalAlpha=${alpha}`, `translate(0,${slabTop(i)})`, `drawImage(${name(ghosts[i])},0,0,${LOGICAL_W},${LOGICAL_H})`, "restore()"];
       expect(L0.slice(5)).toEqual([0, 1, 2].flatMap((i) => ghost(i, 0.35)));
@@ -608,7 +608,7 @@ describe("an open floor paints only when what it shows changed", () => {
       const cream = (now: number) => {
         main.log.length = 0;
         const drew = frame(now).drew;
-        return drew && main.log.includes('fillStyle="#FFF8E7"');
+        return drew && main.log.includes('fillStyle="#FFFFFF"');
       };
       const turns = [0.6, 1.1, 1.6, 2.1, 2.6, 3.1].map(cream);
       expect(turns.some(Boolean)).toBe(true);

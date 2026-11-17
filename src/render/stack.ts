@@ -22,7 +22,7 @@ const GHOST_BACKING = 2;
 export const OPEN_S = 0.6; // the opening (and closing), seconds
 export const CAMERA_AT = 0.6; // the camera leaves the building for the floor this far into the opening
 const NUDGE = 3; // px a hovered storey of the closed building peeks out
-const STAGE = "#2A2036";
+const STAGE = "#EEF2F7";
 
 const top = FLOORS.length - 1;
 export const slabTop = (i: number) => (top - i) * GAP; // floor i's logical y in the world, open
@@ -151,7 +151,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   const signAnchor = (i: number) => screen(iso(34.5, MAP_H), 8 - lift(i));
   let signFloors: FloorSummary[] | null = null; // the summary the signs last showed, so hit() reads the same text
   const signText = (i: number) => slabTag(FLOORS[i], signFloors, bedsOnly);
-  const signDot = (i: number) => (FLOORS[i] === W4 ? "#4ECDC4" : undefined); // the monitored ward
+  const signDot = (i: number) => (FLOORS[i] === W4 ? "#09AA71" : undefined); // the monitored ward
 
   function closed(s: Sim, floors: FloorSummary[] | null, hovered: string | null) {
     const peek = hovered?.startsWith("floor:") ? slabIndex(Number(hovered.slice(6))) : -1;
@@ -175,7 +175,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     const gf = floors?.find((f) => f.floor === 0);
     const er = gf?.units.find((u) => u.id === "ER");
     if (er && er.queue.length > QUEUE_SHOWN) tag(ctx, `+${er.queue.length - QUEUE_SHOWN}`, ...screen(iso(QUEUE_SPOTS[QUEUE_SHOWN - 1][0] - 1.2, MAP_H + 2.9)));
-    if (gf && gf.boarders > 0) tag(ctx, `${gf.boarders} boarding`, ...screen(iso(11, MAP_H + 2.8)), "#FFA07A");
+    if (gf && gf.boarders > 0) tag(ctx, `${gf.boarders} boarding`, ...screen(iso(11, MAP_H + 2.8)), "#F4840C");
   }
 
   return {
