@@ -50,10 +50,10 @@ h1, h2, h3, p, ol, ul { margin: 0; padding: 0; list-style: none; }
 .brand .mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--hw-color-accent); color: var(--hw-color-on-accent); font-size: 14px; flex: none; }
 
 /* ---- Top bar ---- */
-.topbar { grid-area: bar; display: flex; align-items: center; justify-content: space-between; gap: var(--gap-sm) var(--hw-space-6); min-height: 56px; padding: var(--gap-sm) var(--pad); background: color-mix(in srgb, var(--hw-color-surface) 88%, transparent); border-bottom: 1px solid var(--hw-color-border-subtle); backdrop-filter: blur(20px); }
+.topbar { grid-area: bar; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--gap-sm) var(--hw-space-6); min-height: 56px; padding: var(--gap-sm) var(--pad); background: color-mix(in srgb, var(--hw-color-surface) 88%, transparent); border-bottom: 1px solid var(--hw-color-border-subtle); backdrop-filter: blur(20px); }
 .topinfo, .topact { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-sm) var(--gap); min-width: 0; }
-.topinfo { flex: 1 1 0; }
-.topact { flex: none; flex-wrap: nowrap; justify-content: flex-end; margin-left: auto; }
+.topinfo { flex: 1 1 360px; } /* the info wraps inside itself before the actions drop to their own row */
+.topact { flex: 0 1 auto; justify-content: flex-end; margin-left: auto; }
 .topbar h1 { font-size: var(--hw-font-size-18); font-weight: var(--hw-weight-semibold); }
 .topbar .status { display: inline-flex; align-items: center; gap: var(--hw-space-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--hw-color-success); flex: none; }
@@ -303,6 +303,5 @@ summary { cursor: pointer; margin-bottom: var(--gap-sm); }
 .skel__panel { display: grid; gap: var(--hw-space-3); padding: var(--hw-space-4); }
 
 @media (width < 768px) {
-  .topbar { flex-wrap: wrap; }
   .topact { flex: 1 1 100%; justify-content: flex-start; }
 }
