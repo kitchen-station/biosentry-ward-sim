@@ -381,6 +381,13 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
   const have = scores.filter(fin);
   const events = arr(p.stay?.events).slice(-30);
   const hist = (k: keyof typeof VITAL_CARD) => arr(p.history?.[k]);
+  const mins = events.map((e) => e.minute).filter(fin);
+  const first = mins.length ? Math.min(...mins) : 0;
+  const span = Math.max(1, (mins.length ? Math.max(...mins) : 0) - first);
+  const spot = (m: number) => {
+    const r = (m - first) / span;
+    return fin(r) ? Math.min(1, Math.max(0, r)) : 0;
+  };
   const noVitals = VITALS.every((k) => hist(k).every((x) => !fin(x)));
   return (
     <>
@@ -404,14 +411,16 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
         </Fig>
         <Fig name="What happened" caption={events.length ? `Last: ${label(last(events).minute)}, ${last(events).text}` : NO_DATA} note={events.length ? undefined : NO_DATA}>
           <div className="scroll">
-            <ol className="hw-timeline log" aria-label="What happened">
+            <svg viewBox={`0 0 300 ${events.length * 14 + 8}`} role="img" aria-label="What happened" className="chart">
               {events.map((e, i) => (
-                <li key={i} className="hw-timeline__item">
-                  <time className="hw-timeline__time">{label(e.minute)}</time>
-                  <span className="hw-timeline__text">{String(e.text)}</span>
-                </li>
+                <g key={i}>
+                  <circle cx={(6 + spot(e.minute) * 60).toFixed(1)} cy={11 + i * 14} r={2.5} fill="var(--ink-900)" />
+                  <text x={74} y={14 + i * 14} fontSize={9} fill="var(--ink-900)">
+                    {label(e.minute)} {String(e.text).slice(0, 70)}
+                  </text>
+                </g>
               ))}
-            </ol>
+            </svg>
           </div>
         </Fig>
         <Fig

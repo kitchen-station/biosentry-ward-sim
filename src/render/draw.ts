@@ -1,7 +1,6 @@
 // Isometric ward renderer: one Canvas 2D, sprites nearest-neighbour, text at full resolution.
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
-import { themed, tone } from "./theme";
 import { clampCam, fitCam, panBy, zoomAbout, type Cam } from "../camera";
 import { findPath, nurseStand, BEDS, CORRIDOR, MAP_H, MAP_W, STATIONS, bedByLabel, type Bed, type Tile } from "../sim/map";
 import { GROUP_COLOURS, type Cell } from "../building";
@@ -144,16 +143,17 @@ function bake(depth: number, x: number, y: number, w: number, d: number, h: numb
   const image = document.createElement("canvas");
   image.width = right - left;
   image.height = bottom - top;
-  const ctx = themed(image.getContext("2d")!);
+  const ctx = image.getContext("2d")!;
   ctx.translate(-left, -top);
   paint(ctx);
   return { depth, image, dx: left, dy: top };
 }
 
-const hex = (colour: string): [number, number, number] => {
-  const c = tone(colour);
-  return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
-};
+const hex = (colour: string): [number, number, number] => [
+  parseInt(colour.slice(1, 3), 16),
+  parseInt(colour.slice(3, 5), 16),
+  parseInt(colour.slice(5, 7), 16),
+];
 
 // [grout, light, dark] per room type; each room reads as its own space.
 const FLOORS: Record<Tint, [string, string, string]> = {
@@ -960,7 +960,7 @@ export function createW4() {
 export const backingFor = (scale: number, ratio: number) => Math.max(1, Math.round(scale * ratio));
 
 export function createRenderer(canvas: HTMLCanvasElement) {
-  const ctx = themed(canvas.getContext("2d", { alpha: false })!); // every frame fills the whole canvas
+  const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
   const w4 = createW4();
   const cam: Cam = fitCam(LOGICAL_W, LOGICAL_H); // logical point at the view centre
   const user: Cam = fitCam(LOGICAL_W, LOGICAL_H); // where the camera rests with nothing selected; the default is today's view
