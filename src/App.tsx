@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } 
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
+import { SIGN_IN } from "./sign-in-list";
 import { floorOf } from "./hospital-panels";
 import { fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, ADMIN_REFRESH_MS, type AdminAnswer, type AdminPatient, type AdminRequest, type AdminRow, type AdminRows, type AdminStay, type AdminUnit } from "./admin-view";
 import { adminFloor, AdminPanel, type Load } from "./admin-panels";
@@ -16,7 +17,7 @@ import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
 import { buildQuery, buildWorld, drawSeed, NAMED, parseQuery, seedText } from "./scenarios";
 import { commandNotice, sendCommand, type CommandBody } from "./sim/commands";
-import { createSim, minuteOf, STAFF, step, type Sim, type Stay } from "./sim/sim";
+import { createSim, minuteOf, step, type Sim, type Stay } from "./sim/sim";
 import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, WARD_START_ISO, type VitalsSource } from "./sim/source";
 import { createSync, STOP_TEXT } from "./sim/sync";
 import { AnalyticsBoundary } from "./insights/Boundary";
@@ -99,10 +100,14 @@ function SignIn({ onToken }: { onToken: (token: string, role: string | null) => 
         <label>
           Clinician
           <select name="clinician">
-            {STAFF.map(([id, name, title]) => (
-              <option key={id} value={id}>
-                {name}, {title}
-              </option>
+            {SIGN_IN.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.people.map(([id, name, title]) => (
+                  <option key={id} value={id}>
+                    {name}, {title}
+                  </option>
+                ))}
+              </optgroup>
             ))}
             <option value={ADMIN_ID}>Hospital admin</option>
           </select>

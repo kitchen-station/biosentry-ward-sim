@@ -740,7 +740,8 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
         <img src={portrait(m.id)} alt="" />
         <div>
           <h2>{m.name}</h2>
-          <p className="mono">{m.title}</p>
+          {/* Every figure the ward simulates is W4's own staff: the card says the role and the unit. */}
+          <p className="mono">{m.title} · Ward W4</p>
           <span className="chip">
             <i style={{ background: CHIP_COLOURS[chip] }} />
             <Flip value={chip} />
