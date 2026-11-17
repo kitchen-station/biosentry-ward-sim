@@ -355,7 +355,7 @@ function UnitPanel({ h, id, floors, vitals, onSelect }: { h: Hospital; id: UnitI
   const display = id === "W4" ? "" : " (display)";
   return (
     <>
-      <div className="chead"><h2>{u.name}</h2><span className="hw-tag">Floor {u.floor === 0 ? "GF" : u.floor}</span></div>
+      <div className="chead"><h2>{u.name}</h2><span className="hw-text-muted">{u.floor === 0 ? "Ground floor" : `Floor ${u.floor}`}</span></div>
       <div className="vitals">
         <Stat label="Beds" value={u.beds} />
         <Stat label="Stretchers" value={`${used} used of ${u.stretchers}`} />

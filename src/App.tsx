@@ -13,7 +13,7 @@ import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
 import { PanelSkeleton, WardSkeleton } from "./skeleton";
-import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, RunBar, TopBar, VIEW_API, ViewNav } from "./panels";
+import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, stamp, RunBar, TopBar, VIEW_API, ViewNav } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { setRenderDark } from "./render/theme";
 import { useTheme } from "./settings";
@@ -887,7 +887,6 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
           />
-          <StageTitle title={hosp ? "BioSentry Hospital" : "Ward W4"} count={hosp ? floors.reduce((n, f) => n + f.census, 0) : world.s.patients.length} noun="patients" />
           <RunBar {...bar} zoom={{ pct: Math.round((rendererRef.current?.userZoom() ?? 1) * 100), onZoom: zoomBy, disabled: hosp && view === null }} />
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
