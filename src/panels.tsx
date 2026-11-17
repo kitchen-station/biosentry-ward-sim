@@ -275,7 +275,7 @@ function Activity({ src, lines }: { src: VitalsSource; lines: { minute: number; 
   return (
     <>
       <h3>Recent activity</h3>
-      <ol className="hw-timeline log">
+      <ol className="hw-timeline evlist">
         {lines.map((line, i) => (
           <li key={i} className="hw-timeline__item">
             <time className="hw-timeline__time">{clockText(src, line.minute)}</time>
@@ -929,7 +929,7 @@ export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
       {shown.length === 0 ? (
         <p className="tiny">No events yet.</p>
       ) : (
-        <ol className="hw-timeline log">
+        <ol className="hw-timeline evlist">
           {shown.map((l, i) => (
             <li key={i} className="hw-timeline__item">
               <time className="hw-timeline__time">{clockText(src, l.minute)}</time>

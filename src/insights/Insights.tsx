@@ -404,7 +404,7 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
         </Fig>
         <Fig name="What happened" caption={events.length ? `Last: ${label(last(events).minute)}, ${last(events).text}` : NO_DATA} note={events.length ? undefined : NO_DATA}>
           <div className="scroll">
-            <ol className="hw-timeline log" aria-label="What happened">
+            <ol className="hw-timeline evlist" aria-label="What happened">
               {events.map((e, i) => (
                 <li key={i} className="hw-timeline__item">
                   <time className="hw-timeline__time">{label(e.minute)}</time>

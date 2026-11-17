@@ -33,10 +33,10 @@
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--hw-color-canvas); color: var(--hw-color-text); font-family: var(--hw-font-sans); }
 h1, h2, h3, p, ol, ul { margin: 0; padding: 0; list-style: none; }
-.mono { font-family: var(--hw-font-mono); font-size: var(--hw-text-caption); }
+.mono { font-variant-numeric: tabular-nums; font-size: var(--hw-text-caption); color: var(--hw-color-text-muted); }
 .tag, .tiny, .prov { font-size: var(--hw-text-caption); color: var(--hw-color-text-muted); }
 .tag { text-transform: uppercase; letter-spacing: .06em; }
-.clock { font-variant-numeric: tabular-nums; font-family: var(--hw-font-mono); font-size: var(--hw-font-size-14); }
+.clock { font-variant-numeric: tabular-nums; font-size: var(--hw-font-size-14); }
 
 /* ---- Page frame: the app shell. Desk: brand | bar over side nav | main. Phone: bar, main, side, credit ---- */
 .app { min-height: 100%; }
@@ -111,12 +111,12 @@ h1, h2, h3, p, ol, ul { margin: 0; padding: 0; list-style: none; }
 .events[data-open="true"] .hw-timeline { max-height: 40vh; }
 
 /* The event list wherever it is used (event log, recent activity, the Analytics page): one dot column on a thin line, the time on its own muted line, the sentence in the sans font and wrapping. */
-.log { font-family: var(--hw-font-sans); }
-.log .hw-timeline__item { display: grid; gap: var(--hw-space-1); padding: 0 0 var(--gap) var(--hw-space-6); font-size: var(--hw-font-size-14); line-height: 1.4; }
-.log .hw-timeline__item:last-child { padding-bottom: 0; }
-.log .hw-timeline__time { font-variant-numeric: tabular-nums; font-family: var(--hw-font-sans); }
-.log .hw-timeline__text { min-width: 0; overflow-wrap: anywhere; color: var(--hw-color-text); }
-.insights .scroll .log { padding-right: var(--hw-space-3); }
+.evlist { font-family: var(--hw-font-sans); }
+.evlist .hw-timeline__item { display: grid; gap: var(--hw-space-1); padding: 0 0 var(--gap) var(--hw-space-6); font-size: var(--hw-font-size-14); line-height: 1.4; }
+.evlist .hw-timeline__item:last-child { padding-bottom: 0; }
+.evlist .hw-timeline__time { font-variant-numeric: tabular-nums; font-family: var(--hw-font-sans); }
+.evlist .hw-timeline__text { min-width: 0; overflow-wrap: anywhere; color: var(--hw-color-text); }
+.insights .scroll .evlist { padding-right: var(--hw-space-3); }
 
 .sr { position: absolute; top: 4px; left: 4px; z-index: 3; }
 .sr button:not(:focus) { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; overflow: hidden; clip-path: inset(50%); border: 0; }
@@ -161,12 +161,13 @@ h1, h2, h3, p, ol, ul { margin: 0; padding: 0; list-style: none; }
 .who b { font-weight: var(--hw-weight-semibold); }
 .score { grid-row: span 2; font-size: var(--hw-font-size-18); font-weight: var(--hw-weight-semibold); text-align: right; }
 .score small { display: block; font-size: var(--hw-text-caption); font-weight: var(--hw-weight-regular); color: var(--hw-color-text-muted); }
-.mini { grid-column: 2; font-size: var(--hw-text-caption); font-family: var(--hw-font-mono); color: var(--hw-color-text-muted); white-space: nowrap; }
+.mini { grid-column: 2; font-size: var(--hw-text-caption); font-variant-numeric: tabular-nums; color: var(--hw-color-text-muted); white-space: nowrap; }
 .why { grid-column: 2 / -1; font-size: var(--hw-text-caption); color: var(--hw-color-text-muted); }
 
 .vitals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-sm); margin: var(--gap) 0; }
 .vital { --hw-card-pad: var(--gap); display: grid; gap: var(--hw-space-3); align-content: start; background: var(--hw-color-surface-subtle); min-width: 0; margin: var(--gap) 0; }
 .vitals > .vital { margin: 0; }
+.vitals > .vital:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .vitals svg, .vital svg { width: 100%; }
 .spark svg { display: block; width: 100%; height: auto; }
 .vhead, .vbody, .cname { display: flex; align-items: center; justify-content: space-between; gap: var(--hw-space-3); }
@@ -192,7 +193,6 @@ summary { cursor: pointer; margin-bottom: var(--gap-sm); }
 .truth { margin: var(--hw-space-3) 0; padding: var(--hw-space-3) var(--hw-space-4); border: 1px dashed var(--hw-color-border); border-radius: var(--hw-popup-radius); }
 .chip { display: inline-flex; align-items: center; flex: none; padding: 0 var(--hw-space-3); height: 22px; font-size: var(--hw-text-caption); background: var(--hw-color-fill-hover); border-radius: var(--hw-radius-xs); }
 .linkbtn { padding: 0; text-align: left; text-decoration: underline; background: none; border: 0; color: var(--hw-color-link); cursor: pointer; font: inherit; }
-.log li { padding: var(--hw-space-2) 0; font-size: var(--hw-font-size-14); border-bottom: 1px solid var(--hw-color-border-subtle); }
 
 /* Bed timeline (over the stage) */
 .timeline { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: var(--hw-space-3); padding: var(--hw-space-4); overflow: auto; background: var(--hw-color-surface); }
