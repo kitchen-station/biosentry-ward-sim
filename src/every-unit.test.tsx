@@ -172,7 +172,7 @@ describe("source scans", () => {
 
   it("the Entrance skip is hidden in a hospital world; the top bar's +1 day stays", () => {
     const p = code("src/panels.tsx");
-    expect(p).toContain("src.admit && !s.outbox && !s.hospital && <button onClick={() => skipDay(s, src)}>Skip 1 day</button>");
+    expect(p).toContain("src.admit && !s.outbox && !s.hospital && <button className=\"hw-button hw-button--sm\" onClick={() => skipDay(s, src)}>Skip 1 day</button>");
     expect(p).toContain("hospital.onSkip}>");
     expect(p.match(/skipDay\(/g)).toHaveLength(1);
   });

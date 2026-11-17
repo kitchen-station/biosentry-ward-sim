@@ -60,9 +60,9 @@ function CardBody({ card, nowMs }: { card: CardState["data"]; nowMs: number }) {
 function Crumbs({ unit, bed, onUp }: { unit: RunUnit | null; bed: string | null; onUp: (to: "hospital" | "floor") => void }) {
   return (
     <nav className="crumbs" aria-label="Where you are">
-      {unit ? <button onClick={() => onUp("hospital")}>Hospital</button> : <b aria-current="page">Hospital</b>}
+      {unit ? <button className="hw-button hw-button--sm" onClick={() => onUp("hospital")}>Hospital</button> : <b aria-current="page">Hospital</b>}
       {unit && " › "}
-      {unit && (bed ? <button onClick={() => onUp("floor")}>{floorLabel(unit.floor)} {unit.name}</button> : <b aria-current="page">{floorLabel(unit.floor)} {unit.name}</b>)}
+      {unit && (bed ? <button className="hw-button hw-button--sm" onClick={() => onUp("floor")}>{floorLabel(unit.floor)} {unit.name}</button> : <b aria-current="page">{floorLabel(unit.floor)} {unit.name}</b>)}
       {bed && " › "}
       {bed && <b aria-current="page">Bed {bed}</b>}
     </nav>
@@ -75,7 +75,7 @@ function Beds({ unit, beds, onSelect }: { unit: RunUnit; beds: OpenBed[]; onSele
     <ul className="beds" aria-label={`${unit.name}: beds${unit.kind === "ranked" ? ", highest rank first" : ""}`}>
       {inOrder(beds).map((b) => (
         <li key={b.bed}>
-          <button onClick={() => onSelect(bedSel(unit.id, b.bed))}>
+          <button className="hw-button hw-button--sm" onClick={() => onSelect(bedSel(unit.id, b.bed))}>
             <i style={{ background: b.risk !== null ? RISK_LIGHT[b.risk] : GREY }} /> Bed {b.bed}
             {b.rank !== null ? ` · Rank ${b.rank}` : ""} · {bedWord(b)}
           </button>
@@ -121,23 +121,23 @@ export function OpenHospitalPanel({ units, views, view, selected, speed, card, n
     const { bed } = picked;
     const data = card && card.sel === selected ? card.data : "loading";
     return (
-      <aside className="panel command">
+      <aside className="hw-card hw-card--outlined command">
         <Crumbs unit={picked.unit} bed={bed.bed} onUp={up} />
         <div className="chead">
           <h2>Bed {bed.bed}</h2>
-          <span className="pill">{bedWord(bed)}</span>
+          <span className="hw-tag">{bedWord(bed)}</span>
         </div>
         <p className="tiny">Synthetic data</p>
         <p className="story">{picked.unit.name}, {floorLabel(picked.unit.floor)}.{bed.rank !== null ? ` Rank ${bed.rank} in this unit.` : ""}</p>
         <CardBody card={data} nowMs={nowMs} />
-        <button onClick={() => up("floor")}>Back to {picked.unit.name}</button>
+        <button className="hw-button hw-button--sm" onClick={() => up("floor")}>Back to {picked.unit.name}</button>
       </aside>
     );
   }
 
   if (unit) {
     return (
-      <aside className="panel command">
+      <aside className="hw-card hw-card--outlined command">
         <Crumbs unit={unit} bed={null} onUp={up} />
         <div className="scroll">
           {here.map((u) => (
@@ -151,13 +151,13 @@ export function OpenHospitalPanel({ units, views, view, selected, speed, card, n
           ))}
         </div>
         {legend}
-        <button onClick={() => up("hospital")}>Back to the hospital</button>
+        <button className="hw-button hw-button--sm" onClick={() => up("hospital")}>Back to the hospital</button>
       </aside>
     );
   }
 
   return (
-    <aside className="panel command">
+    <aside className="hw-card hw-card--outlined command">
       <Crumbs unit={null} bed={null} onUp={up} />
       <h2 className="ptitle">One hospital, running on the team server</h2>
       <p className="story">
@@ -166,7 +166,7 @@ export function OpenHospitalPanel({ units, views, view, selected, speed, card, n
       <ul className="beds" aria-label="Floors, top floor first">
         {byFloor(units).map((u) => (
           <li key={u.id}>
-            <button onClick={() => onView(u.floor)}>
+            <button className="hw-button hw-button--sm" onClick={() => onView(u.floor)}>
               {floorLabel(u.floor)} {u.name} · {views[u.id] ? `${views[u.id].beds.length} bed${views[u.id].beds.length === 1 ? "" : "s"} in use` : "no answer yet"}
             </button>
           </li>

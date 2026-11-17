@@ -28,8 +28,8 @@ describe("the top bar", () => {
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} admin />)).not.toContain("Skip ahead"); // the hospital admin
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />)).not.toContain("Skip ahead");
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} onSkipAhead={noop} />);
-    expect(html).toMatch(/<details class="skipmenu"><summary title="[^"]+">Skip ahead<\/summary><div role="group" aria-label="Skip ahead">/);
-    expect([...html.matchAll(/<button>(\+[^<]+)<\/button>/g)].map((x) => x[1])).toEqual(["+1 h", "+6 h", "+12 h", "+1 day"]);
+    expect(html).toMatch(/<details class="skipmenu"><summary class="hw-button hw-button--sm" title="[^"]+">Skip ahead<\/summary><div role="group" aria-label="Skip ahead">/);
+    expect([...html.matchAll(/<button[^>]*>(\+[^<]+)<\/button>/g)].map((x) => x[1])).toEqual(["+1 h", "+6 h", "+12 h", "+1 day"]);
     // The page only asks: the one sender exists when the server said can_control, and nothing is stepped here.
     const app = readFileSync("src/App.tsx", "utf8");
     expect(app).toContain('onSkipAhead={send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))}');
@@ -39,14 +39,14 @@ describe("the top bar", () => {
 
   it("shows the runner's speed as read-only text in viewer, and the clock with seconds", () => {
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />);
-    expect(html).toContain('<span class="pill" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
+    expect(html).toContain('<span class="hw-tag" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
     expect(html.replace(/<[^>]+>/g, "")).toContain("3 Sept 2026, 15:00:00 Manila");
   });
 
   it("shows the runner's speed, and offers pause, 1x, 10x, 60x and Reset, once control is on", () => {
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />);
     for (const label of ["Pause", "1x", "10x", "60x", "Reset"]) expect(html).toContain(`>${label}</button>`);
-    expect(html).toMatch(/class="on" aria-pressed="true"[^>]*>60x</); // createSim starts at 60x: the published speed, not a local guess
+    expect(html).toMatch(/hw-button--accent" aria-pressed="true"[^>]*>60x</); // createSim starts at 60x: the published speed, not a local guess
   });
 });
 

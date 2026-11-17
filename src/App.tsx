@@ -11,7 +11,7 @@ import { openOps } from "./open-ops";
 import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
-import { BedTimeline, Inspector, SelectList, SidePanel, selectTargets, stamp, TopBar, VIEW_API, ZoomBar } from "./panels";
+import { BedTimeline, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
@@ -63,6 +63,11 @@ const ADMIN_ID = "admin-garcia";
 function SignIn({ onToken }: { onToken: (token: string, role: string | null) => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = dialog.current;
+    if (d && !d.open) (d.showModal ? d.showModal() : (d.open = true)); // modal: focus stays in the form
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -94,35 +99,44 @@ function SignIn({ onToken }: { onToken: (token: string, role: string | null) => 
     <div className="app">
       <header className="topbar">
         <h1>BioSentry ward sim</h1>
-        <span className="pill">W4</span>
+        <span className="hw-tag">W4</span>
       </header>
-      <form className="panel bp signin" onSubmit={submit}>
-        <label>
-          Clinician
-          <select name="clinician">
-            {SIGN_IN.map((g) => (
-              <optgroup key={g.label} label={g.label}>
-                {g.people.map(([id, name, title]) => (
-                  <option key={id} value={id}>
-                    {name}, {title}
-                  </option>
+      <dialog ref={dialog} className="hw-dialog hw-dialog--sm signin" aria-labelledby="signin-title" onCancel={(e) => e.preventDefault()}>
+        <form onSubmit={submit}>
+          <div className="hw-dialog__header">
+            <h2 className="hw-dialog__title" id="signin-title">Sign in to BioSentry</h2>
+          </div>
+          <div className="hw-dialog__body">
+            <div className="hw-field">
+              <label className="hw-field__label" htmlFor="signin-clinician">Clinician</label>
+              <select className="hw-native-select" id="signin-clinician" name="clinician">
+                {SIGN_IN.map((g) => (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.people.map(([id, name, title]) => (
+                      <option key={id} value={id}>
+                        {name}, {title}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
-              </optgroup>
-            ))}
-            <option value={ADMIN_ID}>Hospital admin</option>
-          </select>
-        </label>
-        <label>
-          Passphrase
-          <input type="password" name="passphrase" autoComplete="current-password" required />
-        </label>
-        <button type="submit" disabled={busy}>
-          Sign in
-        </button>
-        <p className="error" role="alert">
-          {error}
-        </p>
-      </form>
+                <option value={ADMIN_ID}>Hospital admin</option>
+              </select>
+            </div>
+            <div className="hw-field">
+              <label className="hw-field__label" htmlFor="signin-passphrase">Passphrase</label>
+              <div className="hw-input">
+                <input className="hw-input__control" id="signin-passphrase" type="password" name="passphrase" autoComplete="current-password" required aria-invalid={error ? "true" : "false"} aria-describedby="signin-error" />
+              </div>
+              <span className="hw-field__error" id="signin-error" role="alert">{error}</span>
+            </div>
+          </div>
+          <div className="hw-dialog__footer">
+            <button className="hw-button hw-button--primary" type="submit" disabled={busy}>
+              Sign in
+            </button>
+          </div>
+        </form>
+      </dialog>
     </div>
   );
 }
@@ -164,11 +178,11 @@ export function App() {
       <div className="app">
         <header className="topbar">
           <h1>BioSentry ward sim</h1>
-          <span className="pill solid" role="status">{UNREACHABLE}</span>
+          <span className="hw-tag hw-tag--warning" role="status">{UNREACHABLE}</span>
         </header>
-        <div className="panel bp signin">
+        <div className="hw-card hw-card--outlined panel bp">
           <p>The read-only view opens by itself when the server answers. It is asked again in {firstAskWaitMs(fails) / 1000} seconds.</p>
-          <button onClick={() => { setFails(0); setGate((g) => nextGate(g, "probe_fail")); }}>Sign in instead</button>
+          <button className="hw-button hw-button--sm" onClick={() => { setFails(0); setGate((g) => nextGate(g, "probe_fail")); }}>Sign in instead</button>
         </div>
       </div>
     );
@@ -725,9 +739,14 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   };
 
   return (
-    <div className="app">
+    <div className="app hw-has-bottomnav">
+      <PhoneNav page={page} />
+      <div className="hw-shell">
+      <aside className="hw-shell__side wardside">
+        <ViewNav page={page} />
+      </aside>
+      <div className="wardmain">
       <TopBar
-        page={page}
         s={world.s}
         src={world.src}
         notice={stageNote ?? viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
@@ -779,6 +798,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
       )}
       <main className="main" hidden={page === "analytics"}>
         <div className="floor">
+          <div className="stage">
           {/* An admin with no open view: the stage says so. The canvas under it holds an empty ward: a viewer build never runs its own engine. */}
           {stageNote && <p className="stagenote" role="status">{stageNote}</p>}
           <canvas
@@ -837,18 +857,16 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
               e.currentTarget.style.cursor = hoveredRef.current ? "pointer" : "default";
             }}
           />
-          {hosp && (
-            <div className="stagebar rail" role="group" aria-label="Floors">
-              {[{ floor: null, label: "All", name: "All floors" }, ...floors.map((f) => ({ floor: f.floor, label: f.label, name: `${f.name}: ${f.units.map((u) => u.name).join(" and ")}` }))].map((f) => (
-                <button key={f.label} className={view === f.floor ? "on" : ""} aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => go({ rail: f.floor })}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          )}
+          <StageTitle title={hosp ? "BioSentry Hospital" : "Ward W4"} count={hosp ? floors.reduce((n, f) => n + f.census, 0) : world.s.patients.length} noun="patients" />
           <ZoomBar pct={Math.round((rendererRef.current?.userZoom() ?? 1) * 100)} onZoom={zoomBy} disabled={hosp && view === null} />
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
+          </div>
+          <div className="floaters">
+            <Directory floors={floors} view={view} onView={(floor) => go({ rail: floor })} ward={{ name: "Ward W4", count: world.s.patients.length, noun: "patients" }} />
+            <CurrentFloor floors={floors} view={view} ward={{ name: "Ward W4", rows: [["Patients", world.s.patients.length], ["Ranked", world.s.patients.filter((p) => p.rank !== null).length], ["Not ranked", world.s.patients.filter((p) => p.rank === null).length], ["Speed", world.s.speed === 0 ? "Paused" : `${world.s.speed}x`]] }} />
+          </div>
+          {!watch && <EventConsole s={world.s} src={world.src} />}
         </div>
         <SidePanel>
           {admin ? (
@@ -868,9 +886,11 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
         </SidePanel>
       </main>
       <footer className="notice">
-        <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
+        <span>Advisory only. BioSentry does not replace a monitor alarm. Set in HarmonyOS Sans.</span>
         {world.s.hospital && <span>{admin ? "Synthetic patients. Hospital admin: every unit, read-only." : watch ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
       </footer>
+      </div>
+      </div>
     </div>
   );
 }

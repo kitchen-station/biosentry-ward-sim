@@ -80,7 +80,7 @@ function Numbers({ series }: { series: Series[] }) {
     <>
       <label>
         Window{" "}
-        <select value={String(windowMin)} onChange={(e) => setWindowMin(e.target.value === "null" ? null : Number(e.target.value))}>
+        <select className="hw-native-select" value={String(windowMin)} onChange={(e) => setWindowMin(e.target.value === "null" ? null : Number(e.target.value))}>
           {WINDOWS.map(([word, min]) => (
             <option key={word} value={String(min)}>{word}</option>
           ))}
@@ -132,7 +132,7 @@ function Fig({ name, caption, note, children, series }: { name: string; caption:
     <figure className={open ? "fig enlarged" : "fig"} role={open ? "dialog" : undefined} aria-label={open ? `${name}, large view` : undefined}>
       <h4>{name}</h4>
       {can && (
-        <button type="button" aria-expanded={open} onClick={() => large.set(open ? null : name)}>
+        <button className="hw-button hw-button--sm" type="button" aria-expanded={open} onClick={() => large.set(open ? null : name)}>
           {open ? "Close (Esc)" : "Larger, with numbers"}
         </button>
       )}
@@ -393,7 +393,7 @@ function PersonSection({ patients, label }: { patients: Person[]; label: (minute
     <>
       <label>
         Person{" "}
-        <select value={p.id} onChange={(e) => setPicked(e.target.value)}>
+        <select className="hw-native-select" value={p.id} onChange={(e) => setPicked(e.target.value)}>
           {list.map((x) => (
             <option key={x.id} value={x.id}>
               {x.name}, bed {x.bed}

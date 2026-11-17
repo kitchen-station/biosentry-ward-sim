@@ -126,14 +126,14 @@ describe("the admin's panel", () => {
   it("first says who you are and that it is read-only, and lists every unit with its patients, top floor first", () => {
     const html = panel({});
     expect(text(html)).toContain("Hospital admin You are signed in as the hospital admin. Every unit and every patient is shown. Read-only: nothing here changes the hospital. Every patient is synthetic.");
-    expect([...html.matchAll(/<li><button>([^<]+)<\/button><\/li>/g)].map((x) => x[1])).toEqual(["4F Ward W4 · 11 patients", "3F Medicine 3A · 3 patients", "GF Emergency Room · 9 patients"]);
+    expect([...html.matchAll(/<li><button[^>]*>([^<]+)<\/button><\/li>/g)].map((x) => x[1])).toEqual(["4F Ward W4 · 11 patients", "3F Medicine 3A · 3 patients", "GF Emergency Room · 9 patients"]);
     expect(text(panel({ units: "loading" }))).toContain("Loading");
     expect(text(panel({ units: "denied" }))).toContain("The server refused this for your sign-in.");
   });
 
   it("a unit shows each patient's name, bed, NEWS2, rank, trend and vitals, and the unit's history, newest first", () => {
     const html = panel({ view: 3, rows, stays });
-    const lines = [...html.matchAll(/<li><button>(.*?)<\/button><\/li>/g)].map((x) => text(x[1]).trim());
+    const lines = [...html.matchAll(/<li><button[^>]*>(.*?)<\/button><\/li>/g)].map((x) => text(x[1]).trim());
     expect(lines).toEqual([
       "Abad, Ana · Bed MED3A-30 · NEWS2 9 · Rank 1 · rising HR 96 · RR 21 · SpO2 94 · T 37.8 · BP 104/62",
       "Cruz, Ben · Bed MED3A-12 · NEWS2 4 · Rank 2 · rising HR 96 · RR 21 · SpO2 94 · T 37.8 · BP 104/62",
@@ -141,7 +141,7 @@ describe("the admin's panel", () => {
     ]);
     expect(text(html)).toContain("Unit history Santos, Paolo, bed MED3A-9: moved to ICU, 10 min ago Reyes, Marta, bed MED3A-7: discharged, 40 min ago");
     expect(html).not.toContain("Still Here"); // a stay that has not ended is not history
-    expect(html).toMatch(/<nav class="crumbs" aria-label="Where you are"><button>Hospital<\/button> › <b aria-current="page">3F Medicine 3A<\/b>/);
+    expect(html).toMatch(/<nav class="crumbs" aria-label="Where you are"><button[^>]*>Hospital<\/button> › <b aria-current="page">3F Medicine 3A<\/b>/);
   });
 
   it("the ER's rows say their vitals are not served yet, and show none", () => {

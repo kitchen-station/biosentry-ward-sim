@@ -38,7 +38,7 @@ describe("a figure made large", () => {
     const html = page(null);
     expect(html).not.toContain('class="fig enlarged"');
     expect(html).not.toContain("<table");
-    expect([...html.matchAll(/<button type="button" aria-expanded="false">Larger, with numbers<\/button>/g)]).toHaveLength(2); // NEWS2 by hour and the vitals: the two with data here
+    expect([...html.matchAll(/<button class="hw-button hw-button--sm" type="button" aria-expanded="false">Larger, with numbers<\/button>/g)]).toHaveLength(2); // NEWS2 by hour and the vitals: the two with data here
   });
 
   it("a figure with nothing to draw offers nothing", () => {
@@ -51,7 +51,7 @@ describe("a figure made large", () => {
     const fig = big(html);
     expect(html).toContain('<figure class="fig enlarged" role="dialog" aria-label="Vitals, last 3 h, large view">');
     expect([...fig.matchAll(/class="chart obs"/g)]).toHaveLength(5);
-    expect(fig).toContain('<button type="button" aria-expanded="true">Close (Esc)</button>');
+    expect(fig).toContain('<button class="hw-button hw-button--sm" type="button" aria-expanded="true">Close (Esc)</button>');
     expect(fig).toContain("<caption>The numbers behind this chart. A summary of this page, not a NEWS2 practice.</caption>");
     const rows = [...fig.matchAll(/<tr><th scope="row">(.*?)<\/th>(.*?)<\/tr>/g)].map((m) => [m[1], ...[...m[2].matchAll(/<td>(.*?)<\/td>/g)].map((c) => c[1])]);
     expect(rows).toEqual([

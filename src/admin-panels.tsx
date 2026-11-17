@@ -38,9 +38,9 @@ function Crumbs({ unit, patient, onUp }: { unit: AdminUnit | null; patient: stri
   const here = unit ? `${floorLabel(adminFloor(unit))} ${unit.name}`.trim() : "";
   return (
     <nav className="crumbs" aria-label="Where you are">
-      {unit ? <button onClick={() => onUp("hospital")}>Hospital</button> : <b aria-current="page">Hospital</b>}
+      {unit ? <button className="hw-button hw-button--sm" onClick={() => onUp("hospital")}>Hospital</button> : <b aria-current="page">Hospital</b>}
       {unit && " › "}
-      {unit && (patient ? <button onClick={() => onUp("unit")}>{here}</button> : <b aria-current="page">{here}</b>)}
+      {unit && (patient ? <button className="hw-button hw-button--sm" onClick={() => onUp("unit")}>{here}</button> : <b aria-current="page">{here}</b>)}
       {patient && " › "}
       {patient && <b aria-current="page">{patient}</b>}
     </nav>
@@ -54,7 +54,7 @@ function PatientCard({ p }: { p: AdminPatient }) {
     <>
       <div className="chead">
         <h2>{r.name}</h2>
-        <span className="pill">{r.ranked ? `NEWS2 ${r.ranked.score}` : "Not ranked"}</span>
+        <span className="hw-tag">{r.ranked ? `NEWS2 ${r.ranked.score}` : "Not ranked"}</span>
       </div>
       <p className="tiny">Synthetic data</p>
       <p className="story">
@@ -98,12 +98,12 @@ export function AdminPanel({ units, view, rows, stays, patient, picked, onView, 
 
   if (unit && picked) {
     return (
-      <aside className="panel command">
+      <aside className="hw-card hw-card--outlined command">
         <Crumbs unit={unit} patient={picked.name} onUp={up} />
         <div className="scroll">
           {ready(patient) && patient.row.id === picked.id ? <PatientCard p={patient} /> : <p className="story">{picked.name}, bed {picked.bed}. {state(ready(patient) ? "loading" : patient)}</p>}
         </div>
-        <button onClick={() => up("unit")}>Back to {unit.name}</button>
+        <button className="hw-button hw-button--sm" onClick={() => up("unit")}>Back to {unit.name}</button>
       </aside>
     );
   }
@@ -111,7 +111,7 @@ export function AdminPanel({ units, view, rows, stays, patient, picked, onView, 
   if (unit) {
     const ended = ready(stays) ? stays.filter((s) => s.outMs !== null).sort((a, b) => b.outMs! - a.outMs!).slice(0, 20) : [];
     return (
-      <aside className="panel command">
+      <aside className="hw-card hw-card--outlined command">
         <Crumbs unit={unit} patient={null} onUp={up} />
         <div className="scroll">
           <h2 className="ptitle">{unit.name}</h2>
@@ -125,7 +125,7 @@ export function AdminPanel({ units, view, rows, stays, patient, picked, onView, 
             <ul className="beds admin" aria-label={`${unit.name}: patients${unit.kind === "ranked" ? ", highest rank first" : ""}`}>
               {rows.rows.map((r) => (
                 <li key={r.id}>
-                  <button onClick={() => onPatient(r)}>
+                  <button className="hw-button hw-button--sm" onClick={() => onPatient(r)}>
                     <b>{r.name}</b> · Bed {r.bed} · {headline(r)}
                     <span className="tiny">{vitalsLine(r)}</span>
                   </button>
@@ -148,13 +148,13 @@ export function AdminPanel({ units, view, rows, stays, patient, picked, onView, 
             </ul>
           )}
         </div>
-        <button onClick={() => up("hospital")}>Back to the hospital</button>
+        <button className="hw-button hw-button--sm" onClick={() => up("hospital")}>Back to the hospital</button>
       </aside>
     );
   }
 
   return (
-    <aside className="panel command">
+    <aside className="hw-card hw-card--outlined command">
       <Crumbs unit={null} patient={null} onUp={up} />
       <h2 className="ptitle">Hospital admin</h2>
       <p className="story">You are signed in as the hospital admin. Every unit and every patient is shown. Read-only: nothing here changes the hospital. Every patient is synthetic.</p>
@@ -164,7 +164,7 @@ export function AdminPanel({ units, view, rows, stays, patient, picked, onView, 
         <ul className="beds" aria-label="Units, top floor first">
           {[...units].sort((a, b) => (adminFloor(b) ?? -99) - (adminFloor(a) ?? -99)).map((u) => (
             <li key={u.id}>
-              <button disabled={adminFloor(u) === null} onClick={() => onView(adminFloor(u))}>
+              <button className="hw-button hw-button--sm" disabled={adminFloor(u) === null} onClick={() => onView(adminFloor(u))}>
                 {floorLabel(adminFloor(u))} {u.name} · {u.patients} patient{u.patients === 1 ? "" : "s"}
               </button>
             </li>

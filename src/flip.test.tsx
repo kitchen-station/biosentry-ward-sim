@@ -54,15 +54,15 @@ describe("the top bar", () => {
       const html = renderToStaticMarkup(<TopBar s={s} src={src} notice={null} {...props} />);
       expect(html).toMatch(/class="clock"/);
       expect(html.replace(/<[^>]+>/g, "")).toMatch(/3 Sept 2026, 15:00:00 Manila/);
-      expect(html).toContain('<span class="pill" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
+      expect(html).toContain('<span class="hw-tag" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
       expect(html).not.toContain('class="flip"');
     });
   }
   it.each([[60, 2], [10, 3], [1, 3]])("at %ix the clock has %i flipboxes, and the seconds are plain text", (speed, boxes) => {
     const html = renderToStaticMarkup(<TopBar s={{ ...s, speed: speed as 1 } as typeof s} src={src} notice={null} />);
-    const clock = html.replace(/<!-- -->/g, "").match(/<span class="clock">.*?<\/span><span class="pill"/)![0];
+    const clock = html.replace(/<!-- -->/g, "").match(/<span class="clock">.*?<\/span><span class="hw-tag"/)![0];
     expect(clock.match(/class="flipbox"/g)).toHaveLength(boxes); // date, hour, and the minute only at 10x or slower
-    expect(clock).toMatch(/:00 Manila<\/span><span class="pill"/);
+    expect(clock).toMatch(/:00 Manila<\/span><span class="hw-tag"/);
     expect(clock).toContain(speed > 10 ? "</span></span>:00:00 Manila" : "</span></span>:00 Manila"); // 60x: the minute is bare text too
   });
   it("a paused sim reads Paused", () => {

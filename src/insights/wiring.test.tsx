@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AnalyticsBoundary } from "./Boundary";
-import { TopBar } from "../panels";
+import { TopBar, ViewNav } from "../panels";
 import { createSim } from "../sim/sim";
 import { createSyntheticSource, FIXTURE_SEED } from "../sim/source";
 
@@ -12,13 +12,13 @@ const app = readFileSync("src/App.tsx", "utf8").replace(/\/\*[\s\S]*?\*\//g, "")
 
 describe("the view switch", () => {
   it("is two links to the simulation and Analytics, and the page shown is marked", () => {
-    const bar = renderToStaticMarkup(<TopBar s={s} src={src} notice={null} page="analytics" />);
+    const bar = renderToStaticMarkup(<ViewNav page="analytics" />);
     expect([...bar.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["#simulation", "#analytics"]);
     expect(bar).toContain('href="#analytics" aria-current="page"');
     expect(bar).not.toMatch(/dev/i);
   });
 
-  it("is left out when no page is given", () => {
+  it("is not part of the top bar", () => {
     expect(renderToStaticMarkup(<TopBar s={s} src={src} notice={null} />)).not.toContain("<nav");
   });
 });

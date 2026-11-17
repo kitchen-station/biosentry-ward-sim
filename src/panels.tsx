@@ -119,7 +119,6 @@ export function TopBar({
   serverHospital = false,
   admin = false,
   readClock,
-  page,
 }: {
   s: Sim;
   src: VitalsSource;
@@ -142,50 +141,47 @@ export function TopBar({
   onSkipAhead?: (minutes: number) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: { id: string; label: string; sentence: string }[]; onScenario: (id: string) => void; seedText: string; onShuffle?: () => void };
-  /** The page shown. Left out, there is no switch. The links change the URL hash and nothing else. */
-  page?: "simulation" | "analytics";
 }) {
+  const running = s.speed > 0 && !s.ended;
   return (
     <header className="topbar">
       <h1>BioSentry ward sim</h1>
-      <span className="pill">{hospital || serverHospital ? "Hospital" : "W4"}</span>
+      <span className="hw-tag">{hospital || serverHospital ? "Hospital" : "W4"}</span>
+      <span className={`hw-tag ${running ? "hw-tag--success" : ""} status`}>
+        <span className="dot" data-off={running ? undefined : ""} aria-hidden="true" />
+        {s.ended ? "Ended" : running ? "Running" : "Paused"}
+      </span>
       {serverHospital && <span className="tiny">Server clock</span>}
-      {admin && <span className="pill solid">Hospital admin</span>}
-      {admin && <span className="pill">Read-only</span>}
-      {hospital && <span className="pill" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
-      {page && (
-        <nav aria-label="View">
-          <a href="#simulation" aria-current={page === "simulation" ? "page" : undefined}>Simulation</a>
-          <a href="#analytics" aria-current={page === "analytics" ? "page" : undefined}>Analytics</a>
-        </nav>
-      )}
+      {admin && <span className="hw-tag hw-tag--info">Hospital admin</span>}
+      {admin && <span className="hw-tag">Read-only</span>}
+      {hospital && <span className="hw-tag" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
       <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
-      <span className="pill" title={s.speed === 0 ? "Simulation speed" : `Simulation speed: 1 minute here is ${s.speed} ${serverHospital ? "hospital" : "ward"} minute${s.speed === 1 ? "" : "s"}`}>
+      <span className="hw-tag" title={s.speed === 0 ? "Simulation speed" : `Simulation speed: 1 minute here is ${s.speed} ${serverHospital ? "hospital" : "ward"} minute${s.speed === 1 ? "" : "s"}`}>
         {s.speed === 0 ? "Paused" : `${s.speed}x`}
       </span>
       {notice && (
-        <span className="pill solid" role="status">
+        <span className="hw-tag hw-tag--info" role="status">
           {notice}
         </span>
       )}
-      {s.ended && <span className="pill solid">Run ended</span>}
+      {s.ended && <span className="hw-tag hw-tag--info">Run ended</span>}
       {onSignIn && (
         <>
-          <span className="pill">Watching, read-only</span>
-          <button onClick={onSignIn}>Sign in to control</button>
+          <span className="hw-tag">Watching, read-only</span>
+          <button className="hw-button hw-button--primary hw-button--sm" onClick={onSignIn}>Sign in to control</button>
         </>
       )}
-      {onSignOut && <button onClick={onSignOut}>Sign out</button>}
+      {onSignOut && <button className="hw-button hw-button--sm" onClick={onSignOut}>Sign out</button>}
       {hospital && (
         <>
-          <select aria-label="Scenario" title={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
+          <select className="hw-native-select" aria-label="Scenario" title={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
             {hospital.scenarios.map((n) => <option key={n.id} value={n.id} title={n.sentence}>{n.label}</option>)}
           </select>
           {hospital.onShuffle && (
-            <button disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4 starts with 12 newly drawn synthetic patients; arrivals and the hospital change too." onClick={hospital.onShuffle}>Shuffle</button>
+            <button className="hw-button hw-button--sm" disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4 starts with 12 newly drawn synthetic patients; arrivals and the hospital change too." onClick={hospital.onShuffle}>Shuffle</button>
           )}
-          <span className="pill" title="Repeat this run with ?scenario=...&seed=... in the address. With a seed, ward W4's 12 starting patients are drawn from it. Without one, they are the 12 fixture patients, or, for Critical group, 12 drawn from the scenario's own vitals seed.">{hospital.seedText}</span>
-          <button disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
+          <span className="hw-tag" title="Repeat this run with ?scenario=...&seed=... in the address. With a seed, ward W4's 12 starting patients are drawn from it. Without one, they are the 12 fixture patients, or, for Critical group, 12 drawn from the scenario's own vitals seed.">{hospital.seedText}</span>
+          <button className="hw-button hw-button--sm" disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
         </>
       )}
       {onReset && (
@@ -193,7 +189,7 @@ export function TopBar({
           {SPEEDS.map((speed) => (
             <button
               key={speed}
-              className={s.speed === speed ? "on" : ""}
+              className={`hw-button hw-button--sm${s.speed === speed ? " hw-button--accent" : ""}`}
               aria-pressed={s.speed === speed}
               disabled={hospital?.skipping}
               onClick={() => (onSpeed ? onSpeed(speed) : setSpeed(s, speed))}
@@ -201,13 +197,13 @@ export function TopBar({
               {speed === 0 ? "Pause" : `${speed}x`}
             </button>
           ))}
-          <button onClick={onReset}>Reset</button>
+          <button className="hw-button hw-button--sm" onClick={onReset}>Reset</button>
           {onSkipAhead && (
             <details className="skipmenu">
-              <summary title="The server moves the whole run ahead. One skip at a time.">Skip ahead</summary>
+              <summary className="hw-button hw-button--sm" title="The server moves the whole run ahead. One skip at a time.">Skip ahead</summary>
               <div role="group" aria-label="Skip ahead">
                 {SKIPS.map(([minutes, word]) => (
-                  <button key={minutes} onClick={(e) => { e.currentTarget.closest("details")!.open = false; onSkipAhead(minutes); }}>{word}</button>
+                  <button className="hw-button hw-button--sm" key={minutes} onClick={(e) => { e.currentTarget.closest("details")!.open = false; onSkipAhead(minutes); }}>{word}</button>
                 ))}
               </div>
             </details>
@@ -222,10 +218,10 @@ export function TopBar({
 export function ZoomBar({ pct, onZoom, disabled }: { pct: number; onZoom: (action: "in" | "out" | "fit") => void; disabled?: boolean }) {
   return (
     <div className="stagebar zoombar" role="group" aria-label="Zoom">
-      <button aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom("out")}>-</button>
+      <button className="hw-button hw-button--sm" aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom("out")}>-</button>
       <span className="zoompct">{pct}%</span>
-      <button aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom("in")}>+</button>
-      <button title="Fit: back to 100% (0)" disabled={disabled} onClick={() => onZoom("fit")}>Fit</button>
+      <button className="hw-button hw-button--sm" aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom("in")}>+</button>
+      <button className="hw-button hw-button--sm" title="Fit: back to 100% (0)" disabled={disabled} onClick={() => onZoom("fit")}>Fit</button>
     </div>
   );
 }
@@ -263,7 +259,7 @@ function RankedList({
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="vital">
+    <div className="vital hw-card hw-card--outlined">
       <div className="vhead">{label}</div>
       <span className="vnum"><Flip value={value} /></span>
     </div>
@@ -275,10 +271,10 @@ function Activity({ src, lines }: { src: VitalsSource; lines: { minute: number; 
   return (
     <>
       <h3>Recent activity</h3>
-      <ol className="log">
+      <ol className="hw-timeline">
         {lines.map((line, i) => (
-          <li key={i}>
-            <span className="mono">{clockText(src, line.minute)}</span> {line.text}
+          <li key={i} className="hw-timeline__item">
+            <time className="hw-timeline__time">{clockText(src, line.minute)}</time> {line.text}
           </li>
         ))}
       </ol>
@@ -289,7 +285,7 @@ function Activity({ src, lines }: { src: VitalsSource; lines: { minute: number; 
 function StayScores({ stay }: { stay: Stay }) {
   if (stay.scores.length < 2) return null;
   return (
-    <div className="vital">
+    <div className="vital hw-card hw-card--outlined">
       <div className="vhead">
         <span>NEWS2 across the stay</span>
         <span>peak {stay.peak ?? "--"}</span>
@@ -316,7 +312,7 @@ function StayRows({
     <ul className="list">
       {stays.map((stay) => (
         <li key={stay.id}>
-          <button className="row" onClick={() => onSelect(stay.id)}>
+          <button className="row hw-card hw-card--interactive" onClick={() => onSelect(stay.id)}>
             <span className="rank small">{stay.peak ?? "--"}</span>
             <span className="who">
               <b>{stay.name}</b>
@@ -357,15 +353,15 @@ function BpForm({ s, src, p }: { s: Sim; src: VitalsSource; p: Patient }) {
 
   return (
     <form className="bp" onSubmit={submit}>
-      <label>
-        Systolic
-        <input inputMode="numeric" value={systolic} onChange={(e) => setSystolic(e.target.value)} />
-      </label>
-      <label>
-        Diastolic
-        <input inputMode="numeric" value={diastolic} onChange={(e) => setDiastolic(e.target.value)} />
-      </label>
-      <button type="submit" disabled={pending}>
+      <div className="hw-field">
+        <label className="hw-field__label" htmlFor={`sys-${p.id}`}>Systolic</label>
+        <div className="hw-input hw-input--sm"><input className="hw-input__control" id={`sys-${p.id}`} inputMode="numeric" value={systolic} aria-invalid={error ? "true" : "false"} onChange={(e) => setSystolic(e.target.value)} /></div>
+      </div>
+      <div className="hw-field">
+        <label className="hw-field__label" htmlFor={`dia-${p.id}`}>Diastolic</label>
+        <div className="hw-input hw-input--sm"><input className="hw-input__control" id={`dia-${p.id}`} inputMode="numeric" value={diastolic} aria-invalid={error ? "true" : "false"} onChange={(e) => setDiastolic(e.target.value)} /></div>
+      </div>
+      <button className="hw-button hw-button--primary hw-button--sm" type="submit" disabled={pending}>
         {pending ? "Nurse on the way" : "Record BP"}
       </button>
       {error && <p className="error">{error}</p>}
@@ -409,19 +405,19 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
       <VitalCards p={p} minute={minute} charted={src.rules.charted} origin={origin} when={when} />
       <div className="actions">
         {(src.inject || send) && (
-          <button disabled={p.injected} onClick={ask("inject_deterioration", () => injectDeterioration(s, src, id))}>
+          <button className="hw-button hw-button--sm" disabled={p.injected} onClick={ask("inject_deterioration", () => injectDeterioration(s, src, id))}>
             {p.injected ? "Deteriorating" : "Start deterioration"}
           </button>
         )}
         {(src.startAf || send) && (
-          <button disabled={p.irregular} onClick={ask("start_arrhythmia", () => startArrhythmia(s, src, id))}>
+          <button className="hw-button hw-button--sm" disabled={p.irregular} onClick={ask("start_arrhythmia", () => startArrhythmia(s, src, id))}>
             {p.irregular ? "In AF" : "Start AF"}
           </button>
         )}
         {VIEW_API && !send ? null : p.patch ? (
-          <button onClick={ask("detach_patch", () => detachPatch(s, id))}>Detach patch</button>
+          <button className="hw-button hw-button--sm" onClick={ask("detach_patch", () => detachPatch(s, id))}>Detach patch</button>
         ) : (
-          <button disabled={patchRequested} onClick={ask("apply_patch", () => applyPatch(s, id))}>
+          <button className="hw-button hw-button--sm" disabled={patchRequested} onClick={ask("apply_patch", () => applyPatch(s, id))}>
             {patchRequested ? "Nurse on the way" : "Apply patch"}
           </button>
         )}
@@ -430,10 +426,10 @@ function PatientPanel({ s, src, p, send }: { s: Sim; src: VitalsSource; p: Patie
       <Activity src={src} lines={p.stay.events.slice(-5).reverse()} />
       <details>
         <summary>ECG and score details</summary>
-        <div className="vital">
+        <div className="vital hw-card hw-card--outlined">
           <div className="vhead">
             <span>ECG, lead II</span>
-            <span className="pill">illustrative</span>
+            <span className="hw-tag">illustrative</span>
           </div>
           {src.synthetic ? (
             <>
@@ -529,7 +525,7 @@ function MachinePanel({
     <>
       <div className="chead">
         <h2>{MACHINE_NAMES[id]}</h2>
-        <span className="pill">{status}</span>
+        <span className="hw-tag">{status}</span>
       </div>
       <p className="story">{text}</p>
       <div className="vitals">
@@ -562,7 +558,7 @@ function StayPanel({ s, src, stay }: { s: Sim; src: VitalsSource; stay: Stay }) 
           <h2>{stay.name}</h2>
           <p className="mono">Bed {stay.bed}</p>
         </div>
-        {stay.outcome && <span className="pill">Left the ward</span>}
+        {stay.outcome && <span className="hw-tag">Left the ward</span>}
       </div>
       <div className="explain">
         <p>{stay.outcome ? OUTCOME[stay.outcome] : "On the ward"}</p>
@@ -596,7 +592,7 @@ function EmptyBedPanel({
     <>
       <div className="chead">
         <h2>Bed {bed}</h2>
-        <span className="pill">Empty</span>
+        <span className="hw-tag">Empty</span>
       </div>
       <div className="vitals">
         <Stat label="Empty for" value={past.length ? duration(minuteOf(s) - past[0].outMin!) : "Since start"} />
@@ -642,10 +638,10 @@ function EntrancePanel({
         <Stat label="Average stay" value={stats.averageStayMin === null ? "--" : duration(stats.averageStayMin)} />
       </div>
       <div className="actions">
-        <button onClick={onTimeline}>Bed timeline</button>
+        <button className="hw-button hw-button--sm" onClick={onTimeline}>Bed timeline</button>
         {/* A day at once would overflow the queue to the database. */}
         {/* A hospital world is fed after every step, and skipDay steps with no feed: the top bar's +1 day does it. */}
-        {src.admit && !s.outbox && !s.hospital && <button onClick={() => skipDay(s, src)}>Skip 1 day</button>}
+        {src.admit && !s.outbox && !s.hospital && <button className="hw-button hw-button--sm" onClick={() => skipDay(s, src)}>Skip 1 day</button>}
       </div>
       <h3>Who came and went</h3>
       {recent.length === 0 ? (
@@ -683,7 +679,7 @@ export function BedTimeline({
     <div className="timeline">
       <div className="chead">
         <h2>Bed timeline</h2>
-        <button onClick={onClose}>Back to ward</button>
+        <button className="hw-button hw-button--sm" onClick={onClose}>Back to ward</button>
       </div>
       <div className="trow ticks">
         <span />
@@ -760,6 +756,187 @@ function StaffPanel({ s, src, m }: { s: Sim; src: VitalsSource; m: Staff }) {
   );
 }
 
+/** The product mark: our own, in every logo slot. */
+function Brand() {
+  return (
+    <span className="brand">
+      <span className="mark" aria-hidden="true"><i className="hw-icon fa-solid fa-heart-pulse" /></span>
+      BioSentry
+    </span>
+  );
+}
+
+const VIEW_LINKS = [
+  { id: "simulation", label: "Simulation", icon: "fa-hospital" },
+  { id: "analytics", label: "Analytics", icon: "fa-chart-line" },
+] as const;
+
+/** The view switch: the two pages, as the side nav on a wide screen. The links change the URL hash and nothing else. */
+export function ViewNav({ page }: { page: "simulation" | "analytics" }) {
+  return (
+    <nav className="hw-sidenav" aria-label="View">
+      <Brand />
+      <p className="hw-sidenav__group">Ward</p>
+      {VIEW_LINKS.map((l) => (
+        <a key={l.id} className="hw-sidenav__link" href={`#${l.id}`} aria-current={page === l.id ? "page" : undefined}>
+          <i className={`hw-icon fa-solid ${l.icon}`} aria-hidden="true" />
+          <span className="hw-sidenav__label">{l.label}</span>
+        </a>
+      ))}
+      <p className="sidefoot hw-sidenav__label">Set in HarmonyOS Sans</p>
+    </nav>
+  );
+}
+
+/** The same two pages on a phone: an app bar with a menu drawer, and a bottom bar. */
+export function PhoneNav({ page }: { page: "simulation" | "analytics" }) {
+  const drawer = useRef<HTMLDialogElement>(null);
+  return (
+    <>
+      <header className="hw-appbar hw-only-mobile">
+        <button className="hw-appbar__action" aria-label="Open menu" onClick={() => drawer.current?.showModal?.()}>
+          <i className="hw-icon fa-solid fa-bars" aria-hidden="true" />
+        </button>
+        <p className="hw-appbar__title">BioSentry</p>
+      </header>
+      <nav className="hw-bottomnav hw-only-mobile" aria-label="Primary">
+        {VIEW_LINKS.map((l) => (
+          <a key={l.id} className="hw-bottomnav__item" href={`#${l.id}`} aria-current={page === l.id ? "page" : undefined}>
+            <span className="hw-bottomnav__icon" aria-hidden="true"><i className={`hw-icon fa-solid ${l.icon}`} /></span>
+            {l.label}
+          </a>
+        ))}
+      </nav>
+      <dialog className="hw-dialog hw-dialog--nav" ref={drawer} aria-label="Main menu" onClick={(e) => e.target === drawer.current && drawer.current.close()}>
+        <ViewNav page={page} />
+      </dialog>
+    </>
+  );
+}
+
+/** Top centre of the stage: the place in spaced capitals, and how many people are in it. */
+export function StageTitle({ title, count, noun }: { title: string; count: number; noun: string }) {
+  return (
+    <div className="stagetitle">
+      <h2>{title}</h2>
+      <span className="hw-tag" role="status">{count} {noun}</span>
+    </div>
+  );
+}
+
+const occupancyTone = (pct: number | null) => (pct === null ? "" : pct >= 90 ? " hw-tag--danger" : pct >= 75 ? " hw-tag--warning" : " hw-tag--success");
+
+/** Floating over the stage: the building's floors as cards. Prev and Next step through them; the open one is marked. */
+export function Directory({ floors, view, onView, ward }: { floors: FloorSummary[]; view: number | null; onView: (floor: number | null) => void; ward?: { name: string; count: number; noun: string } }) {
+  if (floors.length === 0) {
+    return (
+      <section className="hw-card floatcard dir" aria-label="Directory">
+        <div className="dirhead"><div><span className="hw-eyebrow">Directory</span><h2>Ward</h2></div></div>
+        <div className="dirlist">
+          <div className="hw-card hw-card--outlined dirrow" aria-current="true">
+            <span className="eyebrow">Ward</span>
+            <b>{ward?.name ?? "W4"}</b>
+            <span className="hw-tag">{ward?.count ?? 0} {ward?.noun ?? "patients"}</span>
+            <span className="sub">single ward | no building</span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  const items = [
+    { floor: null as number | null, eyebrow: "Building", title: "All floors", name: "All floors", tag: String(floors.reduce((n, f) => n + f.census, 0)), tone: "", sub: `${floors.length} floors | roster ${floors.reduce((n, f) => n + f.nurses, 0)}` },
+    ...floors.map((f) => ({
+      floor: f.floor as number | null, eyebrow: `Floor ${f.label}`, title: f.name, name: `${f.name}: ${f.units.map((u) => u.name).join(" and ")}`,
+      tag: f.occupancyPct === null ? `${f.census}` : `${f.occupancyPct}%`, tone: occupancyTone(f.occupancyPct), sub: `roster ${f.nurses} | ${f.census} of ${f.capacity} beds`,
+    })),
+  ];
+  const at = Math.max(0, items.findIndex((i) => i.floor === view));
+  const step = (d: number) => onView(items[(at + d + items.length) % items.length].floor);
+  return (
+    <section className="hw-card floatcard dir" aria-label="Building directory">
+      <div className="dirhead">
+        <div><span className="hw-eyebrow">Directory</span><h2>Building directory</h2></div>
+        <div className="dirnav">
+          <button className="hw-button hw-button--sm" onClick={() => step(-1)}>Prev</button>
+          <button className="hw-button hw-button--sm" onClick={() => step(1)}>Next</button>
+        </div>
+      </div>
+      <div className="dirlist" role="group" aria-label="Floors">
+        {items.map((f) => (
+          <button key={f.eyebrow} className="hw-card hw-card--outlined hw-card--interactive dirrow" aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => onView(f.floor)}>
+            <span className="eyebrow">{f.eyebrow}</span>
+            <b>{f.title}</b>
+            <span className={`hw-tag${f.tone}`}>{f.tag}</span>
+            <span className="sub">{f.sub}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Under the directory: the open floor, or the building, or ward W4, in numbers. */
+export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; view: number | null; ward: { name: string; rows: [string, string | number][] } }) {
+  const f = view === null ? null : floors.find((x) => x.floor === view) ?? null;
+  const rows: [string, string | number][] =
+    floors.length === 0 ? ward.rows
+    : f ? [["Units", f.units.map((u) => u.name).join(", ")], ["Beds in use", `${f.census} of ${f.capacity}`], ["Occupancy", f.occupancyPct === null ? "--" : `${f.occupancyPct}%`], ["Nurses", f.nurses]]
+    : [["Floors", floors.length], ["People", floors.reduce((n, x) => n + x.census, 0)], ["Beds", floors.reduce((n, x) => n + x.capacity, 0)], ["Nurses", floors.reduce((n, x) => n + x.nurses, 0)]];
+  return (
+    <section className="hw-card floatcard curfloor" aria-label="Current floor">
+      <span className="hw-eyebrow">Current floor</span>
+      <h2>{floors.length === 0 ? ward.name : f ? f.name : "Whole building"}</h2>
+      <dl>
+        {rows.map(([k, v]) => (
+          <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+const eventLine = (src: VitalsSource, l: { minute: number; text: string }) => `${clockText(src, l.minute)} ${l.text}`;
+
+/** The strip along the bottom of the stage: the run's latest events. Copy, Download, Clear and Expand act on this page only. */
+export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
+  const [open, setOpen] = useState(false);
+  // shortcut: Clear hides events up to the last one's minute (the log is capped and a viewer rebuilds it, so no index is stable); later events at that same minute stay hidden too
+  const [clearedTo, setClearedTo] = useState(-1);
+  const lines = s.log.filter((l) => l.minute > clearedTo);
+  const shown = lines.slice(open ? -20 : -3).reverse();
+  const text = () => lines.map((l) => eventLine(src, l)).join("\n");
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([text()], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "biosentry-events.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <section className="hw-card hw-card--outlined floatcard events" aria-label="Event console" data-open={open}>
+      <div className="evhead">
+        <span className="hw-eyebrow">Event console</span>
+        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>Copy</button>
+        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={download}>Download</button>
+        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => setClearedTo(s.log.at(-1)?.minute ?? -1)}>Clear</button>
+        <button className="hw-button hw-button--sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Collapse" : "Expand"}</button>
+      </div>
+      {shown.length === 0 ? (
+        <p className="tiny">No events yet.</p>
+      ) : (
+        <ol className="hw-timeline">
+          {shown.map((l, i) => (
+            <li key={i} className="hw-timeline__item">
+              <time className="hw-timeline__time">{clockText(src, l.minute)}</time> {l.text}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 const SIDE_KEY = "biosentry.sidePanel";
 
 /** The side panel can fold to a narrow tab. The choice is kept in localStorage; without it the panel is open. */
@@ -781,8 +958,9 @@ export function SidePanel({ children }: { children: ReactNode }) {
   };
   return (
     <div className={open ? "side" : "side shut"}>
-      <button type="button" className="sidetab" aria-expanded={open} aria-controls="side-body" onClick={toggle}>
-        {open ? "Hide panel ▸" : "◂ Show panel"}
+      <button type="button" className="sidetab hw-button hw-button--sm" aria-expanded={open} aria-controls="side-body" onClick={toggle}>
+        <i className={`hw-icon fa-solid ${open ? "fa-chevron-right" : "fa-chevron-left"}`} aria-hidden="true" />
+        {open ? "Hide panel" : "Show panel"}
       </button>
       {open && (
         <div id="side-body" className="sidebody">
@@ -818,7 +996,7 @@ export function Inspector({
 }) {
   if (selected === null) {
     return (
-      <aside className="panel command">
+      <aside className="hw-card hw-card--outlined command">
         {watching ? (
           <>
             <h2 className="ptitle">Watching W4</h2>
@@ -862,11 +1040,11 @@ export function Inspector({
     const p = s.patients.find((x) => x.bed === bed);
     const d = p?.decision;
     return (
-      <aside className="panel command">
-        <button onClick={() => onSelect(null)}>Back to the list</button>
+      <aside className="hw-card hw-card--outlined command">
+        <button className="hw-button hw-button--sm" onClick={() => onSelect(null)}>Back to the list</button>
         <div className="chead">
           <h2>Bed {bed}</h2>
-          <span className="pill">{d?.kind === "ranked" ? RISK_WORDS[d.news2.risk] : "Not ranked"}</span>
+          <span className="hw-tag">{d?.kind === "ranked" ? RISK_WORDS[d.news2.risk] : "Not ranked"}</span>
         </div>
         {p?.rank != null && <p className="story">Rank {p.rank} on the ward.</p>}
         <p className="story">Sign in to see this patient's vitals.</p>
@@ -879,8 +1057,8 @@ export function Inspector({
   const stay = s.stays.find((x) => x.id === selected);
   const staff = s.staff.find((m) => m.id === selected);
   return (
-    <aside className="panel command">
-      <button onClick={() => onSelect(null)}>{s.hospital ? "Back to floor" : "Back to full ward"}</button>
+    <aside className="hw-card hw-card--outlined command">
+      <button className="hw-button hw-button--sm" onClick={() => onSelect(null)}>{s.hospital ? "Back to floor" : "Back to full ward"}</button>
       <div className="scroll">
         {s.hospital && isHospitalId(selected) ? (
           <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} vitals={vitals} />
@@ -897,7 +1075,7 @@ export function Inspector({
           <>
             <div className="chead">
               <h2>Bed {bed}</h2>
-              <span className="pill">Occupied</span>
+              <span className="hw-tag">Occupied</span>
             </div>
             <p className="story">Occupied. Not on your list.</p>
           </>
@@ -925,7 +1103,7 @@ function BedList({ s, onSelect }: { s: Sim; onSelect: (id: string) => void }) {
     <ul className="beds" aria-label="Beds, highest rank first">
       {rows.map((r) => (
         <li key={r.bed}>
-          <button onClick={() => onSelect(`bed:${r.bed}`)}>
+          <button className="hw-button hw-button--sm" onClick={() => onSelect(`bed:${r.bed}`)}>
             <i style={{ background: r.d.kind === "ranked" ? RISK_LIGHT[r.d.news2.risk] : "#A899B5" }} /> Bed {r.bed}
             {r.rank !== null && r.d.kind === "ranked" ? ` · Rank ${r.rank}` : ""} · {r.d.kind === "ranked" ? RISK_WORDS[r.d.news2.risk] : "Not ranked"}
           </button>
@@ -949,7 +1127,7 @@ export function SelectList({ s, onSelect }: { s: Sim; onSelect: (id: string) => 
     <ul className="sr" aria-label="Select on the ward">
       {targets.map(([id, name]) => (
         <li key={id}>
-          <button onClick={() => onSelect(id)}>{name}</button>
+          <button className="hw-button hw-button--sm" onClick={() => onSelect(id)}>{name}</button>
         </li>
       ))}
     </ul>

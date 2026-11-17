@@ -11,13 +11,14 @@
 .analytics .panel {
   display: grid;
   gap: 6px;
-  padding: 8px 12px;
+  padding: var(--hw-space-4) var(--hw-space-5);
   align-content: start;
 }
 
 .analytics h2,
 .analytics h3 {
-  font: 600 20px var(--title);
+  font-size: var(--hw-font-size-18);
+  font-weight: var(--hw-weight-semibold);
 }
 
 .analytics ul {
@@ -35,7 +36,7 @@
 
 .analytics th,
 .analytics td {
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--hw-color-border-subtle);
   padding: 2px 6px;
   text-align: left;
   vertical-align: top;
@@ -43,7 +44,8 @@
 
 .analytics caption {
   text-align: left;
-  font: 600 18px var(--title);
+  font-size: var(--hw-font-size-16);
+  font-weight: var(--hw-weight-semibold);
 }
 
 .analytics code {
