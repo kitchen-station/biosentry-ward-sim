@@ -315,6 +315,9 @@ export function record(s: Sim, p: Patient, minute: number) {
   put("consciousness", "nurse", "ok", taken(p.consciousness, p.nurseAt), { txt: p.consciousness });
   put("supplemental_o2", "nurse", "ok", taken(p.onOxygen, p.nurseAt), { num: p.onOxygen ? 1 : 0 });
   put("spo2_scale", "nurse", "ok", taken(p.spo2Scale, p.nurseAt), { num: p.spo2Scale });
+  // The sim's rhythm state, not an ECG finding. Display only: the API never scores or ranks on it.
+  if (p.patch) put("rhythm", "device", "ok", [p.irregular, true], { txt: p.irregular ? "af" : "sinus" });
+  else put("rhythm", "device", "missing", [null, false], { absent_reason: "No patch on" });
 }
 
 export function gate(p: Patient, reading: Record<Vital, number | null> | null, minute: number) {
