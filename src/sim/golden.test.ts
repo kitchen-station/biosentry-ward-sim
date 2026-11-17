@@ -12,7 +12,9 @@ const COUNTS = { received: 56064, rejected: 7310, abstained: 1640 };
 // Limit: one seed over five days. A fitted constant moved by a percent or two can leave every draw of this seed
 // unchanged and pass here; those constants are guarded by published.test.ts and are never edited on judgement.
 // 2026-11-12: temperature rise removed, see README sources.
-const GOLDEN = "8749072d";
+// 2026-11-17: the outbox gains a "rhythm" observation (simulated AF state, display only). The saved ward
+// is unchanged (source.fixture.test.ts "save" hash is the same); only the rows W4 sends grew.
+const GOLDEN = "3e891c58";
 
 // FNV-1a 32-bit, written out so the test stays pure (no node:crypto).
 const OFFSET = 0x811c9dc5;
