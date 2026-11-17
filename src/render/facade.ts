@@ -2,6 +2,7 @@
 // and face, one glass stair core, one cross. A storey's floor is its floor map's own logical frame, lifted STOREY px per
 // storey; nothing sits between storeys. Pictures are baked per storey and re-baked only when its lit-segment count changes.
 // Pure: no clock, no random.
+import { themed } from "./theme";
 import { TRIAGE_COLOURS, type FloorSummary } from "../building";
 import { MAP_H, MAP_W } from "../sim/map";
 import { box, iso, leftFaceBand, rightFaceBand } from "./draw";
@@ -83,7 +84,7 @@ function bakeAt(x0: number, y0: number, x1: number, y1: number, paint: (ctx: Ctx
   const image = document.createElement("canvas");
   image.width = x1 - x0;
   image.height = y1 - y0;
-  const ctx = image.getContext("2d")!;
+  const ctx = themed(image.getContext("2d")!);
   ctx.translate(-x0, -y0);
   paint(ctx);
   return { image, dx: x0, dy: y0 };

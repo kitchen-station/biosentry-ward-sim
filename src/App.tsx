@@ -13,6 +13,8 @@ import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
 import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
+import { setRenderDark } from "./render/theme";
+import { useTheme } from "./settings";
 import { createRenderer, type Renderer } from "./render/draw";
 import { createStackRenderer, nextLevel, type LevelEvent } from "./render/stack";
 import { buildQuery, buildWorld, drawSeed, NAMED, parseQuery, seedText } from "./scenarios";
@@ -241,6 +243,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);
   const hospRef = useRef(hosp);
   hospRef.current = hosp;
+  const theme = useTheme();
   const [page, setPage] = useState(pageOf);
   useEffect(() => {
     const onHash = () => setPage(pageOf());
@@ -407,6 +410,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
 
   useEffect(() => {
     const canvas = canvasRef.current!;
+    setRenderDark(theme === "dark"); // before the renderer bakes its floors and facade
     const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current, unitsRef.current)), !!watch) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
@@ -525,7 +529,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
       clearInterval(perfLog);
       observer.disconnect();
     };
-  }, [hosp]); // the building's drawing or the ward's: watching, that follows what the server runs
+  }, [hosp, theme]); // the building's drawing or the ward's: watching, that follows what the server runs
 
   // Viewer mode: the runner takes the command and the next answer shows it. Nothing is changed here.
   const send = canControl
