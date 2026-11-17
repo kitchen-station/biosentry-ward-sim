@@ -1,6 +1,6 @@
 // The canvas theme. Light is what the palettes in draw.ts, facade.ts and stack.ts are written in. Dark maps each
-// colour the way a dark UI would: pale surfaces and dark ink swap their lightness, vivid colours (risk, selection,
-// beds, signals) stay as they are. The draw log snapshot is the light theme, which touches nothing here.
+// colour the way a dark UI would: pale surfaces and dark ink swap their lightness, vivid colours (chroma of 0.32 or more: risk, selection,
+// occupied beds, signals) stay as they are. The draw log snapshot is the light theme, which touches nothing here.
 let dark = false;
 export const setRenderDark = (on: boolean) => void (dark = on);
 export const isRenderDark = () => dark;
@@ -44,7 +44,7 @@ export function darkColour(colour: string): string {
   else return colour;
   const [h, s, l] = toHsl(r, g, b);
   let out = colour;
-  if (s < 0.55) {
+  if (s * (1 - Math.abs(2 * l - 1)) < 0.32) {
     const [rr, gg, bb] = fromHsl(h, s, 0.1 + (1 - l) * 0.8);
     out = m ? `#${[rr, gg, bb].map((v) => v.toString(16).padStart(2, "0")).join("")}` : `rgba(${rr},${gg},${bb},${a})`;
   }

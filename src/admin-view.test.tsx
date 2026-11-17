@@ -197,7 +197,9 @@ describe("the page for an admin", () => {
   it("the top bar says Hospital admin and read-only, with Sign out and no control", () => {
     const html = bar({ admin: true, serverHospital: true, onSignOut: noop });
     expect(text(html)).toContain("Hospital admin Read-only");
-    expect([...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((x) => x[1])).toEqual(["Sign out"]);
+    // The kit icon sits before the word; the gear and its dialog (Settings) are the page's own, not a control of the run.
+    const topBar = html.slice(0, html.indexOf("<dialog"));
+    expect([...topBar.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((x) => x[1].replace(/<i [^>]*><\/i>/g, ""))).toEqual(["Sign out", ""]);
     expect(bar({})).not.toContain("Hospital admin");
   });
 

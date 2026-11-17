@@ -28,7 +28,7 @@ describe("the top bar", () => {
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} admin />)).not.toContain("Skip ahead"); // the hospital admin
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />)).not.toContain("Skip ahead");
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} onSkipAhead={noop} />);
-    expect(html).toMatch(/<details class="skipmenu"><summary class="hw-button hw-button--sm" title="[^"]+">Skip ahead<\/summary><div role="group" aria-label="Skip ahead">/);
+    expect(html).toMatch(/<details class="skipmenu"><summary class="hw-button hw-button--sm" title="[^"]+"><i class="hw-icon fa-solid fa-forward" aria-hidden="true"><\/i>Skip ahead<\/summary><div role="group" aria-label="Skip ahead">/);
     expect([...html.matchAll(/<button[^>]*>(\+[^<]+)<\/button>/g)].map((x) => x[1])).toEqual(["+1 h", "+6 h", "+12 h", "+1 day"]);
     // The page only asks: the one sender exists when the server said can_control, and nothing is stepped here.
     const app = readFileSync("src/App.tsx", "utf8");
