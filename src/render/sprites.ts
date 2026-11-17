@@ -10,7 +10,7 @@ export function sprite(rows: string[], palette: Palette, flip = false): HTMLCanv
   const ctx = canvas.getContext("2d")!;
   rows.forEach((row, y) => {
     [...row].forEach((ch, x) => {
-      if (ch === ".") return;
+      if (ch === "." || palette[ch] === "none") return; // "none": a cell left clear, so figures carry no outline
       ctx.fillStyle = palette[ch];
       ctx.fillRect(flip ? canvas.width - 1 - x : x, y, 1, 1);
     });
@@ -72,7 +72,7 @@ export const PORTRAIT = [...HEAD_FRONT, ...BODY.slice(0, 4)];
 const INK = "#5B6678"; // a soft slate outline, not black
 
 const staffPalette = (skin: string, hair: string, top: string, shade: string, trim: string, legs: string): Palette => ({
-  k: INK,
+  k: "none",
   e: INK,
   s: skin,
   h: hair,
@@ -125,7 +125,7 @@ export const ENVELOPE = [
   "kwwwwwwwk",
   "kkkkkkkkk",
 ];
-export const ENVELOPE_PALETTE: Palette = { k: INK, w: "#FFFFFF" };
+export const ENVELOPE_PALETTE: Palette = { k: "#9AA6B8", w: "#FFFFFF" };
 
 export const PLANT = [
   "...g.g...",
@@ -139,4 +139,4 @@ export const PLANT = [
   "..kttttk.",
   "...kkkk..",
 ];
-export const PLANT_PALETTE: Palette = { g: "#5FB08A", G: "#8AD3AE", k: INK, t: "#D9B9A0" };
+export const PLANT_PALETTE: Palette = { g: "#5FB08A", G: "#8AD3AE", k: "none", t: "#D9B9A0" };

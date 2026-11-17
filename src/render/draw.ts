@@ -43,6 +43,7 @@ const SELECT = "#0A59F7"; // hw-ui blue: the selection outline
 const HOVER = "#9DBDFC";
 const SOFT: [string, string, string] = ["#FFFFFF", "#E3E8EE", "#D3DAE3"]; // white fittings
 const FONT = '500 7.5px "HarmonyOS Sans", system-ui, sans-serif';
+const FONT_TINY = '600 5.5px "HarmonyOS Sans", system-ui, sans-serif';
 const FONT_SMALL = '600 7px "HarmonyOS Sans", system-ui, sans-serif';
 
 export const CHIP_COLOURS = {
@@ -255,10 +256,10 @@ const COVER: [string, string, string] = ["#F4F6F9", "#D8DEE6", "#C8D0DA"];
 function bedItem(bedX: number, headY: number, footY: number, patient: number | null, body = false): Item {
   const y0 = Math.min(headY, footY);
   const north = headY < footY;
-  const frame: [string, string, string] = ["#E3E8EE", "#BCC6D2", "#AAB5C2"];
+  const frame: [string, string, string] = ["#FFFFFF", "#E6EBF1", "#D6DDE6"];
   const sheet = SHEET;
   const blanket: [string, string, string] =
-    patient === null ? ["#E6EDF4", "#CBD6E1", "#BAC6D3"] : ["#A9C5F6", "#86A9EA", "#7597D8"];
+    patient === null ? ["#E6EDF4", "#CBD6E1", "#BAC6D3"] : ["#BCD3F8", "#9BBBF0", "#8AAAE2"];
   return bake(y0 + 1 + bedX, bedX, y0, 1, 2, 16, (ctx) => {
     const x = bedX + 0.12;
     box(ctx, x, y0, 0.76, 2, 4, frame);
@@ -466,7 +467,10 @@ function label(ctx: Ctx, text: string, x: number, y: number, colour: string, fon
 function floorText(ctx: Ctx, spec: FloorSpec) {
   for (const room of spec.rooms) {
     const [x, y] = iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
-    label(ctx, room.label, x, y, "rgba(40,52,72,.8)");
+    // Inside the room: a name wider than the room's floor steps down a size.
+    const room_w = iso(room.x1 + 1, room.y0)[0] - iso(room.x0, room.y1 + 1)[0];
+    ctx.font = FONT_SMALL;
+    label(ctx, room.label, x, y, "rgba(40,52,72,.8)", ctx.measureText(room.label).width > room_w * 0.8 ? FONT_TINY : FONT_SMALL);
   }
   const [wx, wy] = iso(3, 8.6);
   label(ctx, spec.name, wx, wy, "rgba(55,68,88,.75)", FONT);
@@ -512,10 +516,26 @@ const bedPoint = (bed: Bed): [number, number] => {
 const cellText = (c: Cell) => (c.icu && !c.dead ? `${c.initials} ICU` : c.initials);
 // The dot: the NEWS2 risk when the cell has one, grey when not ranked, else the group colour (intensive care, bodies).
 export const cellDot = (c: Cell) => (typeof c.risk === "string" ? RISK_LIGHT[c.risk] : c.risk === null ? "#A6ADB8" : GROUP_COLOURS[c.group]);
+/** Bed tags that would sit on one another: the nearer bed keeps its place, the others rise a tag's height at a time (at most three). */
+const tagBox = (c: Cell) => cellText(c).length * 4 + (c.dead ? 5 : 11);
+export function tagLifts(beds: { id: string; bed: Bed; cell: Cell | null }[]): Map<string, number> {
+  const lifts = new Map<string, number>();
+  const placed: { x: number; y: number; w: number }[] = [];
+  const sorted = beds.filter((b) => b.cell).sort((a, b) => bedPoint(b.bed)[1] - bedPoint(a.bed)[1]);
+  for (const b of sorted) {
+    const [x, y] = bedPoint(b.bed);
+    const w = tagBox(b.cell!);
+    let up = 0;
+    while (up < 33 && placed.some((p) => Math.abs(p.x - x) < (p.w + w) / 2 && Math.abs(p.y - (y - up)) < 11)) up += 11;
+    placed.push({ x, y: y - up, w });
+    lifts.set(b.id, up);
+  }
+  return lifts;
+}
 const cellTag = (ctx: Ctx, c: Cell, x: number, bottom: number) => tag(ctx, cellText(c), x, bottom, c.dead ? undefined : cellDot(c), c.dead);
 const inTag = (x: number, y: number, cx: number, bottom: number, text: string, dot: boolean) =>
   Math.abs(x - cx) <= text.length * 2 + (dot ? 6 : 3) && y >= bottom - 12 && y <= bottom;
-const TROLLEY: [string, string, string] = ["#A9C5F6", "#86A9EA", "#7597D8"];
+const TROLLEY: [string, string, string] = ["#BCD3F8", "#9BBBF0", "#8AAAE2"];
 
 /** A hospital floor other than W4: baked once; who is where comes from its scene (render/scene.ts) at each paint. */
 export function createFloor(spec: FloorSpec) {
@@ -594,8 +614,6 @@ export function createFloor(spec: FloorSpec) {
         ctx.drawImage(b.cell === null ? item.empty! : b.cell.dead ? item.body! : item.image, item.dx, item.dy);
       }
       while (next < actors.length) actors[next++].draw();
-      floorText(ctx, spec); // names sit over the furniture, not under it
-
       for (const d of scene.drawers) {
         if (!d.full) continue;
         const [x, y] = iso(d.tile[0] + 0.5, d.tile[1] + 0.9);
@@ -620,11 +638,13 @@ export function createFloor(spec: FloorSpec) {
         const m = d.full ? marked(d.id, d.slot) : marked(d.slot);
         if (m) outline(ctx, d.tile[0], d.tile[1], 1, 1, m === "selected");
       }
+      const lifts = tagLifts(scene.beds);
       for (const b of scene.beds) {
         if (!b.cell) continue;
         const [x, y] = bedPoint(b.bed);
-        cellTag(ctx, b.cell, x, y - 8);
-        if (b.late) tag(ctx, "late", x, y - 19); // steady: it never blinks
+        const up = lifts.get(b.id) ?? 0;
+        cellTag(ctx, b.cell, x, y - 8 - up);
+        if (b.late) tag(ctx, "late", x, y - 19 - up); // steady: it never blinks
       }
       for (const p of scene.spots) {
         const [x, y] = tilePoint(p.tile, 0);
@@ -653,6 +673,7 @@ export function createFloor(spec: FloorSpec) {
         const [x, y] = roomCentre(room);
         tag(ctx, room.label, x, y + 5, undefined, true);
       }
+      floorText(ctx, spec); // last: names sit over furniture and tags, never under them
     },
 
     /** The thing at a logical point of this floor: people, tags, beds and drawers, labels. */
@@ -666,10 +687,11 @@ export function createFloor(spec: FloorSpec) {
         const [sx, sy] = iso(p.tile[0] + 0.5, p.tile[1] + 0.5);
         if (Math.abs(x - sx) <= 5 && y <= sy && y >= sy - p.h) return p.id;
       }
+      const lifts = tagLifts(scene.beds);
       for (const b of scene.beds) {
         if (!b.cell) continue;
         const [cx, cy] = bedPoint(b.bed);
-        if (inTag(x, y, cx, cy - 8, cellText(b.cell), !b.cell.dead)) return b.id;
+        if (inTag(x, y, cx, cy - 8 - (lifts.get(b.id) ?? 0), cellText(b.cell), !b.cell.dead)) return b.id;
       }
       for (const p of scene.spots) {
         const [cx, cy] = tilePoint(p.tile, 0);
@@ -884,7 +906,6 @@ export function createW4() {
         next += 1;
       }
 
-      floorText(ctx, W4);
       MACHINES.forEach(([id, tile, name, lift], i) => {
         const [x, y] = iso(tile[0] + 0.5, tile[1] + 0.5);
         if (i < 4) {
@@ -901,6 +922,7 @@ export function createW4() {
       drawEnvelopes(s);
       drawBedOverlays(s, selected, hovered, now);
       drawStaffTags(s, selected, hovered);
+      floorText(ctx, W4);
     },
 
     /** The patient, empty bed, staff member or machine at a logical point of W4, if any. */
