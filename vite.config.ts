@@ -55,4 +55,32 @@ function wardApi(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [buildGuard(), react(), wardApi()] });
+const plugins = [buildGuard(), react(), wardApi()];
+
+// Files that run weeks of simulated days or spawn many git processes, and so take minutes when the machine is busy. They get their own project and a long limit.
+const LONG = [
+  "src/sim/hospital/hospital.test.ts",
+  "src/sim/hospital/month.test.ts",
+  "src/sim/hospital/vitals.long.test.ts",
+  "src/sim/hospital/trial.test.ts",
+  "src/sim/trial.long.test.ts",
+  "src/sim/ward-stats.test.ts",
+  "src/sim/published.test.ts",
+  "src/compare.test.ts",
+  "src/sim/hospital/vitals.test.ts",
+  "src/sim/trial.test.ts",
+  "src/render/stack.test.ts",
+  "scripts/sync-evaluation.test.mjs",
+];
+
+export default defineConfig({
+  plugins,
+  test: {
+    // Other jobs often share this machine: a few workers each get a real share of the CPU, and a test that is only slow is not cut off.
+    maxWorkers: 4,
+    projects: [
+      { extends: true, test: { name: "fast", exclude: ["node_modules/**", "dist/**", ...LONG], testTimeout: 20_000, hookTimeout: 20_000 } },
+      { extends: true, test: { name: "long", include: LONG, testTimeout: 600_000, hookTimeout: 600_000 } },
+    ],
+  },
+});
