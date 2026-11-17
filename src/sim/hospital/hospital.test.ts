@@ -1131,7 +1131,7 @@ describe("returning people (A3)", () => {
     return { h, ...run(h, port(), 0, 30 * DAY) };
   };
   const month = (seed: number, sc: Scenario = SC.typical, port: () => FakePort = acceptingPort) => {
-    const key = `${seed}|${sc.name}|${port.name}|${JSON.stringify(PARAMS)}`;
+    const key = `${seed}|${JSON.stringify(sc)}|${port.name}|${JSON.stringify(PARAMS)}`;
     if (!months.has(key)) months.set(key, runMonth(seed, sc, port));
     return months.get(key)!;
   };
