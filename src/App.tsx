@@ -769,10 +769,10 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
       />
       <aside className="wardside">
         <ViewNav page={page} brand={false} />
-        <div className="floaters">
+        {page !== "analytics" && <div className="floaters">
           <Directory floors={floors} view={view} onView={(floor) => go({ rail: floor })} ward={{ name: "Ward W4", count: world.s.patients.length, noun: "patients" }} />
           <CurrentFloor floors={floors} view={view} ward={{ name: "Ward W4", rows: [["Patients", world.s.patients.length], ["Ranked", world.s.patients.filter((p) => p.rank !== null).length], ["Not ranked", world.s.patients.filter((p) => p.rank === null).length], ["Speed", world.s.speed === 0 ? "Paused" : `${world.s.speed}x`]] }} />
-        </div>
+        </div>}
       </aside>
       <div className="wardmain">
       {page === "analytics" && (
