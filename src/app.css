@@ -69,7 +69,7 @@ h1, h2, h3, p, ol, ul { margin: 0; padding: 0; list-style: none; }
 .stage { position: relative; flex: 1; min-height: 0; background: var(--stage); }
 .stage canvas { position: absolute; display: block; touch-action: none; }
 .stagenote { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: var(--hw-space-6); text-align: center; background: var(--stage); color: var(--hw-color-text); }
-.stagetitle { position: absolute; top: var(--hw-space-4); left: 50%; transform: translateX(-50%); z-index: 1; display: flex; align-items: center; gap: var(--hw-space-3); pointer-events: none; text-align: center; }
+.stagetitle { position: absolute; top: var(--hw-space-4); left: var(--hw-space-6); max-width: calc(100% - 240px); z-index: 1; display: flex; align-items: center; gap: var(--hw-space-3); pointer-events: none; text-align: center; }
 .stagetitle h2 { font-size: var(--hw-font-size-14); font-weight: var(--hw-weight-semibold); letter-spacing: .24em; text-transform: uppercase; color: var(--hw-color-text); white-space: nowrap; }
 .stagetitle .hw-tag { background: var(--hw-color-surface); border: 1px solid var(--hw-color-border-subtle); height: 24px; }
 
@@ -202,7 +202,7 @@ summary { cursor: pointer; margin-bottom: var(--hw-space-3); }
   .stage { aspect-ratio: 656 / 382; flex: none; }
   .floaters { position: static; width: auto; padding: var(--hw-space-4); pointer-events: auto; }
   .events { position: static; width: auto; padding: 0 var(--hw-space-4) var(--hw-space-4); }
-  .stagetitle { top: var(--hw-space-2); }
+  .stagetitle { top: var(--hw-space-2); left: var(--hw-space-2); max-width: calc(100% - 16px); flex-wrap: wrap; }
   .stagetitle h2 { letter-spacing: .12em; font-size: var(--hw-text-caption); }
   .side, .side.shut { width: auto; border-left: 0; }
   .shut .sidetab { writing-mode: horizontal-tb; flex: none; padding: 0 var(--hw-space-5); }
@@ -217,8 +217,7 @@ summary { cursor: pointer; margin-bottom: var(--hw-space-3); }
   .wardmain { height: 100vh; }
   .main { overflow: hidden; }
   .stage { margin-left: var(--dir-w); }
-  .stage .stagetitle { left: 50%; }
-  .side { overflow-y: auto; }
+    .side { overflow-y: auto; }
   .command { height: 100%; }
 }
 @media (width >= 992px) and (width < 1200px) {
