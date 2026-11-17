@@ -43,7 +43,7 @@ const SELECT = "#0A59F7"; // hw-ui blue: the selection outline
 const HOVER = "#9DBDFC";
 const SOFT: [string, string, string] = ["#FFFFFF", "#E3E8EE", "#D3DAE3"]; // white fittings
 const FONT = '500 7.5px "HarmonyOS Sans", system-ui, sans-serif';
-const FONT_SMALL = '500 6.5px "HarmonyOS Sans", system-ui, sans-serif';
+const FONT_SMALL = '600 7px "HarmonyOS Sans", system-ui, sans-serif';
 
 export const CHIP_COLOURS = {
   idle: "#A6ADB8",
@@ -454,6 +454,10 @@ function label(ctx: Ctx, text: string, x: number, y: number, colour: string, fon
   ctx.fillStyle = colour;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 2.5; // a soft white halo keeps the name readable over furniture
+  ctx.strokeStyle = "rgba(255,255,255,.85)";
+  ctx.strokeText(text, x, y);
   ctx.fillText(text, x, y);
 }
 
@@ -462,7 +466,7 @@ function label(ctx: Ctx, text: string, x: number, y: number, colour: string, fon
 function floorText(ctx: Ctx, spec: FloorSpec) {
   for (const room of spec.rooms) {
     const [x, y] = iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
-    label(ctx, room.label, x, y, "rgba(55,68,88,.62)");
+    label(ctx, room.label, x, y, "rgba(40,52,72,.8)");
   }
   const [wx, wy] = iso(3, 8.6);
   label(ctx, spec.name, wx, wy, "rgba(55,68,88,.75)", FONT);
@@ -546,7 +550,6 @@ export function createFloor(spec: FloorSpec) {
     paint(ctx: Ctx, scene: Scene, selected: string | null, hovered: string | null, now: number, figures: Figure[] = []) {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(floor, 0, 0);
-      floorText(ctx, spec);
       const beds = new Map(scene.beds.map((b) => [b.bed.label, b]));
       const actors: { depth: number; draw: () => void }[] = [
         ...scene.spots.map((p) => ({ depth: depthOf(p.tile), draw: () => drawSpot(ctx, p.tile, p.cell, p.unit === "MORGUE") })),
@@ -591,6 +594,7 @@ export function createFloor(spec: FloorSpec) {
         ctx.drawImage(b.cell === null ? item.empty! : b.cell.dead ? item.body! : item.image, item.dx, item.dy);
       }
       while (next < actors.length) actors[next++].draw();
+      floorText(ctx, spec); // names sit over the furniture, not under it
 
       for (const d of scene.drawers) {
         if (!d.full) continue;
@@ -862,7 +866,6 @@ export function createW4() {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(floor, 0, 0);
 
-      floorText(ctx, W4);
       const actors = s.staff
         .map((m) => ({ id: m.id, depth: m.x + m.y + 0.01 }))
         .sort((a, b) => a.depth - b.depth);
@@ -881,6 +884,7 @@ export function createW4() {
         next += 1;
       }
 
+      floorText(ctx, W4);
       MACHINES.forEach(([id, tile, name, lift], i) => {
         const [x, y] = iso(tile[0] + 0.5, tile[1] + 0.5);
         if (i < 4) {

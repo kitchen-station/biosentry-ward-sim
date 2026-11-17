@@ -23,10 +23,9 @@ const WALLS: Faces = ["#FFFFFF", "#F4F6F9", "#E4E8EE"];
 const EDGE = ["#D5DBE3", "#C8CFD9"]; // the slim line at each floor edge, south and east
 const PAVE: Faces = ["#E1E7EE", "#CFD6DF", "#C2CAD5"];
 const PARAPET: Faces = ["#F4F6F9", "#DDE2E9", "#CDD3DC"];
-const PAD: Faces = ["#A4AFC0", "#8D99AC", "#7E8A9E"];
-const LIT = "#FBE8A9"; // a ribbon segment with people behind it; low contrast with DIM on purpose
-const DIM = "#D6E4F1";
-const MULLION = "#BAC4D0";
+const LIT = "#D3E2F0"; // glass with people behind it: a touch lighter and bluer than DIM, no more // a ribbon segment with people behind it; low contrast with DIM on purpose
+const DIM = "#BFCEDD";
+const MULLION = "#E9EEF4";
 const CORE = "#BBD7EE"; // the glass stair core
 export const PLATE = { x0: -1, y0: -1, x1: MAP_W + 1, y1: MAP_H + 3 };
 const DOORS: [number, number][] = [[5.5, 9.5], [13, 18]]; // GF's south face: the entrance, the emergency bay
@@ -107,10 +106,10 @@ function paintStorey(ctx: Ctx, floor: number, roof: boolean, lit: number) {
   segs.forEach((s, k) => {
     if (s.face === "south") {
       leftFaceBand(ctx, s.from, MAP_H, s.to - s.from, RIBBON.from, RIBBON.to, on.has(k) ? LIT : DIM);
-      leftFaceBand(ctx, s.from, MAP_H, 0.08, RIBBON.from, RIBBON.to, MULLION);
+      for (let m = s.from; m < s.to; m += 0.75) leftFaceBand(ctx, m, MAP_H, 0.07, RIBBON.from, RIBBON.to, MULLION); // thin mullions
     } else {
       rightFaceBand(ctx, MAP_W, s.from, s.to - s.from, RIBBON.from, RIBBON.to, on.has(k) ? LIT : DIM);
-      rightFaceBand(ctx, MAP_W, s.to - 0.08, 0.08, RIBBON.from, RIBBON.to, MULLION);
+      for (let m = s.from; m < s.to; m += 0.75) rightFaceBand(ctx, MAP_W, m, 0.07, RIBBON.from, RIBBON.to, MULLION);
     }
   });
   leftFaceBand(ctx, CORE_AT[0], MAP_H, CORE_AT[1] - CORE_AT[0], 2, STOREY, CORE); // the stair core, storey to storey
@@ -120,6 +119,8 @@ function paintStorey(ctx: Ctx, floor: number, roof: boolean, lit: number) {
     leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 0, 20, "#A3AEBE"); // the emergency bay and its red band
     leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 24, 31, "#E7434A");
   }
+  leftFaceBand(ctx, 0, MAP_H, MAP_W, STOREY - 2, STOREY, "#DCE2EA"); // the slab edge above each storey keeps the floors legible
+  rightFaceBand(ctx, MAP_W, 0, MAP_H, STOREY - 2, STOREY, "#CED5DF");
   inkEdges(ctx, STOREY);
   if (roof) {
     rightFaceBand(ctx, MAP_W, 15.2, 2, 12, 28, "#E7434A"); // the hospital cross, near the top
@@ -129,16 +130,31 @@ function paintStorey(ctx: Ctx, floor: number, roof: boolean, lit: number) {
   }
 }
 
-/** The roof: a low parapet, the helipad and one small unit. */
+/** The roof: tonal paving, a parapet, two plant rooms, rooftop units, a stair head and a helipad with a clear H. */
 function paintRoof(ctx: Ctx) {
   const z = STOREY;
-  box(ctx, 0, 0, MAP_W, MAP_H, 0, WALLS, z);
+  const GREY: Faces = ["#E6EAF0", "#D3D9E1", "#C4CBD5"];
+  const PLANT: Faces = ["#F6F8FA", "#DDE2E9", "#CBD2DB"];
+  const FAN: Faces = ["#B7C1CE", "#9EA9B8", "#8D99A9"];
+  box(ctx, 0, 0, MAP_W, MAP_H, 0, ["#ECEFF3", "#ECEFF3", "#ECEFF3"], z);
+  box(ctx, 1, 1, MAP_W - 2, MAP_H - 2, 0, ["#F4F6F9", "#F4F6F9", "#F4F6F9"], z); // a paler inner deck
+  for (const x of [8, 16, 29]) box(ctx, x, 1, 0.25, MAP_H - 2, 0, GREY, z); // expansion joints
   box(ctx, 0, 0, MAP_W, 0.3, 3, PARAPET, z);
   box(ctx, 0, 0, 0.3, MAP_H, 3, PARAPET, z);
-  box(ctx, 6, 3, 2, 1.5, 6, PARAPET, z); // the one unit
-  box(ctx, 21, 3.5, 10, 10, 1, PAD, z); // the helipad
-  for (const x of [24.3, 26.9]) box(ctx, x, 6, 0.8, 5, 0, [CREAM, CREAM, CREAM], z + 1);
-  box(ctx, 25.1, 8.1, 1.8, 0.8, 0, [CREAM, CREAM, CREAM], z + 1);
+  box(ctx, 2, 2.5, 5, 3.5, 7, PLANT, z); // plant room
+  box(ctx, 2.6, 6.3, 3.5, 1.2, 3, PLANT, z);
+  box(ctx, 9, 2, 3, 2.5, 5, PLANT, z); // a second, lower one
+  for (const [x, y] of [[10, 6], [12.2, 6], [10, 8.2], [12.2, 8.2]]) { // rooftop units with a fan each
+    box(ctx, x, y, 1.6, 1.6, 3, GREY, z);
+    box(ctx, x + 0.4, y + 0.4, 0.8, 0.8, 0, FAN, z + 3);
+  }
+  box(ctx, 14, 2, 4, 3, 5, PLANT, z); // lift and stair head
+  box(ctx, 14.5, 5.5, 3, 0.5, 1, FAN, z);
+  box(ctx, 21, 3.5, 10, 10, 1, ["#B8C3D2", "#9DA9BA", "#8E9AAD"], z); // the helipad
+  box(ctx, 21.4, 3.9, 9.2, 9.2, 0, ["#C6CFDB", "#C6CFDB", "#C6CFDB"], z + 1);
+  for (const [x, y, w, d] of [[21.4, 3.9, 9.2, 0.35], [21.4, 12.75, 9.2, 0.35], [21.4, 3.9, 0.35, 9.2], [30.25, 3.9, 0.35, 9.2]]) box(ctx, x, y, w, d, 0, [CREAM, CREAM, CREAM], z + 1); // the ring
+  for (const x of [24.4, 27]) box(ctx, x, 6, 0.8, 5, 0, [CREAM, CREAM, CREAM], z + 1); // the H
+  box(ctx, 25.2, 8.1, 1.8, 0.8, 0, [CREAM, CREAM, CREAM], z + 1);
   box(ctx, 0, MAP_H - 0.3, MAP_W, 0.3, 3, PARAPET, z);
   box(ctx, MAP_W - 0.3, 0, 0.3, MAP_H, 3, PARAPET, z);
 }
