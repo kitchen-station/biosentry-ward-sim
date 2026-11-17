@@ -290,3 +290,14 @@ summary { cursor: pointer; margin-bottom: var(--gap-sm); }
 /* Settings dialog */
 .settings__group { display: grid; gap: var(--gap-sm); border: 0; }
 .settings .hw-radio { gap: var(--gap-sm); }
+
+/* Skeleton screen: the shell grid stays; blocks stand where the bar, building and side panel will be. */
+.skel__bar { grid-area: bar; display: flex; align-items: center; gap: var(--hw-space-4); padding: var(--hw-space-4) var(--hw-space-5); }
+.skel__bar .hw-skeleton--title { width: 220px; }
+.skel__chip { width: 72px; height: 22px; border-radius: var(--hw-radius-sm); }
+.skel__stage { align-content: center; justify-items: center; gap: var(--hw-space-4); padding: var(--hw-space-6); min-height: 320px; }
+.skel__building { width: min(560px, 80%); height: min(320px, 40vh); border-radius: var(--hw-card-radius); }
+.skel__line { width: 100%; height: 12px; }
+.skel__side { display: grid; align-content: start; gap: var(--hw-space-4); padding: var(--hw-space-5); }
+.skel__tile { width: 100%; height: 96px; border-radius: var(--hw-card-radius); }
+.skel__panel { display: grid; gap: var(--hw-space-3); padding: var(--hw-space-4); }

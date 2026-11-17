@@ -11,6 +11,7 @@ import { openOps } from "./open-ops";
 import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
+import { PanelSkeleton, WardSkeleton } from "./skeleton";
 import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { setRenderDark } from "./render/theme";
@@ -176,7 +177,7 @@ export function App() {
   }, [token, gate, admin, fails]);
   const shown = screen(VIEW_API, admin ? null : token, gate, first);
   if (shown === "loading") {
-    if (fails === 0 || token !== null) return <p className="tag">loading</p>;
+    if (fails === 0 || token !== null) return <WardSkeleton />;
     return (
       <div className="app">
         <header className="topbar">
@@ -752,7 +753,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   };
 
   // Watching a hospital: draw nothing until the units have answered, so the page never shows ward W4 alone and then the building.
-  if (watch && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0))) return <p className="tag" role="status">Loading the hospital</p>;
+  if (watch && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0))) return <WardSkeleton />;
   return (
     <div className="app hw-has-bottomnav">
       <PhoneNav page={page} />
@@ -802,7 +803,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
             </>
           ) : (
             <AnalyticsBoundary onError={() => (Insights = lazy(loadInsights))}>
-            <Suspense fallback={<p className="tag">loading</p>}>
+            <Suspense fallback={<PanelSkeleton label="Loading the analytics" />}>
               <Insights
                 mode={VIEW_API ? "viewer" : HOSPITAL ? "hospital" : "ward"}
                 summary={VIEW_API ? null : summary(statsRef.current)}
