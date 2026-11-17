@@ -792,7 +792,6 @@ export function ViewNav({ page, brand = true }: { page: "simulation" | "analytic
   return (
     <nav className="hw-sidenav" aria-label="View">
       {brand && <Brand />}
-      <p className="hw-sidenav__group">Ward</p>
       {VIEW_LINKS.map((l) => (
         <a key={l.id} className="hw-sidenav__link" href={`#${l.id}`} aria-current={page === l.id ? "page" : undefined}>
           <i className={`hw-icon fa-solid ${l.icon}`} aria-hidden="true" />
@@ -829,16 +828,6 @@ export function PhoneNav({ page }: { page: "simulation" | "analytics" }) {
   );
 }
 
-/** Top centre of the stage: the place in spaced capitals, and how many people are in it. */
-export function StageTitle({ title, count, noun }: { title: string; count: number; noun: string }) {
-  return (
-    <div className="stagetitle">
-      <h2>{title}</h2>
-      <span className="hw-tag" role="status">{count} {noun}</span>
-    </div>
-  );
-}
-
 const occupancyTone = (pct: number | null) => (pct === null ? "" : pct >= 90 ? " hw-tag--danger" : pct >= 75 ? " hw-tag--warning" : " hw-tag--success");
 
 /** The building's floors, in the side column. Prev and Next step through them; the open one is marked. */
@@ -846,10 +835,9 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
   if (floors.length === 0) {
     return (
       <section className="dir" aria-label="Floors">
-        <div className="dirhead"><div><span className="hw-eyebrow">Ward</span><h2>Floors</h2></div></div>
+        <div className="dirhead"><h2>Floors</h2></div>
         <div className="dirlist">
           <div className="dirrow" aria-current="true">
-            <span className="eyebrow">Ward</span>
             <b>{ward?.name ?? "W4"}</b>
             <span className="hw-tag">{ward?.count ?? 0} {ward?.noun ?? "patients"}</span>
             <span className="sub">single ward | no building</span>
@@ -859,9 +847,9 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
     );
   }
   const items = [
-    { floor: null as number | null, eyebrow: "Building", title: "All floors", name: "All floors", tag: String(floors.reduce((n, f) => n + f.census, 0)), tone: "", sub: `${floors.length} floors | roster ${floors.reduce((n, f) => n + f.nurses, 0)}` },
+    { floor: null as number | null, title: "All floors", name: "All floors", tag: String(floors.reduce((n, f) => n + f.census, 0)), tone: "", sub: `${floors.length} floors | roster ${floors.reduce((n, f) => n + f.nurses, 0)}` },
     ...floors.map((f) => ({
-      floor: f.floor as number | null, eyebrow: `Floor ${f.label}`, title: f.name, name: `${f.name}: ${f.units.map((u) => u.name).join(" and ")}`,
+      floor: f.floor as number | null, title: f.name, name: `${f.name}: ${f.units.map((u) => u.name).join(" and ")}`,
       tag: f.occupancyPct === null ? `${f.census}` : `${f.occupancyPct}%`, tone: occupancyTone(f.occupancyPct), sub: `roster ${f.nurses} | ${f.census} of ${f.capacity} beds`,
     })),
   ];
@@ -870,7 +858,7 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
   return (
     <section className="dir" aria-label="Floors">
       <div className="dirhead">
-        <div><span className="hw-eyebrow">Building</span><h2>Floors</h2></div>
+        <h2>Floors</h2>
         <div className="dirnav">
           <button className="hw-button hw-button--sm" aria-label="Previous floor" onClick={() => step(-1)}>{ICON("fa-chevron-up")}</button>
           <button className="hw-button hw-button--sm" aria-label="Next floor" onClick={() => step(1)}>{ICON("fa-chevron-down")}</button>
@@ -878,8 +866,7 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
       </div>
       <div className="dirlist" role="group" aria-label="Floors">
         {items.map((f) => (
-          <button key={f.eyebrow} className="dirrow" aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => onView(f.floor)}>
-            <span className="eyebrow">{f.eyebrow}</span>
+          <button key={f.title} className="dirrow" aria-pressed={view === f.floor} aria-label={f.name} title={f.name} onClick={() => onView(f.floor)}>
             <b>{f.title}</b>
             <span className={`hw-tag${f.tone}`}>{f.tag}</span>
             <span className="sub">{f.sub}</span>
@@ -899,7 +886,6 @@ export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; v
     : [["Floors", floors.length], ["People", floors.reduce((n, x) => n + x.census, 0)], ["Beds", floors.reduce((n, x) => n + x.capacity, 0)], ["Nurses", floors.reduce((n, x) => n + x.nurses, 0)]];
   return (
     <section className="curfloor" aria-label="Current floor">
-      <span className="hw-eyebrow">Current floor</span>
       <h2>{floors.length === 0 ? ward.name : f ? f.name : "Whole building"}</h2>
       <dl>
         {rows.map(([k, v]) => (
@@ -1021,12 +1007,12 @@ export function Inspector({
           </>
         ) : building ? (
           <>
-            <h2 className="ptitle">Pick a floor of the hospital</h2>
+            <h2 className="ptitle">{`${(floors ?? []).reduce((n, f) => n + f.census, 0)} patients on ${(floors ?? []).length} floors`}</h2>
             <p className="story">Click a storey of the building, its sign or a floor button. The building opens up so you can see inside.</p>
           </>
         ) : (
           <>
-            <h2 className="ptitle">Click anything on the ward</h2>
+            <h2 className="ptitle">{`Ward W4: ${s.patients.length} patient${s.patients.length === 1 ? "" : "s"}`}</h2>
             <p className="story">A bed, a person or a machine. It zooms in and its details show here. Click ENTRANCE to see who came and went.</p>
           </>
         )}
