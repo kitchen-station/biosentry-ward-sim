@@ -1,3 +1,4 @@
+import { Settings } from "./settings";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Flip } from "./flip";
 import { Sparkline } from "./chart";
@@ -71,6 +72,8 @@ const OUTCOME: Record<StayOutcome, string> = { discharged: "Discharged", higher_
 
 /** Sets the whole second each frame. Only this component re-renders. Seconds never flip; the date and hour do.
  *  The minute flips only at 10x or slower: at 60x it changes every second. */
+const ICON = (name: string) => <i className={`hw-icon fa-solid ${name}`} aria-hidden="true" />;
+
 function Clock({ src, read, speed }: { src: VitalsSource; read: () => number; speed: number }) {
   const readRef = useRef(read);
   readRef.current = read;
@@ -145,6 +148,7 @@ export function TopBar({
   const running = s.speed > 0 && !s.ended;
   return (
     <header className="topbar">
+      <div className="topinfo">
       <h1>BioSentry ward sim</h1>
       <span className="hw-tag">{hospital || serverHospital ? "Hospital" : "W4"}</span>
       <span className={`hw-tag ${running ? "hw-tag--success" : ""} status`}>
@@ -165,13 +169,9 @@ export function TopBar({
         </span>
       )}
       {s.ended && <span className="hw-tag hw-tag--info">Run ended</span>}
-      {onSignIn && (
-        <>
-          <span className="hw-tag">Watching, read-only</span>
-          <button className="hw-button hw-button--primary hw-button--sm" onClick={onSignIn}>Sign in to control</button>
-        </>
-      )}
-      {onSignOut && <button className="hw-button hw-button--sm" onClick={onSignOut}>Sign out</button>}
+      {onSignIn && <span className="hw-tag">Watching, read-only</span>}
+      </div>
+      <div className="topact">
       {hospital && (
         <>
           <select className="hw-native-select" aria-label="Scenario" title={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
@@ -185,7 +185,7 @@ export function TopBar({
         </>
       )}
       {onReset && (
-        <div className="speeds right" role="group" aria-label="Simulation speed">
+        <div className="speeds" role="group" aria-label="Simulation speed">
           {SPEEDS.map((speed) => (
             <button
               key={speed}
@@ -197,10 +197,10 @@ export function TopBar({
               {speed === 0 ? "Pause" : `${speed}x`}
             </button>
           ))}
-          <button className="hw-button hw-button--sm" onClick={onReset}>Reset</button>
+          <button className="hw-button hw-button--sm" onClick={onReset}>{ICON("fa-rotate-left")}Reset</button>
           {onSkipAhead && (
             <details className="skipmenu">
-              <summary className="hw-button hw-button--sm" title="The server moves the whole run ahead. One skip at a time.">Skip ahead</summary>
+              <summary className="hw-button hw-button--sm" title="The server moves the whole run ahead. One skip at a time.">{ICON("fa-forward")}Skip ahead</summary>
               <div role="group" aria-label="Skip ahead">
                 {SKIPS.map(([minutes, word]) => (
                   <button className="hw-button hw-button--sm" key={minutes} onClick={(e) => { e.currentTarget.closest("details")!.open = false; onSkipAhead(minutes); }}>{word}</button>
@@ -210,6 +210,10 @@ export function TopBar({
           )}
         </div>
       )}
+      {onSignIn && <button className="hw-button hw-button--primary hw-button--sm" onClick={onSignIn}>{ICON("fa-right-to-bracket")}Sign in to control</button>}
+      {onSignOut && <button className="hw-button hw-button--sm" onClick={onSignOut}>{ICON("fa-right-from-bracket")}Sign out</button>}
+      <Settings />
+      </div>
     </header>
   );
 }
@@ -218,10 +222,10 @@ export function TopBar({
 export function ZoomBar({ pct, onZoom, disabled }: { pct: number; onZoom: (action: "in" | "out" | "fit") => void; disabled?: boolean }) {
   return (
     <div className="stagebar zoombar" role="group" aria-label="Zoom">
-      <button className="hw-button hw-button--sm" aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom("out")}>-</button>
+      <button className="hw-button hw-button--sm" aria-label="Zoom out" title="Zoom out (-)" disabled={disabled} onClick={() => onZoom("out")}>{ICON("fa-minus")}</button>
       <span className="zoompct">{pct}%</span>
-      <button className="hw-button hw-button--sm" aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom("in")}>+</button>
-      <button className="hw-button hw-button--sm" title="Fit: back to 100% (0)" disabled={disabled} onClick={() => onZoom("fit")}>Fit</button>
+      <button className="hw-button hw-button--sm" aria-label="Zoom in" title="Zoom in (+)" disabled={disabled} onClick={() => onZoom("in")}>{ICON("fa-plus")}</button>
+      <button className="hw-button hw-button--sm" aria-label="Fit" title="Fit: back to 100% (0)" disabled={disabled} onClick={() => onZoom("fit")}>{ICON("fa-expand")}</button>
     </div>
   );
 }
@@ -271,10 +275,11 @@ function Activity({ src, lines }: { src: VitalsSource; lines: { minute: number; 
   return (
     <>
       <h3>Recent activity</h3>
-      <ol className="hw-timeline">
+      <ol className="hw-timeline evlist">
         {lines.map((line, i) => (
           <li key={i} className="hw-timeline__item">
-            <time className="hw-timeline__time">{clockText(src, line.minute)}</time> {line.text}
+            <time className="hw-timeline__time">{clockText(src, line.minute)}</time>
+            <span className="hw-timeline__text">{line.text}</span>
           </li>
         ))}
       </ol>
@@ -288,11 +293,11 @@ function StayScores({ stay }: { stay: Stay }) {
     <div className="vital hw-card hw-card--outlined">
       <div className="vhead">
         <span>NEWS2 across the stay</span>
-        <span>peak {stay.peak ?? "--"}</span>
+        <b>peak {stay.peak ?? "--"}</b>
       </div>
-      <Sparkline data={stay.scores} width={290} height={30} />
+      <div className="spark"><Sparkline data={stay.scores} width={290} height={30} /></div>
       {/* The numbers behind the line, as the unit census prints them: a line with no number says little. */}
-      <p className="mono">{stayNumbers(stay.scores)}</p>
+      <p className="tiny">{stayNumbers(stay.scores)}</p>
     </div>
   );
 }
@@ -856,8 +861,8 @@ export function Directory({ floors, view, onView, ward }: { floors: FloorSummary
       <div className="dirhead">
         <div><span className="hw-eyebrow">Building</span><h2>Floors</h2></div>
         <div className="dirnav">
-          <button className="hw-button hw-button--sm" onClick={() => step(-1)}>Prev</button>
-          <button className="hw-button hw-button--sm" onClick={() => step(1)}>Next</button>
+          <button className="hw-button hw-button--sm" aria-label="Previous floor" onClick={() => step(-1)}>{ICON("fa-chevron-up")}</button>
+          <button className="hw-button hw-button--sm" aria-label="Next floor" onClick={() => step(1)}>{ICON("fa-chevron-down")}</button>
         </div>
       </div>
       <div className="dirlist" role="group" aria-label="Floors">
@@ -916,18 +921,19 @@ export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
     <section className="events" aria-label="Event log" data-open={open}>
       <div className="evhead">
         <span className="hw-eyebrow">Event log</span>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>Copy</button>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={download}>Download</button>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => setClearedTo(s.log.at(-1)?.minute ?? -1)}>Clear</button>
-        <button className="hw-button hw-button--sm" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Collapse" : "Expand"}</button>
+        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>{ICON("fa-copy")}Copy</button>
+        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={download}>{ICON("fa-download")}Download</button>
+        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => setClearedTo(s.log.at(-1)?.minute ?? -1)}>{ICON("fa-eraser")}Clear</button>
+        <button className="hw-button hw-button--sm" aria-expanded={open} onClick={() => setOpen(!open)}>{ICON(open ? "fa-compress" : "fa-expand")}{open ? "Collapse" : "Expand"}</button>
       </div>
       {shown.length === 0 ? (
         <p className="tiny">No events yet.</p>
       ) : (
-        <ol className="hw-timeline">
+        <ol className="hw-timeline evlist">
           {shown.map((l, i) => (
             <li key={i} className="hw-timeline__item">
-              <time className="hw-timeline__time">{clockText(src, l.minute)}</time> {l.text}
+              <time className="hw-timeline__time">{clockText(src, l.minute)}</time>
+              <span className="hw-timeline__text">{l.text}</span>
             </li>
           ))}
         </ol>
@@ -958,7 +964,7 @@ export function SidePanel({ children }: { children: ReactNode }) {
   return (
     <div className={open ? "side" : "side shut"}>
       <button type="button" className="sidetab hw-button hw-button--sm" aria-expanded={open} aria-controls="side-body" onClick={toggle}>
-        <i className={`hw-icon fa-solid ${open ? "fa-chevron-right" : "fa-chevron-left"}`} aria-hidden="true" />
+        <i className={`hw-icon fa-solid ${open ? "fa-angles-right" : "fa-angles-left"}`} aria-hidden="true" />
         {open ? "Hide panel" : "Show panel"}
       </button>
       {open && (
@@ -1040,7 +1046,7 @@ export function Inspector({
     const d = p?.decision;
     return (
       <aside className="hw-card hw-card--outlined command">
-        <button className="hw-button hw-button--sm" onClick={() => onSelect(null)}>Back to the list</button>
+        <button className="hw-button hw-button--sm" onClick={() => onSelect(null)}>{ICON("fa-arrow-left")}Back to the list</button>
         <div className="chead">
           <h2>Bed {bed}</h2>
           <span className="hw-tag">{d?.kind === "ranked" ? RISK_WORDS[d.news2.risk] : "Not ranked"}</span>
@@ -1057,7 +1063,7 @@ export function Inspector({
   const staff = s.staff.find((m) => m.id === selected);
   return (
     <aside className="hw-card hw-card--outlined command">
-      <button className="hw-button hw-button--sm" onClick={() => onSelect(null)}>{s.hospital ? "Back to floor" : "Back to full ward"}</button>
+      <button className="hw-button hw-button--sm" onClick={() => onSelect(null)}>{ICON("fa-arrow-left")}{s.hospital ? "Back to floor" : "Back to full ward"}</button>
       <div className="scroll">
         {s.hospital && isHospitalId(selected) ? (
           <HospitalPanel h={s.hospital} id={selected} onSelect={onSelect} floors={floors ?? floorSummary(s.hospital)} vitals={vitals} />

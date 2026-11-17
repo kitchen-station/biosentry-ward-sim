@@ -2,6 +2,7 @@
 // focused and the others ghosted. Three levels: BUILDING (view null, closed), FLOOR (open, one slab live) and THING
 // (zoomed onto one thing on it). Picking a floor opens the building upward into the stack; leaving to All closes it.
 // Reads the sim, never changes it but for draining W4's trolleys while W4 is inside. Time comes only from frame(dt, now).
+import { themed } from "./theme";
 import { clampCam, fitCam, panBy, zoomAbout, ZOOM_MIN, type Cam } from "../camera";
 import { floorSummary, type FloorSummary } from "../building";
 import type { Sim } from "../sim/sim";
@@ -47,7 +48,7 @@ export function nextLevel(l: Level, e: LevelEvent): Level {
 /** `getView` is App's floor (null for the building). `getRisk`: NEWS2 risk by `h:${n}`, read once a minute with the scenes. Same surface as createRenderer, so App drives either. */
 /** `bedsOnly`: the hospital is the public page's, made from the server's open answers. The signs then show beds in use and nothing else. */
 export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => number | null, getRisk: () => Record<string, string | null> = () => ({}), bedsOnly = false): Renderer {
-  const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
+  const ctx = themed(canvas.getContext("2d", { alpha: false })!); // every frame fills the whole canvas
   const w4 = createW4();
   const slabs = FLOORS.map((spec) => (spec === W4 ? null : createFloor(spec)));
   const facade = createFacade(FLOORS.map((f) => f.floor));
@@ -92,7 +93,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
     if (ghostOf[i]?.scene === scene && ghostOf[i]!.blink === b) return; // the picture it holds is this one
     ghostOf[i] = { scene, blink: b };
     version[i] += 1;
-    const g = ghosts[i].getContext("2d")!;
+    const g = themed(ghosts[i].getContext("2d")!);
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, LOGICAL_W * GHOST_BACKING, LOGICAL_H * GHOST_BACKING);
     g.setTransform(GHOST_BACKING, 0, 0, GHOST_BACKING, 0, 0);
@@ -100,7 +101,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   }
   const version = FLOORS.map(() => 0); // each ghost's repaints, so a layer knows when one it holds changed
   ghosts.forEach((_, i) => paintGhost(i, EMPTY, 0));
-  const w4Ghost = ghosts[slabIndex(W4.floor)].getContext("2d")!;
+  const w4Ghost = themed(ghosts[slabIndex(W4.floor)].getContext("2d")!);
   // W4 moves its own trolleys by the time since it was last painted, live or into its ghost. Its ghost is repainted once a
   // blink turn (machines at 4 Hz, high-risk badges at 3 Hz), not every frame: w4Phase is the turn it holds, null for none.
   let w4Dt = 0;
@@ -113,7 +114,7 @@ export function createStackRenderer(canvas: HTMLCanvasElement, getView: () => nu
   // the size of the canvas. Each is recomposed when its key changes: a ghost it holds was repainted (version), the focus,
   // the camera, the canvas; resize, redraw and reset forget both, and so does any frame painted without them.
   const layers = [document.createElement("canvas"), document.createElement("canvas")];
-  const layerCtx = [layers[0].getContext("2d", { alpha: false })!, layers[1].getContext("2d")!];
+  const layerCtx = [themed(layers[0].getContext("2d", { alpha: false })!), themed(layers[1].getContext("2d")!)];
   let layerKey: (unknown[] | null)[] = [null, null];
 
   const cam: Cam = { zoom: 1, x: 0, y: 0 }; // world coordinates

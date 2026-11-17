@@ -334,10 +334,10 @@ export function toLive(w: OpenWard): LiveView {
 }
 
 export type Gate = "trying" | "watch" | "signin";
-export type GateEvent = "probe_ok" | "probe_fail" | "poll_gone" | "leave" | "signed_out";
-/** The page's open-view state. Sign-in, once shown, stays until a reload; a sign-out or a 401 tries once more. A first ask that found the server not reachable sends no event: the page stays "trying" and asks again (App). */
+export type GateEvent = "probe_ok" | "probe_fail" | "poll_gone" | "leave" | "signed_out" | "cancel";
+/** The page's open-view state. Sign-in, once shown, stays until a reload, a cancel, a sign-out or a 401, each of which asks the open view once more. A first ask that found the server not reachable sends no event: the page stays "trying" and asks again (App). */
 export function nextGate(g: Gate, e: GateEvent): Gate {
-  if (e === "signed_out") return "trying";
+  if (e === "signed_out" || (e === "cancel" && g === "signin")) return "trying";
   if (g === "trying") return e === "probe_ok" ? "watch" : e === "probe_fail" ? "signin" : g;
   if (g === "watch" && (e === "poll_gone" || e === "leave")) return "signin";
   return g;

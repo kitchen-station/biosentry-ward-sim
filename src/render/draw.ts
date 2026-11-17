@@ -1,6 +1,7 @@
 // Isometric ward renderer: one Canvas 2D, sprites nearest-neighbour, text at full resolution.
 // Tile (x, y) has its top corner at iso(x, y). Reads the sim, never changes it.
 
+import { themed, tone } from "./theme";
 import { clampCam, fitCam, panBy, zoomAbout, type Cam } from "../camera";
 import { findPath, nurseStand, BEDS, CORRIDOR, MAP_H, MAP_W, STATIONS, bedByLabel, type Bed, type Tile } from "../sim/map";
 import { GROUP_COLOURS, type Cell } from "../building";
@@ -40,7 +41,7 @@ const LINE = "#C5CDD8"; // the thin edge of a label
 const DARK_TAG = "#27303F";
 const SHADOW = "rgba(70,84,104,.18)";
 const SELECT = "#0A59F7"; // hw-ui blue: the selection outline
-const HOVER = "#9DBDFC";
+const HOVER = "#5C8FF9";
 const SOFT: [string, string, string] = ["#FFFFFF", "#E3E8EE", "#D3DAE3"]; // white fittings
 const FONT = '500 7.5px "HarmonyOS Sans", system-ui, sans-serif';
 const FONT_TINY = '600 5.5px "HarmonyOS Sans", system-ui, sans-serif';
@@ -143,30 +144,29 @@ function bake(depth: number, x: number, y: number, w: number, d: number, h: numb
   const image = document.createElement("canvas");
   image.width = right - left;
   image.height = bottom - top;
-  const ctx = image.getContext("2d")!;
+  const ctx = themed(image.getContext("2d")!);
   ctx.translate(-left, -top);
   paint(ctx);
   return { depth, image, dx: left, dy: top };
 }
 
-const hex = (colour: string): [number, number, number] => [
-  parseInt(colour.slice(1, 3), 16),
-  parseInt(colour.slice(3, 5), 16),
-  parseInt(colour.slice(5, 7), 16),
-];
+const hex = (colour: string): [number, number, number] => {
+  const c = tone(colour);
+  return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+};
 
 // [grout, light, dark] per room type; each room reads as its own space.
 const FLOORS: Record<Tint, [string, string, string]> = {
-  bay: ["#CCE3D7", "#DDEFE5", "#DDEFE5"],
-  hdu: ["#CADBEE", "#DCE9F7", "#DCE9F7"],
-  side: ["#E6D9C9", "#F4EBDF", "#F4EBDF"],
-  station: ["#EEE0B8", "#FAF1D3", "#FAF1D3"],
-  office: ["#DED3C4", "#EBE2D5", "#EBE2D5"],
-  utility: ["#DDE3EA", "#EDF0F4", "#EDF0F4"],
-  family: ["#D8D0EA", "#E8E2F4", "#E8E2F4"],
-  comms: ["#C6CFDC", "#D8DFEA", "#D8DFEA"],
-  waiting: ["#F0DFC0", "#FBF0DB", "#FBF0DB"],
-  cold: ["#CAD6DF", "#DCE5EC", "#DCE5EC"],
+  bay: ["#B3D8C3", "#C9E8D7", "#C9E8D7"],
+  hdu: ["#AFCBEA", "#C6DCF3", "#C6DCF3"],
+  side: ["#DCC6AA", "#EBDAC3", "#EBDAC3"],
+  station: ["#E8D286", "#F6E6AC", "#F6E6AC"],
+  office: ["#CBBCA9", "#DFD3C2", "#DFD3C2"],
+  utility: ["#BFCAD6", "#D9E0E8", "#D9E0E8"],
+  family: ["#C6B9E6", "#DCD2F1", "#DCD2F1"],
+  comms: ["#A9B5CA", "#C5CFDF", "#C5CFDF"],
+  waiting: ["#EBC893", "#F8DFB5", "#F8DFB5"],
+  cold: ["#AEC5D5", "#C8DAE6", "#C8DAE6"],
 };
 
 const roomIn = (spec: FloorSpec, x: number, y: number) =>
@@ -175,13 +175,13 @@ const roomIn = (spec: FloorSpec, x: number, y: number) =>
 function floorColour(spec: FloorSpec, tx: number, ty: number, u: number, v: number): [number, number, number] {
   const grout = u - tx < 0.04 || v - ty < 0.04; // a hairline between tiles; every room is one flat colour
   const ch = spec.map[ty]?.[tx];
-  if (ch === "+") return hex(grout ? "#C9D0DA" : "#DCE1E8");
+  if (ch === "+") return hex(grout ? "#B4BDCA" : "#CDD4DD");
   if (ty >= CORRIDOR.y0 && ty <= CORRIDOR.y1) {
-    if (v > 9.4 && v < 9.54) return hex("#BBD0F5"); // wayfinding stripe
-    return hex(grout ? "#E6EAEF" : "#F3F5F8");
+    if (v > 9.4 && v < 9.54) return hex("#9DBBF0"); // wayfinding stripe
+    return hex(grout ? "#DDE2E9" : "#F8F9FB");
   }
   const room = roomIn(spec, tx, ty);
-  if (!room) return hex("#E4E8ED"); // under the walls
+  if (!room) return hex("#C9D0DA"); // under the walls
   const [g, light] = FLOORS[room.floor];
   return hex(grout ? g : light);
 }
@@ -211,8 +211,8 @@ function bakeFloor(spec: FloorSpec): HTMLCanvasElement {
   return canvas;
 }
 
-const WALL: [string, string, string] = ["#FFFFFF", "#EEF1F5", "#DDE2E9"];
-const WALL_EDGE: [string, string, string] = ["#E9EDF2", "#D6DCE4", "#C8CFD9"];
+const WALL: [string, string, string] = ["#FFFFFF", "#C4CCD7", "#A9B3C1"];
+const WALL_EDGE: [string, string, string] = ["#D9DEE6", "#B9C1CD", "#A5AFBD"];
 
 const isWall = (map: string[], x: number, y: number) => ["#", "+", "g"].includes(map[y]?.[x] ?? "");
 const GLASS: [string, string, string] = ["rgba(226,240,250,.85)", "rgba(190,218,240,.5)", "rgba(170,203,232,.5)"];
@@ -237,29 +237,29 @@ function wallItem(map: string[], x: number, y: number): Item {
       if (across) box(ctx, x, y + 0.35, 1, T, h, colours);
     }
     if (y === 0 && x > 0 && x < MAP_W - 1) {
-      leftFaceBand(ctx, x, 1, 1, 0, 5, "#CBD3DD");
+      leftFaceBand(ctx, x, 1, 1, 0, 5, "#B3BCC9");
       if (x % 2 === 0 && x < 31) leftFaceBand(ctx, x, 1, 1, 8, 16, "#D3E5F6", 3);
     }
-    if (x === 0 && y > 0 && y < MAP_H - 1) rightFaceBand(ctx, 1, y, 1, 0, 5, "#C4CCD7");
+    if (x === 0 && y > 0 && y < MAP_H - 1) rightFaceBand(ctx, 1, y, 1, 0, 5, "#A9B3C1");
   });
 }
 
 const SHEET = SOFT;
 const SCREEN: [string, string, string] = ["#6B7688", "#586274", "#586274"];
-const CHAIR: [string, string, string] = ["#C3CCD8", "#A2AEBD", "#909CAC"];
-const DESK: [string, string, string] = ["#E4DCD0", "#CBC1B3", "#BAAF9F"];
+const CHAIR: [string, string, string] = ["#A9B5C5", "#8896AA", "#778599"];
+const DESK: [string, string, string] = ["#CFC0AA", "#B5A58C", "#A09079"];
 const TABLE = DESK;
 const SEAT: [string, string, string] = ["#CFC7F0", "#B4AADF", "#A398D0"];
-const COVER: [string, string, string] = ["#F4F6F9", "#D8DEE6", "#C8D0DA"];
+const COVER: [string, string, string] = ["#E1E6ED", "#C0C9D6", "#AEB8C7"];
 
 /** body: a sheet over the whole length, head included, and no blanket colour. */
 function bedItem(bedX: number, headY: number, footY: number, patient: number | null, body = false): Item {
   const y0 = Math.min(headY, footY);
   const north = headY < footY;
-  const frame: [string, string, string] = ["#FFFFFF", "#E6EBF1", "#D6DDE6"];
+  const frame: [string, string, string] = ["#F6F8FB", "#D3DBE6", "#BFC9D8"];
   const sheet = SHEET;
   const blanket: [string, string, string] =
-    patient === null ? ["#E6EDF4", "#CBD6E1", "#BAC6D3"] : ["#BCD3F8", "#9BBBF0", "#8AAAE2"];
+    patient === null ? ["#C7D9F3", "#A6BFE6", "#92ACD8"] : ["#8DB2F4", "#6B98EA", "#5683D8"];
   return bake(y0 + 1 + bedX, bedX, y0, 1, 2, 16, (ctx) => {
     const x = bedX + 0.12;
     box(ctx, x, y0, 0.76, 2, 4, frame);
@@ -470,10 +470,10 @@ function floorText(ctx: Ctx, spec: FloorSpec) {
     // Inside the room: a name wider than the room's floor steps down a size.
     const room_w = iso(room.x1 + 1, room.y0)[0] - iso(room.x0, room.y1 + 1)[0];
     ctx.font = FONT_SMALL;
-    label(ctx, room.label, x, y, "rgba(40,52,72,.8)", ctx.measureText(room.label).width > room_w * 0.8 ? FONT_TINY : FONT_SMALL);
+    label(ctx, room.label, x, y, INK, ctx.measureText(room.label).width > room_w * 0.8 ? FONT_TINY : FONT_SMALL);
   }
   const [wx, wy] = iso(3, 8.6);
-  label(ctx, spec.name, wx, wy, "rgba(55,68,88,.75)", FONT);
+  label(ctx, spec.name, wx, wy, INK, FONT);
 }
 
 export const roomCentre = (room: SpecRoom) => iso((room.x0 + room.x1 + 1) / 2, (room.y0 + room.y1 + 1) / 2);
@@ -494,7 +494,7 @@ function onFootprint(x: number, y: number, tx: number, ty: number, w: number, d:
 function outline(ctx: Ctx, tx: number, ty: number, w: number, d: number, selected: boolean) {
   const [a, right, b, left] = [iso(tx, ty), iso(tx + w, ty), iso(tx + w, ty + d), iso(tx, ty + d)];
   ctx.strokeStyle = selected ? SELECT : HOVER;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(a[0], a[1]);
   ctx.lineTo(right[0], right[1]);
@@ -535,7 +535,7 @@ export function tagLifts(beds: { id: string; bed: Bed; cell: Cell | null }[]): M
 const cellTag = (ctx: Ctx, c: Cell, x: number, bottom: number) => tag(ctx, cellText(c), x, bottom, c.dead ? undefined : cellDot(c), c.dead);
 const inTag = (x: number, y: number, cx: number, bottom: number, text: string, dot: boolean) =>
   Math.abs(x - cx) <= text.length * 2 + (dot ? 6 : 3) && y >= bottom - 12 && y <= bottom;
-const TROLLEY: [string, string, string] = ["#BCD3F8", "#9BBBF0", "#8AAAE2"];
+const TROLLEY: [string, string, string] = ["#8DB2F4", "#6B98EA", "#5683D8"];
 
 /** A hospital floor other than W4: baked once; who is where comes from its scene (render/scene.ts) at each paint. */
 export function createFloor(spec: FloorSpec) {
@@ -838,7 +838,7 @@ export function createW4() {
       const y0 = Math.min(bed.head[1], bed.foot[1]);
       const [a, right, b, left] = [iso(bed.head[0], y0), iso(bed.head[0] + 1, y0), iso(bed.head[0] + 1, y0 + 2), iso(bed.head[0], y0 + 2)];
       ctx.strokeStyle = isSelected ? SELECT : HOVER;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(a[0], a[1]);
       ctx.lineTo(right[0], right[1]);
@@ -960,7 +960,7 @@ export function createW4() {
 export const backingFor = (scale: number, ratio: number) => Math.max(1, Math.round(scale * ratio));
 
 export function createRenderer(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d", { alpha: false })!; // every frame fills the whole canvas
+  const ctx = themed(canvas.getContext("2d", { alpha: false })!); // every frame fills the whole canvas
   const w4 = createW4();
   const cam: Cam = fitCam(LOGICAL_W, LOGICAL_H); // logical point at the view centre
   const user: Cam = fitCam(LOGICAL_W, LOGICAL_H); // where the camera rests with nothing selected; the default is today's view

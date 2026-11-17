@@ -141,8 +141,8 @@ describe("W4's own patient panel", () => {
     const p = w.patients.find((x) => x.bp !== null)!; // a patient with a cuff reading: the BP form, which draws from the source in render, is not rendered
     const html = renderToStaticMarkup(<Inspector s={w} src={src} selected={p.id} onSelect={noop} onTimeline={noop} />);
     const cards = html.slice(html.indexOf('<div class="vitals">'), html.indexOf('<div class="actions">'));
-    expect(cards.match(/class="vital"/g)).toHaveLength(5);
-    expect(createHash("sha256").update(cards).digest("hex").slice(0, 16)).toBe("517e492f32d0ce62");
+    expect(cards.match(/class="vital hw-card hw-card--outlined"/g)).toHaveLength(5);
+    expect(createHash("sha256").update(cards).digest("hex").slice(0, 16)).toBe("d77fdfa0e4568d57");
   });
 });
 

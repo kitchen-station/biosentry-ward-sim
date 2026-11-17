@@ -244,6 +244,8 @@ describe("the gate (rows of the state table)", () => {
     ["signin", "poll_gone", "signin"],
     ["signin", "signed_out", "trying"],
     ["watch", "signed_out", "trying"],
+    ["signin", "cancel", "trying"],
+    ["watch", "cancel", "watch"],
   ];
   it.each(rows)("%s + %s -> %s", (g, e, n) => expect(nextGate(g, e)).toBe(n));
 
@@ -328,8 +330,8 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
     for (const word of ["1x", "10x", "60x"]) expect(bar).not.toContain(`>${word}</button>`);
     expect(bar).not.toContain('aria-label="Simulation speed"');
     expect(bar).toMatch(/<span class="hw-tag" title="Simulation speed: 1 minute here is 60 ward minutes">60x<\/span>/);
-    expect(bar.match(/<button/g)).toHaveLength(1); // the sign-in button only
-    for (const x of ["<select", "<input", 'role="button"', 'role="radio"', 'role="slider"']) expect(bar).not.toContain(x);
+    expect(bar.slice(0, bar.indexOf("<dialog")).match(/<button/g)).toHaveLength(2); // the sign-in button and the Settings gear
+    for (const x of ["<select", "<input", 'role="button"', 'role="radio"', 'role="slider"']) expect(bar.slice(0, bar.indexOf("<dialog"))).not.toContain(x); // the Settings dialog has its own theme radios
     // The pill is not inside a button.
     expect([...bar.matchAll(/<button[\s\S]*?<\/button>/g)].map((m) => m[0]).join("")).not.toMatch(/\d+x|Paused/);
     const panel = renderToStaticMarkup(createElement(Inspector, { s, src: VIEW_SOURCE, selected: null, onSelect: () => {}, onTimeline: () => {}, watching: true }));

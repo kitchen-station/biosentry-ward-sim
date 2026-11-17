@@ -124,7 +124,7 @@ export function VitalCard({
   data: (number | null)[];
 }) {
   return (
-    <div className="vital" title={source}>
+    <div className="vital hw-card hw-card--outlined" title={source}>
       <div className="vhead">
         <span>{label}</span>
         {quality !== "ok" && <span className="pill"><Flip value={quality} /></span>}

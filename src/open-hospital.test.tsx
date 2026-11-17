@@ -314,7 +314,7 @@ describe("the page's wiring", () => {
   });
 
   it("reads the unit list from the server, and with no list asks no other unit", () => {
-    expect(app).toContain("return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => setUnits(list ?? []) });");
+    expect(app).toContain("return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => { setUnits(list ?? []); setUnitsAsked(true); } });");
     expect(app).toContain('if (unitIds === "") return;');
     expect(app).not.toMatch(/RUN_UNITS|OPEN_UNITS/); // the runner's own list is no longer the page's
   });

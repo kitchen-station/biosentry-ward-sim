@@ -2,6 +2,7 @@
 // and face, one glass stair core, one cross. A storey's floor is its floor map's own logical frame, lifted STOREY px per
 // storey; nothing sits between storeys. Pictures are baked per storey and re-baked only when its lit-segment count changes.
 // Pure: no clock, no random.
+import { themed } from "./theme";
 import { TRIAGE_COLOURS, type FloorSummary } from "../building";
 import { MAP_H, MAP_W } from "../sim/map";
 import { box, iso, leftFaceBand, rightFaceBand } from "./draw";
@@ -17,14 +18,14 @@ const R = iso(MAP_W, 0);
 const B = iso(MAP_W, MAP_H);
 const L = iso(0, MAP_H);
 
-const INK = "#C9D0DA"; // the soft grey line along the corners
+const INK = "#9AA5B5"; // the soft grey line along the corners
 const CREAM = "#FFFFFF";
-const WALLS: Faces = ["#FFFFFF", "#F4F6F9", "#E4E8EE"];
-const EDGE = ["#D5DBE3", "#C8CFD9"]; // the slim line at each floor edge, south and east
+const WALLS: Faces = ["#FFFFFF", "#E6EAF0", "#CFD6DF"];
+const EDGE = ["#B7C0CC", "#A3AEBD"]; // the slim line at each floor edge, south and east
 const PAVE: Faces = ["#E1E7EE", "#CFD6DF", "#C2CAD5"];
 const PARAPET: Faces = ["#F4F6F9", "#DDE2E9", "#CDD3DC"];
-const LIT = "#D3E2F0"; // glass with people behind it: a touch lighter and bluer than DIM, no more // a ribbon segment with people behind it; low contrast with DIM on purpose
-const DIM = "#BFCEDD";
+const LIT = "#D6E8F8"; // glass with people behind it: a touch lighter and bluer than DIM, no more // a ribbon segment with people behind it; low contrast with DIM on purpose
+const DIM = "#A3B9D0";
 const MULLION = "#E9EEF4";
 const CORE = "#BBD7EE"; // the glass stair core
 export const PLATE = { x0: -1, y0: -1, x1: MAP_W + 1, y1: MAP_H + 3 };
@@ -83,7 +84,7 @@ function bakeAt(x0: number, y0: number, x1: number, y1: number, paint: (ctx: Ctx
   const image = document.createElement("canvas");
   image.width = x1 - x0;
   image.height = y1 - y0;
-  const ctx = image.getContext("2d")!;
+  const ctx = themed(image.getContext("2d")!);
   ctx.translate(-x0, -y0);
   paint(ctx);
   return { image, dx: x0, dy: y0 };
@@ -119,8 +120,8 @@ function paintStorey(ctx: Ctx, floor: number, roof: boolean, lit: number) {
     leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 0, 20, "#A3AEBE"); // the emergency bay and its red band
     leftFaceBand(ctx, DOORS[1][0], MAP_H, DOORS[1][1] - DOORS[1][0], 24, 31, "#E7434A");
   }
-  leftFaceBand(ctx, 0, MAP_H, MAP_W, STOREY - 2, STOREY, "#DCE2EA"); // the slab edge above each storey keeps the floors legible
-  rightFaceBand(ctx, MAP_W, 0, MAP_H, STOREY - 2, STOREY, "#CED5DF");
+  leftFaceBand(ctx, 0, MAP_H, MAP_W, STOREY - 2, STOREY, "#B3BCC9"); // the slab edge above each storey keeps the floors legible
+  rightFaceBand(ctx, MAP_W, 0, MAP_H, STOREY - 2, STOREY, "#A3AEBD");
   inkEdges(ctx, STOREY);
   if (roof) {
     rightFaceBand(ctx, MAP_W, 15.2, 2, 12, 28, "#E7434A"); // the hospital cross, near the top
