@@ -308,8 +308,10 @@ describe("the page's wiring", () => {
   const app = readFileSync("src/App.tsx", "utf8");
 
   it("draws the building only when another unit has answered, and takes clicks only on floors and beds", () => {
-    expect(app).toContain("const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);");
-    expect(app).toContain("serverHospital={!!watch && hosp}");
+    expect(app).toContain("const hosp = HOSPITAL || (!!VIEW_API && Object.keys(others).some((id) => id !== OPEN_WARD));");
+    expect(app).toContain("serverHospital={!!VIEW_API && hosp}");
+    expect(app).toContain("sim.hospital = openHospital(othersRef.current, minuteOf(sim));"); // signed in: the rest of the building beside the live ward
+    expect(app).toContain("viewRef.current !== OPEN_FLOOR) return go(\"empty\");"); // signed in: only W4's own beds open
     expect(app).toContain('const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit;');
   });
 

@@ -901,12 +901,10 @@ export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; v
 
 const eventLine = (src: VitalsSource, l: { minute: number; text: string }) => `${clockText(src, l.minute)} ${l.text}`;
 
-/** The log under the stage: the run's latest events. Copy, Download, Clear and Expand act on this page only. */
+/** The log under the stage: the run's latest events. Copy, Download and Expand act on this page only. */
 export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
   const [open, setOpen] = useState(false);
-  // shortcut: Clear hides events up to the last one's minute (the log is capped and a viewer rebuilds it, so no index is stable); later events at that same minute stay hidden too
-  const [clearedTo, setClearedTo] = useState(-1);
-  const lines = s.log.filter((l) => l.minute > clearedTo);
+  const lines = s.log;
   const shown = lines.slice(open ? -20 : -3).reverse();
   const text = () => lines.map((l) => eventLine(src, l)).join("\n");
   const download = () => {
@@ -923,7 +921,6 @@ export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
         <span className="hw-eyebrow">Event log</span>
         <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>{ICON("fa-copy")}Copy</button>
         <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={download}>{ICON("fa-download")}Download</button>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => setClearedTo(s.log.at(-1)?.minute ?? -1)}>{ICON("fa-eraser")}Clear</button>
         <button className="hw-button hw-button--sm" aria-expanded={open} onClick={() => setOpen(!open)}>{ICON(open ? "fa-compress" : "fa-expand")}{open ? "Collapse" : "Expand"}</button>
       </div>
       {shown.length === 0 ? (
