@@ -162,7 +162,7 @@ describe("source scans", () => {
     expect(a).toContain("if (HOSPITAL && world.s.hospital && vitalsRef.current?.world !== world.s) vitalsRef.current = ");
     expect(a).toContain("const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;");
     // The standalone build reads the engine; a watcher of the server's hospital has no engine and reads the open answers' bands.
-    expect(a).toMatch(/createStackRenderer\(canvas, \(\) => viewRef\.current, \(\) => \(vitalsRef\.current \? riskBySel\(vitalsRef\.current\.v\) : openRisk\(othersRef\.current, unitsRef\.current\)\), !!watch\)/); // and a watcher\'s signs show beds in use only
+    expect(a).toMatch(/createStackRenderer\(canvas, \(\) => viewRef\.current, \(\) => \(vitalsRef\.current \? riskBySel\(vitalsRef\.current\.v\) : openRisk\(othersRef\.current, unitsRef\.current\)\), !!VIEW_API\)/); // and a server view\'s signs show beds in use only
     expect(a).toContain("vitals={vitals}");
   });
 
@@ -173,7 +173,7 @@ describe("source scans", () => {
   it("the Entrance skip is hidden in a hospital world; the top bar's +1 day stays", () => {
     const p = code("src/panels.tsx");
     expect(p).toContain("src.admit && !s.outbox && !s.hospital && <button className=\"hw-button hw-button--sm\" onClick={() => skipDay(s, src)}>Skip 1 day</button>");
-    expect(p).toContain("hospital.onSkip}>");
+    expect(p).toContain("onClick={hospital.onSkip} />"); // the dock's +1 day
     expect(p.match(/skipDay\(/g)).toHaveLength(1);
   });
 

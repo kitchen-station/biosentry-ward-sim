@@ -196,7 +196,7 @@ describe("the page for an admin", () => {
 
   it("the top bar says Hospital admin and read-only, with Sign out and no control", () => {
     const html = bar({ admin: true, serverHospital: true, onSignOut: noop });
-    expect(text(html)).toContain("Hospital admin Read-only");
+    expect(text(html)).toContain("Hospital admin, read-only");
     // The kit icon sits before the word; the gear and its dialog (Settings) are the page's own, not a control of the run.
     const topBar = html.slice(0, html.indexOf("<dialog"));
     expect([...topBar.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((x) => x[1].replace(/<i [^>]*><\/i>/g, ""))).toEqual(["Sign out", ""]);
@@ -227,7 +227,7 @@ describe("the page for an admin", () => {
   it("an admin keeps the public drawing, never reads a unit's live view, gets no control, and a clinician's page is as before", () => {
     expect(app).toContain("const shown = screen(VIEW_API, admin ? null : token, gate, first);");
     expect(app).toContain("if (!VIEW_API || watch || admin) return; // an admin does not read a unit's live view");
-    expect(app).toContain("onSignIn={admin ? undefined : watch?.onLeave}");
+    expect(app).toContain("onSignIn: (admin ? undefined : watch?.onLeave),");
     expect(app).toContain("{admin ? (\n            <AdminPanel");
     expect(app).toContain("const cardFor = watch && hosp && !admin ? selected : null;");
     // The admin's requests: three timers at the refresh pace, and the patient's page once per pick.

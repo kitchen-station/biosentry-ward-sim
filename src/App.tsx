@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
@@ -6,12 +6,14 @@ import { SIGN_IN } from "./sign-in-list";
 import { floorOf } from "./hospital-panels";
 import { fetchAdminPatient, fetchAdminRows, fetchAdminStays, fetchAdminUnits, ADMIN_REFRESH_MS, type AdminAnswer, type AdminPatient, type AdminRequest, type AdminRow, type AdminRows, type AdminStay, type AdminUnit } from "./admin-view";
 import { adminFloor, AdminPanel, type Load } from "./admin-panels";
+import { UNITS } from "./sim/hospital/params";
 import { bedSel, openBedOf, openHospital, openRisk, startUnitsList, startUnitsPoll, type DrawnUnit, type OpenViews } from "./open-hospital";
 import { openOps } from "./open-ops";
 import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
-import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
+import { PanelSkeleton, WardSkeleton } from "./skeleton";
+import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, RunBar, TopBar, VIEW_API, ViewNav } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { setRenderDark } from "./render/theme";
 import { useTheme } from "./settings";
@@ -41,6 +43,7 @@ const DAY_STEPS = 1440 * 60; // sim.ts skipDay: MINUTES_PER_DAY (1440, not expor
 const SKIP_CHUNK_MS = 12; // the page paints between chunks of this long
 // A hospital world needs no API and is never a viewer. Nothing is saved by the page, so a reload starts fresh.
 const HOSPITAL = !VIEW_API && !import.meta.env.VITE_API_URL;
+const OPEN_FLOOR = UNITS.find((u) => u.id === OPEN_WARD)!.floor; // the storey of the ward a signed-in clinician reads
 // Once per page load: a restart replaces its own run.
 let CLIENT_ID: string | null = null;
 // The Analytics page loads when it is first opened. ward-stats.ts stays in this chunk: its history starts with the run.
@@ -176,7 +179,7 @@ export function App() {
   }, [token, gate, admin, fails]);
   const shown = screen(VIEW_API, admin ? null : token, gate, first);
   if (shown === "loading") {
-    if (fails === 0 || token !== null) return <p className="tag">loading</p>;
+    if (fails === 0 || token !== null) return <WardSkeleton />;
     return (
       <div className="app">
         <header className="topbar">
@@ -238,11 +241,12 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     const t = setTimeout(() => setLate(true), 5000);
     return () => clearTimeout(t);
   }, []);
-  const unitIds = units.map((u) => u.id).filter((id) => id !== OPEN_WARD).join(",");
+  // Signed in, W4's open answer is asked too: it places W4's beds in the building; the ward itself is drawn from the signed-in route.
+  const unitIds = units.map((u) => u.id).filter((id) => !watch || id !== OPEN_WARD).join(",");
   const lastOpenRef = useRef<OpenWard | null>(watch?.first ?? null);
-  const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);
-  // Watching a hospital: draw nothing until the units have answered, so the page never shows ward W4 alone and then the building. The canvas does not exist until then.
-  const loading = !!watch && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0));
+  const hosp = HOSPITAL || (!!VIEW_API && Object.keys(others).some((id) => id !== OPEN_WARD));
+  // Viewer mode (watching, or a signed-in clinician): draw nothing until the units have answered, so the page never shows ward W4 alone and then the building. The canvas does not exist until then.
+  const loading = !!VIEW_API && (!!watch || (token !== null && !admin)) && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0));
   const hospRef = useRef(hosp);
   hospRef.current = hosp;
   const theme = useTheme();
@@ -333,15 +337,15 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Watching: the run's units, asked at once and then once a minute. No list: no other unit is asked, and none stays drawn.
+  // Viewer mode (watching or signed in): the run's units, asked at once and then once a minute. No list: no other unit is asked, and none stays drawn.
   useEffect(() => {
-    if (!watch) return;
+    if (!VIEW_API) return;
     return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => { setUnits(list ?? []); setUnitsAsked(true); } });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Watching: the other units, one request per poll in turn. A unit the server does not hold is dropped.
+  // Viewer mode: the other units' open answers, one request per poll in turn. A unit the server does not hold is dropped.
   useEffect(() => {
-    if (!watch) return;
+    if (!VIEW_API) return;
     setOthers((o) => Object.fromEntries(Object.entries(o).filter(([id]) => unitIds.split(",").includes(id)))); // a unit that left the list is not kept
     if (unitIds === "") return;
     return startUnitsPoll({
@@ -383,6 +387,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
         const live = (await response.json()) as LiveView;
         if (off) return;
         const sim = read(live);
+        if (Object.keys(othersRef.current).length > 0) sim.hospital = openHospital(othersRef.current, minuteOf(sim)); // the rest of the building, from the open answers
         viewClock.take(sim.clockS, sim.speed, sim.ended, performance.now());
         // Not awaited: the stays show from the next answer, and a slow read never holds the ward back.
         if (live.shared && performance.now() - staysAt >= STAYS_MS) {
@@ -414,7 +419,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     const canvas = canvasRef.current;
     if (!canvas) return; // still on the loading line
     setRenderDark(theme === "dark"); // before the renderer bakes its floors and facade
-    const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current, unitsRef.current)), !!watch) : createRenderer(canvas);
+    const renderer: Renderer = hosp ? createStackRenderer(canvas, () => viewRef.current, () => (vitalsRef.current ? riskBySel(vitalsRef.current.v) : openRisk(othersRef.current, unitsRef.current)), !!VIEW_API) : createRenderer(canvas);
     rendererRef.current = renderer;
     if (import.meta.env.DEV) Object.assign(window, { __ward: worldRef, __step: step }); // for manual checks
     const holder = canvas.parentElement!;
@@ -576,7 +581,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   };
 
   const vitals = vitalsRef.current?.world === world.s ? vitalsRef.current.v : null;
-  const floors = world.s.hospital ? floorSummary(world.s.hospital, { ...Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null])), ...(vitals ? riskBySel(vitals) : watch ? openRisk(others, units) : {}) }) : [];
+  const floors = world.s.hospital ? floorSummary(world.s.hospital, { ...Object.fromEntries(world.s.patients.map((p) => [p.id, p.decision.kind === "ranked" ? p.decision.news2.risk : null])), ...(vitals ? riskBySel(vitals) : VIEW_API ? openRisk(others, units) : {}) }) : [];
   const views: OpenViews = watch && lastOpenRef.current ? { ...others, [OPEN_WARD]: lastOpenRef.current } : others;
   const viewsRef = useRef(views);
   viewsRef.current = views;
@@ -755,25 +760,20 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     );
   };
 
-  if (loading) return <p className="tag" role="status">Loading the hospital</p>;
-  return (
-    <div className="app hw-has-bottomnav">
-      <PhoneNav page={page} />
-      <div className="shell">
-      <div className="shellbrand"><Brand /></div>
-      <TopBar
-        s={world.s}
-        src={world.src}
-        notice={stageNote ?? viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
-        onSignIn={admin ? undefined : watch?.onLeave}
-        admin={admin}
-        serverHospital={!!watch && hosp}
-        onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}
-        readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
-        onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
-        onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
-        onSkipAhead={send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))}
-        hospital={
+  if (loading) return <WardSkeleton />;
+  const bar: ComponentProps<typeof TopBar> = {
+        s: (world.s),
+        src: (world.src),
+        notice: (stageNote ?? viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)),
+        onSignIn: (admin ? undefined : watch?.onLeave),
+        admin: (admin),
+        serverHospital: (!!VIEW_API && hosp),
+        onSignOut: (VIEW_API && token !== null ? onSignedOut : undefined),
+        readClock: (VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined),
+        onReset: (VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()),
+        onSpeed: (send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))),
+        onSkipAhead: (send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))),
+        hospital: (
           world.s.hospital && !watch
             ? {
                 skipping, onSkip: skipDayChunked, scenario: pick.id, scenarios: NAMED,
@@ -782,8 +782,14 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
                 onShuffle: HOSPITAL ? () => { setView(null); restart({ id: pick.id, seed: drawSeed(() => crypto.getRandomValues(new Uint32Array(1))[0]) }); } : undefined,
               }
             : undefined
-        }
-      />
+        ),
+  };
+  return (
+    <div className="app hw-has-bottomnav">
+      <PhoneNav page={page} />
+      <div className="shell">
+      <div className="shellbrand"><Brand /></div>
+      <TopBar {...bar} />
       <aside className="wardside">
         <ViewNav page={page} brand={false} />
         {page !== "analytics" && <div className="floaters">
@@ -805,7 +811,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
             </>
           ) : (
             <AnalyticsBoundary onError={() => (Insights = lazy(loadInsights))}>
-            <Suspense fallback={<p className="tag">loading</p>}>
+            <Suspense fallback={<PanelSkeleton label="Loading the analytics" />}>
               <Insights
                 mode={VIEW_API ? "viewer" : HOSPITAL ? "hospital" : "ward"}
                 summary={VIEW_API ? null : summary(statsRef.current)}
@@ -840,6 +846,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
               if (watch && !hosp) return; // the ward alone: nothing to select without a token
               const hit = targetAt(e);
               const id = watch && hit && !hit.startsWith("floor:") && !openBedOf(views, hit, units) ? "" : hit; // watching: a floor or a bed in use, nothing else
+              if (!watch && VIEW_API && hosp && hit && !hit.startsWith("floor:") && viewRef.current !== OPEN_FLOOR) return go("empty"); // signed in: another unit's bed is not this reader's to open
               if (!hosp) return select(id);
               if (id?.startsWith("floor:")) return go({ slab: Number(id.slice(6)) });
               if (id && viewRef.current !== null) return go({ thing: id, floor: viewRef.current });
@@ -881,7 +888,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
             }}
           />
           <StageTitle title={hosp ? "BioSentry Hospital" : "Ward W4"} count={hosp ? floors.reduce((n, f) => n + f.census, 0) : world.s.patients.length} noun="patients" />
-          <ZoomBar pct={Math.round((rendererRef.current?.userZoom() ?? 1) * 100)} onZoom={zoomBy} disabled={hosp && view === null} />
+          <RunBar {...bar} zoom={{ pct: Math.round((rendererRef.current?.userZoom() ?? 1) * 100), onZoom: zoomBy, disabled: hosp && view === null }} />
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
           </div>
@@ -907,7 +914,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
       </div>
       <footer className="notice">
         <span>Advisory only. BioSentry does not replace a monitor alarm.</span>
-        {world.s.hospital && <span>{admin ? "Synthetic patients. Hospital admin: every unit, read-only." : watch ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
+        {world.s.hospital && <span>{admin ? "Synthetic patients. Hospital admin: every unit, read-only." : VIEW_API ? "Synthetic patients. Outside ward W4 a bed shows its NEWS2 band only." : "Hospital layer: synthetic. Staffing outside W4 drives observation rounds only; care there is not modelled."}</span>}
         <span className="credit">Set in HarmonyOS Sans</span>
       </footer>
       </div>

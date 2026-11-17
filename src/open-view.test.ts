@@ -313,7 +313,7 @@ describe("sign out", () => {
     expect(nextGate("trying", "probe_fail")).toBe("signin");
   });
   it("App passes the handler only to a signed-in viewer", () => {
-    expect(readFileSync("src/App.tsx", "utf8")).toContain("onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}");
+    expect(readFileSync("src/App.tsx", "utf8")).toContain("onSignOut: (VIEW_API && token !== null ? onSignedOut : undefined),");
   });
 });
 
@@ -323,13 +323,14 @@ describe("no control, no storage, no console (rules 3, 4, 9)", () => {
 
   it("the top bar offers sign-in and no speed or reset; the watch panel has no patient buttons", () => {
     const bar = renderToStaticMarkup(createElement(TopBar, { s, src: VIEW_SOURCE, notice: null, onSignIn: () => {} }));
-    expect(bar).toContain("Sign in to control");
+    expect(bar).toContain("Sign in</button>");
     expect(bar).toContain("Watching, read-only");
     for (const word of ["Pause", "Reset"]) expect(bar).not.toContain(word);
     // The speed shows as read-only text. A speed button or the speed group must not appear.
     for (const word of ["1x", "10x", "60x"]) expect(bar).not.toContain(`>${word}</button>`);
     expect(bar).not.toContain('aria-label="Simulation speed"');
-    expect(bar).toMatch(/<span class="hw-tag" title="Simulation speed: 1 minute here is 60 ward minutes">60x<\/span>/);
+    expect(bar).toContain('title="1 minute here is 60 ward minutes"');
+    expect(bar.replace(/<[^>]+>/g, "")).toContain("Running 60x");
     expect(bar.slice(0, bar.indexOf("<dialog")).match(/<button/g)).toHaveLength(2); // the sign-in button and the Settings gear
     for (const x of ["<select", "<input", 'role="button"', 'role="radio"', 'role="slider"']) expect(bar.slice(0, bar.indexOf("<dialog"))).not.toContain(x); // the Settings dialog has its own theme radios
     // The pill is not inside a button.

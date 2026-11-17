@@ -109,20 +109,7 @@ export function stayNumbers(scores: (number | null)[]): string {
   return v.length === 0 ? "no score yet" : `last ${v[v.length - 1]} · low ${Math.min(...v)} · high ${Math.max(...v)} · ${v.length} hourly score${v.length === 1 ? "" : "s"}`;
 }
 
-export function TopBar({
-  s,
-  src,
-  notice,
-  onSignIn,
-  onSignOut,
-  onReset,
-  onSpeed,
-  onSkipAhead,
-  hospital,
-  serverHospital = false,
-  admin = false,
-  readClock,
-}: {
+type BarProps = {
   s: Sim;
   src: VitalsSource;
   /** Signed in with the admin role: the bar says so, and that the view is read-only. */
@@ -132,7 +119,7 @@ export function TopBar({
   /** Viewer mode: the clock runs on between reads (see clock.ts). Left out, the clock reads the sim itself. */
   readClock?: () => number;
   notice: string | null;
-  /** Watching with no token: a pill and a button that opens the sign-in form. */
+  /** Watching with no token: a button that opens the sign-in form. */
   onSignIn?: () => void;
   /** Viewer mode, signed in: drops the token and asks the open route again. */
   onSignOut?: () => void;
@@ -144,63 +131,81 @@ export function TopBar({
   onSkipAhead?: (minutes: number) => void;
   /** Hospital world only: the scenario picker and +1 day. Floor choice and zoom live on the stage. */
   hospital?: { skipping: boolean; onSkip: () => void; scenario: string; scenarios: { id: string; label: string; sentence: string }[]; onScenario: (id: string) => void; seedText: string; onShuffle?: () => void };
-}) {
+};
+
+/** The app bar: what this page is, whether it runs, the clock, and the account. Run controls live on the stage (RunBar). */
+export function TopBar({ s, src, notice, onSignIn, onSignOut, hospital, serverHospital = false, admin = false, readClock }: BarProps) {
   const running = s.speed > 0 && !s.ended;
+  const mode = admin ? "Hospital admin, read-only" : onSignIn ? "Watching, read-only" : hospital ? "Local simulation" : null;
+  const modeTitle = hospital && !admin && !onSignIn ? "This hospital is made up and runs in this page. It is not the server's run." : undefined;
   return (
     <header className="topbar">
       <div className="topinfo">
-      <h1>BioSentry ward sim</h1>
-      <span className="hw-tag">{hospital || serverHospital ? "Hospital" : "W4"}</span>
-      <span className={`hw-tag ${running ? "hw-tag--success" : ""} status`}>
-        <span className="dot" data-off={running ? undefined : ""} aria-hidden="true" />
-        {s.ended ? "Ended" : running ? "Running" : "Paused"}
-      </span>
-      {serverHospital && <span className="tiny">Server clock</span>}
-      {admin && <span className="hw-tag hw-tag--info">Hospital admin</span>}
-      {admin && <span className="hw-tag">Read-only</span>}
-      {hospital && <span className="hw-tag" title="This hospital is made up and runs in this page. It is not the server's run.">Simulated in your browser, not the server's ward W4</span>}
-      <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
-      <span className="hw-tag" title={s.speed === 0 ? "Simulation speed" : `Simulation speed: 1 minute here is ${s.speed} ${serverHospital ? "hospital" : "ward"} minute${s.speed === 1 ? "" : "s"}`}>
-        {s.speed === 0 ? "Paused" : `${s.speed}x`}
-      </span>
-      {notice && (
-        <span className="hw-tag hw-tag--info" role="status">
-          {notice}
+        <h1>{hospital || serverHospital ? "Hospital" : "Ward W4"}</h1>
+        <span className={`hw-tag ${running ? "hw-tag--success" : ""} status`} title={s.speed === 0 ? undefined : `1 minute here is ${s.speed} ${serverHospital ? "hospital" : "ward"} minute${s.speed === 1 ? "" : "s"}`}>
+          <span className="dot" data-off={running ? undefined : ""} aria-hidden="true" />
+          {s.ended ? "Run ended" : running ? `Running ${s.speed}x` : "Paused"}
         </span>
-      )}
-      {s.ended && <span className="hw-tag hw-tag--info">Run ended</span>}
-      {onSignIn && <span className="hw-tag">Watching, read-only</span>}
+        <span className="topclock hw-text-muted">
+          {serverHospital && <span className="hw-visually-hidden">Server clock </span>}
+          <Clock src={src} speed={s.speed} read={readClock ?? (() => s.clockS)} />
+        </span>
+        {notice && (
+          <span className="hw-tag hw-tag--info" role="status">
+            {notice}
+          </span>
+        )}
       </div>
       <div className="topact">
+        {mode && <span className="hw-tag" title={modeTitle}>{mode}</span>}
+        {onSignIn && <button className="hw-button hw-button--primary hw-button--sm" onClick={onSignIn}>{ICON("fa-right-to-bracket")}Sign in</button>}
+        {onSignOut && <button className="hw-button hw-button--sm" onClick={onSignOut}>{ICON("fa-right-from-bracket")}Sign out</button>}
+        <Settings />
+      </div>
+    </header>
+  );
+}
+
+/** One dock button: icon only, its name in a tooltip on hover and focus (kit tooltip), and as its accessible name. */
+function DockButton({ icon, label, pressed, disabled, onClick, children }: { icon?: string; label: string; pressed?: boolean; disabled?: boolean; onClick: () => void; children?: ReactNode }) {
+  return (
+    <button type="button" className={`hw-button hw-button--sm dock__item${children ? "" : " hw-button--icon"}${pressed ? " hw-button--accent" : ""}`} aria-label={label} aria-pressed={pressed} data-hw-tooltip={label} disabled={disabled} onClick={onClick}>
+      {icon && ICON(icon)}
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The dock: one floating bar at the foot of the stage, like the macOS dock. Scenario and seed (local hospital), speed,
+ * skip, reset and the view's zoom. Icon buttons grow a little on hover and name themselves in a tooltip.
+ */
+export function RunBar({ s, onReset, onSpeed, onSkipAhead, hospital, zoom }: BarProps & { zoom?: { pct: number; onZoom: (action: "in" | "out" | "fit") => void; disabled?: boolean } }) {
+  const sep = <span className="dock__sep" aria-hidden="true" />;
+  return (
+    <div className="dock" role="toolbar" aria-label="Run and view controls">
       {hospital && (
         <>
-          <select className="hw-native-select" aria-label="Scenario" title={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
-            {hospital.scenarios.map((n) => <option key={n.id} value={n.id} title={n.sentence}>{n.label}</option>)}
+          <select className="hw-native-select hw-native-select--sm" aria-label="Scenario" data-hw-tooltip={hospital.scenarios.find((n) => n.id === hospital.scenario)?.sentence ?? "Scenario"} value={hospital.scenario} onChange={(e) => hospital.onScenario(e.target.value)}>
+            {hospital.scenarios.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
           </select>
-          {hospital.onShuffle && (
-            <button className="hw-button hw-button--sm" disabled={hospital.skipping} title="Draw a new seed and restart. Ward W4 starts with 12 newly drawn synthetic patients; arrivals and the hospital change too." onClick={hospital.onShuffle}>Shuffle</button>
-          )}
-          <span className="hw-tag" title="Repeat this run with ?scenario=...&seed=... in the address. With a seed, ward W4's 12 starting patients are drawn from it. Without one, they are the 12 fixture patients, or, for Critical group, 12 drawn from the scenario's own vitals seed.">{hospital.seedText}</span>
-          <button className="hw-button hw-button--sm" disabled={hospital.skipping || s.ended} onClick={hospital.onSkip}>{hospital.skipping ? "skipping…" : "+1 day"}</button>
+          {hospital.onShuffle && <DockButton icon="fa-shuffle" label={`Shuffle: new seed and restart (now ${hospital.seedText})`} disabled={hospital.skipping} onClick={hospital.onShuffle} />}
+          <DockButton icon="fa-calendar-plus" label={hospital.skipping ? "Skipping a day" : "Skip one day"} disabled={hospital.skipping || s.ended} onClick={hospital.onSkip} />
+          {sep}
         </>
       )}
       {onReset && (
-        <div className="speeds" role="group" aria-label="Simulation speed">
-          {SPEEDS.map((speed) => (
-            <button
-              key={speed}
-              className={`hw-button hw-button--sm${s.speed === speed ? " hw-button--accent" : ""}`}
-              aria-pressed={s.speed === speed}
-              disabled={hospital?.skipping}
-              onClick={() => (onSpeed ? onSpeed(speed) : setSpeed(s, speed))}
-            >
-              {speed === 0 ? "Pause" : `${speed}x`}
-            </button>
-          ))}
-          <button className="hw-button hw-button--sm" onClick={onReset}>{ICON("fa-rotate-left")}Reset</button>
+        <>
+          <div className="dock__group" role="group" aria-label="Simulation speed">
+            {SPEEDS.map((speed) => (
+              <DockButton key={speed} icon={speed === 0 ? "fa-pause" : undefined} label={speed === 0 ? "Pause" : `Speed ${speed}x`} pressed={s.speed === speed} disabled={hospital?.skipping} onClick={() => (onSpeed ? onSpeed(speed) : setSpeed(s, speed))}>
+                {speed === 0 ? null : `${speed}x`}
+              </DockButton>
+            ))}
+          </div>
           {onSkipAhead && (
             <details className="skipmenu">
-              <summary className="hw-button hw-button--sm" title="The server moves the whole run ahead. One skip at a time.">{ICON("fa-forward")}Skip ahead</summary>
+              <summary className="hw-button hw-button--sm hw-button--icon dock__item" aria-label="Skip ahead" data-hw-tooltip="Skip ahead: the server moves the whole run">{ICON("fa-forward")}</summary>
               <div role="group" aria-label="Skip ahead">
                 {SKIPS.map(([minutes, word]) => (
                   <button className="hw-button hw-button--sm" key={minutes} onClick={(e) => { e.currentTarget.closest("details")!.open = false; onSkipAhead(minutes); }}>{word}</button>
@@ -208,13 +213,19 @@ export function TopBar({
               </div>
             </details>
           )}
+          <DockButton icon="fa-rotate-left" label="Reset the run" onClick={onReset} />
+          {zoom && sep}
+        </>
+      )}
+      {zoom && (
+        <div className="dock__group" role="group" aria-label="Zoom">
+          <DockButton icon="fa-minus" label="Zoom out (-)" disabled={zoom.disabled} onClick={() => zoom.onZoom("out")} />
+          <span className="zoompct">{zoom.pct}%</span>
+          <DockButton icon="fa-plus" label="Zoom in (+)" disabled={zoom.disabled} onClick={() => zoom.onZoom("in")} />
+          <DockButton icon="fa-expand" label="Fit: back to 100% (0)" disabled={zoom.disabled} onClick={() => zoom.onZoom("fit")} />
         </div>
       )}
-      {onSignIn && <button className="hw-button hw-button--primary hw-button--sm" onClick={onSignIn}>{ICON("fa-right-to-bracket")}Sign in to control</button>}
-      {onSignOut && <button className="hw-button hw-button--sm" onClick={onSignOut}>{ICON("fa-right-from-bracket")}Sign out</button>}
-      <Settings />
-      </div>
-    </header>
+    </div>
   );
 }
 
@@ -901,12 +912,10 @@ export function CurrentFloor({ floors, view, ward }: { floors: FloorSummary[]; v
 
 const eventLine = (src: VitalsSource, l: { minute: number; text: string }) => `${clockText(src, l.minute)} ${l.text}`;
 
-/** The log under the stage: the run's latest events. Copy, Download, Clear and Expand act on this page only. */
+/** The log under the stage: the run's latest events. Copy, Download and Expand act on this page only. */
 export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
   const [open, setOpen] = useState(false);
-  // shortcut: Clear hides events up to the last one's minute (the log is capped and a viewer rebuilds it, so no index is stable); later events at that same minute stay hidden too
-  const [clearedTo, setClearedTo] = useState(-1);
-  const lines = s.log.filter((l) => l.minute > clearedTo);
+  const lines = s.log;
   const shown = lines.slice(open ? -20 : -3).reverse();
   const text = () => lines.map((l) => eventLine(src, l)).join("\n");
   const download = () => {
@@ -921,10 +930,9 @@ export function EventConsole({ s, src }: { s: Sim; src: VitalsSource }) {
     <section className="events" aria-label="Event log" data-open={open}>
       <div className="evhead">
         <span className="hw-eyebrow">Event log</span>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>{ICON("fa-copy")}Copy</button>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={download}>{ICON("fa-download")}Download</button>
-        <button className="hw-button hw-button--sm" disabled={lines.length === 0} onClick={() => setClearedTo(s.log.at(-1)?.minute ?? -1)}>{ICON("fa-eraser")}Clear</button>
-        <button className="hw-button hw-button--sm" aria-expanded={open} onClick={() => setOpen(!open)}>{ICON(open ? "fa-compress" : "fa-expand")}{open ? "Collapse" : "Expand"}</button>
+        <button className="hw-button hw-button--sm hw-button--icon dock__item" aria-label="Copy the log" data-hw-tooltip="Copy the log" disabled={lines.length === 0} onClick={() => void navigator.clipboard?.writeText(text())}>{ICON("fa-copy")}</button>
+        <button className="hw-button hw-button--sm hw-button--icon dock__item" aria-label="Download the log" data-hw-tooltip="Download the log" disabled={lines.length === 0} onClick={download}>{ICON("fa-download")}</button>
+        <button className="hw-button hw-button--sm hw-button--icon dock__item" aria-expanded={open} aria-label={open ? "Show fewer events" : "Show more events"} data-hw-tooltip={open ? "Show fewer events" : "Show more events"} onClick={() => setOpen(!open)}>{ICON(open ? "fa-compress" : "fa-expand")}</button>
       </div>
       {shown.length === 0 ? (
         <p className="tiny">No events yet.</p>

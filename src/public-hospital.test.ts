@@ -37,8 +37,9 @@ describe("the public page is one page: no switch between worlds", () => {
     expect(code).not.toMatch(/Mechanism axes|fixture\.[\w.[\]]*mechanism|fx\.[\w.[\]]*mechanism/);
   });
   it("the standalone page, now a developer's page, still says it is simulated in the browser", () => {
-    expect(bar({ hospital })).toContain("Simulated in your browser, not the server&#x27;s ward W4");
-    expect(bar({})).not.toContain("Simulated in your browser");
+    expect(bar({ hospital })).toContain(">Local simulation</span>");
+    expect(bar({ hospital })).toContain("It is not the server&#x27;s run.");
+    expect(bar({})).not.toContain("Local simulation");
   });
 });
 

@@ -6,7 +6,7 @@ import { createSyntheticSource, FIXTURE_SEED, SYNTHETIC_RULES, type VitalsSource
 
 // VIEW_API is read when panels loads, so the viewer build is set first.
 vi.stubEnv("VITE_VIEW_API_URL", "http://api");
-const { Inspector, SidePanel, TopBar } = await import("./panels");
+const { Inspector, RunBar, SidePanel, TopBar } = await import("./panels");
 
 // The viewer's source, as App builds it: no inject, startAf or admit.
 const VIEW_SOURCE: VitalsSource = { synthetic: true, rules: SYNTHETIC_RULES, seeds: () => [], read: () => null, cuff: () => null };
@@ -27,26 +27,30 @@ describe("the top bar", () => {
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />)).not.toContain("Skip ahead"); // a viewer
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} admin />)).not.toContain("Skip ahead"); // the hospital admin
     expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />)).not.toContain("Skip ahead");
-    const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} onSkipAhead={noop} />);
-    expect(html).toMatch(/<details class="skipmenu"><summary class="hw-button hw-button--sm" title="[^"]+"><i class="hw-icon fa-solid fa-forward" aria-hidden="true"><\/i>Skip ahead<\/summary><div role="group" aria-label="Skip ahead">/);
+    expect(renderToStaticMarkup(<RunBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />)).not.toContain("Skip ahead");
+    const html = renderToStaticMarkup(<RunBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} onSkipAhead={noop} />);
+    expect(html).toMatch(/<details class="skipmenu"><summary class="hw-button hw-button--sm hw-button--icon dock__item" aria-label="Skip ahead" data-hw-tooltip="[^"]+"><i class="hw-icon fa-solid fa-forward" aria-hidden="true"><\/i><\/summary><div role="group" aria-label="Skip ahead">/);
     expect([...html.matchAll(/<button[^>]*>(\+[^<]+)<\/button>/g)].map((x) => x[1])).toEqual(["+1 h", "+6 h", "+12 h", "+1 day"]);
     // The page only asks: the one sender exists when the server said can_control, and nothing is stepped here.
     const app = readFileSync("src/App.tsx", "utf8");
-    expect(app).toContain('onSkipAhead={send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))}');
+    expect(app).toContain('onSkipAhead: (send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))),');
     expect(app).toMatch(/const send = canControl\n\s+\? async \(body: CommandBody\) => \{/);
     expect(app).toContain("setCanControl(live.can_control === true);");
   });
 
   it("shows the runner's speed as read-only text in viewer, and the clock with seconds", () => {
     const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} />);
-    expect(html).toContain('<span class="hw-tag" title="Simulation speed: 1 minute here is 60 ward minutes">60x</span>');
+    expect(html).toContain('title="1 minute here is 60 ward minutes"');
+    expect(html.replace(/<[^>]+>/g, "")).toContain("Running 60x");
     expect(html.replace(/<[^>]+>/g, "")).toContain("3 Sept 2026, 15:00:00 Manila");
   });
 
   it("shows the runner's speed, and offers pause, 1x, 10x, 60x and Reset, once control is on", () => {
-    const html = renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />);
-    for (const label of ["Pause", "1x", "10x", "60x", "Reset"]) expect(html).toContain(`>${label}</button>`);
-    expect(html).toMatch(/hw-button--accent" aria-pressed="true"[^>]*>60x</); // createSim starts at 60x: the published speed, not a local guess
+    expect(renderToStaticMarkup(<TopBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />)).not.toContain("Pause"); // the controls live in the dock, not the app bar
+    const html = renderToStaticMarkup(<RunBar s={s} src={VIEW_SOURCE} notice={null} onReset={noop} onSpeed={noop} />);
+    for (const label of ["1x", "10x", "60x"]) expect(html).toContain(`>${label}</button>`);
+    for (const label of ["Pause", "Reset the run"]) expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toMatch(/hw-button--accent" aria-label="Speed 60x" aria-pressed="true"/); // createSim starts at 60x: the published speed, not a local guess
   });
 });
 
