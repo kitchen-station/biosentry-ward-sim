@@ -104,24 +104,25 @@ describe("read-only", () => {
     }
   });
 
+  // The two tests below each need a second run of seed 101 and a run of seed 102, fed the same way: each is run once, on first use, and shared.
+  const fedAgain = (seed: number) => {
+    const vv = createVitals();
+    run(seed, 60, DAY, (s) => feedVitals(vv, s.hospital!, s.clockS));
+    return vv;
+  };
+  const extra = new Map<number, HospitalVitals>();
+  const fedOnce = (seed: number) => { if (!extra.has(seed)) extra.set(seed, fedAgain(seed)); return extra.get(seed)!; };
+
   it("gives the same summary for the same seed, and a different one for another seed", () => {
-    const again = createVitals();
-    run(101, 60, DAY, (s) => feedVitals(again, s.hospital!, s.clockS));
-    expect(summary(again)).toEqual(summary(v));
-    const other = createVitals();
-    run(102, 60, DAY, (s) => feedVitals(other, s.hospital!, s.clockS));
-    expect(summary(other)).not.toEqual(summary(v));
+    expect(summary(fedOnce(101))).toEqual(summary(v));
+    expect(summary(fedOnce(102))).not.toEqual(summary(v));
   });
 
   it("gives the same pageView for the same seed, and a different one for another seed", () => {
-    const again = createVitals();
-    run(101, 60, DAY, (s) => feedVitals(again, s.hospital!, s.clockS));
-    expect(pageView(again)).toEqual(pageView(v));
+    expect(pageView(fedOnce(101))).toEqual(pageView(v));
     expect(pageView(v).hourly).not.toBe(v.hourly); // a copy: the page cannot change the engine's rows
     expect(pageView(v).hourly[0]).not.toBe(v.hourly[0]);
-    const other = createVitals();
-    run(102, 60, DAY, (s) => feedVitals(other, s.hospital!, s.clockS));
-    expect(pageView(other)).not.toEqual(pageView(v));
+    expect(pageView(fedOnce(102))).not.toEqual(pageView(v));
   });
 
   it("counts every read in an hour row: the levels sum to read in a ranked unit, and intensive care holds no level", () => {

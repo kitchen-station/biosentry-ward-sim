@@ -1124,9 +1124,16 @@ describe("names and look (A3)", () => {
 
 describe("returning people (A3)", () => {
   const R = PARAMS.returns;
-  const month = (seed: number, sc: Scenario = SC.typical, port: () => FakePort = acceptingPort) => {
+  // The same month (seed, scenario, every PARAMS value) is read by several tests and none changes it: it is run once.
+  const months = new Map<string, ReturnType<typeof runMonth>>();
+  const runMonth = (seed: number, sc: Scenario, port: () => FakePort) => {
     const h = createHospital(seed, sc);
     return { h, ...run(h, port(), 0, 30 * DAY) };
+  };
+  const month = (seed: number, sc: Scenario = SC.typical, port: () => FakePort = acceptingPort) => {
+    const key = `${seed}|${sc.name}|${port.name}|${JSON.stringify(PARAMS)}`;
+    if (!months.has(key)) months.set(key, runMonth(seed, sc, port));
+    return months.get(key)!;
   };
   const wardDischarges = (events: EventRow[]) => events.filter((e) => e.kind === "discharge" && e.unit !== "ER").length;
 
