@@ -6,6 +6,7 @@ import type { VitalsSource } from "../source";
 import { createSync } from "../sync";
 import { freshHospital } from "./fresh";
 import { publishHospital } from "./publish";
+import { UNIT_STAFF } from "./staff";
 import { createVitals, feedVitals, type HospitalVitals } from "./vitals";
 
 const RUN = { runId: null, origin: "", cursor: 0, commandCursor: 0 };
@@ -55,7 +56,7 @@ describe("the other units, published", () => {
     expect(b.s.hospital).toEqual(a.s.hospital);
   }, 300_000);
 
-  it("every stay has its own id, a unit, a person and that unit's charge nurse; rows follow their admission; beds are free when taken", async () => {
+  it("every stay has its own id, a unit, a person, one of that unit's two staff nurses and its physician; rows follow their admission; beds are free when taken", async () => {
     const { posts } = await day();
     const adm = batches(posts).flatMap((x) => x.admissions ?? []);
     const other = adm.filter((a: Body) => a.unit);
@@ -64,9 +65,15 @@ describe("the other units, published", () => {
     expect(new Set(other.map((a: Body) => a.unit))).toContain("ER");
     for (const a of other) {
       expect(a.person).toMatch(/^h-/);
-      expect(a.rn).toBe(`cn-${a.unit.toLowerCase()}`);
-      expect(a.md).toBeNull();
+      const staff = UNIT_STAFF[a.unit];
+      expect(staff.nurses.map((n) => n[0])).toContain(a.rn); // never the charge nurse: the API adds that one itself
+      expect(a.md).toBe(staff.md[0]);
     }
+    // The two nurses take turns: over a day in the emergency room neither has more than two thirds of the arrivals.
+    const er = other.filter((a: Body) => a.unit === "ER");
+    const first = er.filter((a: Body) => a.rn === UNIT_STAFF.ER.nurses[0][0]).length;
+    expect(first / er.length).toBeGreaterThan(1 / 3);
+    expect(first / er.length).toBeLessThan(2 / 3);
     // Rows come after their admission, in the order sent.
     const known = new Set<string>(posts[0].body.patients.map((p: Body) => p.id));
     for (const x of batches(posts)) {

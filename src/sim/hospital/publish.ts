@@ -2,7 +2,8 @@
 // person's id (hospital-contract v1, sections 2 and 3). Read-only: it reads the engine and the hospital, writes only the
 // outbox, and draws no random number. W4's own people are sent by the ward and are not touched here.
 //
-//  - A person seen outside W4 gets a stay (an admission row with the unit, the person and that unit's charge nurse).
+//  - A person seen outside W4 gets a stay (an admission row with the unit, the person, one of that unit's two staff nurses
+//    and its physician: src/sim/hospital/staff.ts). The API adds the unit's charge nurse by itself.
 //  - A move is the old stay ending `transferred` with `to_unit`, then a new stay with a new id. The new row carries the
 //    person's recent 15-minute values (the engine's own history), so the chart goes on. Moves into W4 end the old stay;
 //    the W4 half is the ward's own admission.
@@ -10,6 +11,7 @@
 //  - The engine is display only: nothing sent here changes care, and a dashboard action on one of these stays changes nothing.
 import { patientRow, record, type Outbox, type PublishedStay, type Sim } from "../sim";
 import { VITALS } from "../source";
+import { assigned } from "./staff";
 import type { HospitalVitals } from "./vitals";
 
 const STORY = "Synthetic hospital person from the vitals engine; display only.";
@@ -41,7 +43,8 @@ export function publishHospital(s: Sim, v: HospitalVitals): void {
       const q = h.people.find((x) => x.id === pv.id);
       const id = `${pv.id}.${pv.visit}.${k}`;
       // The bed label is the person's own number: a slot changes while a stay is open and is reused by others, so it is not a safe label.
-      const copy = { ...pv.p, id, bed: `${pv.unit}-${pv.n}`, rn: `cn-${pv.unit.toLowerCase()}`, listMd: null, context: q?.complaint ?? "", story: STORY };
+      const who = assigned(pv.unit, pv.n); // one of the unit's two staff nurses, and its physician
+      const copy = { ...pv.p, id, bed: `${pv.unit}-${pv.n}`, rn: who.rn, listMd: who.md, context: q?.complaint ?? "", story: STORY };
       out.admissions.push({ ...patientRow(copy, [], minute - (minute % 15)), person: pv.id, unit: pv.unit, minute });
       record(s, copy, pv.next - 1);
       stays[pv.id] = { id, unit: pv.unit, visit: pv.visit, reads: pv.reads, k };
