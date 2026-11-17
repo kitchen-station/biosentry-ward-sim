@@ -262,3 +262,6 @@ summary { cursor: pointer; margin-bottom: var(--hw-space-3); }
 .insights .fig button { justify-self: start; }
 .insights .scroll { max-height: 220px; overflow: auto; }
 .insights select { max-width: 100%; }
+
+/* The kit's reset removes the browser's auto margin, which leaves a modal dialog in the top-left corner. */
+.signin { margin: auto; }

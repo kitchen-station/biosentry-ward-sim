@@ -60,7 +60,7 @@ function newWorld(pick: Pick): { s: Sim; src: VitalsSource } {
 /** The API's hospital admin: reads every unit, changes nothing. The passphrase is typed by the person, as for a clinician. */
 const ADMIN_ID = "admin-garcia";
 
-function SignIn({ onToken }: { onToken: (token: string, role: string | null) => void }) {
+function SignIn({ onToken, onCancel }: { onToken: (token: string, role: string | null) => void; onCancel?: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -101,7 +101,7 @@ function SignIn({ onToken }: { onToken: (token: string, role: string | null) => 
         <h1>BioSentry ward sim</h1>
         <span className="hw-tag">W4</span>
       </header>
-      <dialog ref={dialog} className="hw-dialog hw-dialog--sm signin" aria-labelledby="signin-title" onCancel={(e) => e.preventDefault()}>
+      <dialog ref={dialog} className="hw-dialog hw-dialog--sm signin" aria-labelledby="signin-title" onCancel={(e) => { e.preventDefault(); onCancel?.(); }}>
         <form onSubmit={submit}>
           <div className="hw-dialog__header">
             <h2 className="hw-dialog__title" id="signin-title">Sign in to BioSentry</h2>
@@ -131,6 +131,7 @@ function SignIn({ onToken }: { onToken: (token: string, role: string | null) => 
             </div>
           </div>
           <div className="hw-dialog__footer">
+            {onCancel && <button className="hw-button" type="button" onClick={onCancel}>Keep watching</button>}
             <button className="hw-button hw-button--primary" type="submit" disabled={busy}>
               Sign in
             </button>
@@ -190,6 +191,7 @@ export function App() {
   if (shown === "signin" && !admin) {
     return (
       <SignIn
+        onCancel={first ? () => setGate((g) => nextGate(g, "cancel")) : undefined}
         onToken={(t, r) => {
           setToken(t);
           setRole(r);
@@ -228,6 +230,12 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   const [units, setUnits] = useState<DrawnUnit[]>([]);
   const unitsRef = useRef(units);
   unitsRef.current = units;
+  const [unitsAsked, setUnitsAsked] = useState(false); // the units list has answered once (even with none)
+  const [late, setLate] = useState(false); // after 5 s the page draws what it has, so a slow unit never holds it back
+  useEffect(() => {
+    const t = setTimeout(() => setLate(true), 5000);
+    return () => clearTimeout(t);
+  }, []);
   const unitIds = units.map((u) => u.id).filter((id) => id !== OPEN_WARD).join(",");
   const lastOpenRef = useRef<OpenWard | null>(watch?.first ?? null);
   const hosp = HOSPITAL || (!!watch && Object.keys(others).length > 0);
@@ -323,7 +331,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   // Watching: the run's units, asked at once and then once a minute. No list: no other unit is asked, and none stays drawn.
   useEffect(() => {
     if (!watch) return;
-    return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => setUnits(list ?? []) });
+    return startUnitsList({ fetch: window.fetch.bind(window), base: VIEW_API!, onUnits: (list) => { setUnits(list ?? []); setUnitsAsked(true); } });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Watching: the other units, one request per poll in turn. A unit the server does not hold is dropped.
@@ -739,6 +747,8 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
     );
   };
 
+  // Watching a hospital: draw nothing until the units have answered, so the page never shows ward W4 alone and then the building.
+  if (watch && !late && !(unitsAsked && (unitIds === "" || Object.keys(others).length > 0))) return <p className="tag" role="status">Loading the hospital</p>;
   return (
     <div className="app hw-has-bottomnav">
       <PhoneNav page={page} />

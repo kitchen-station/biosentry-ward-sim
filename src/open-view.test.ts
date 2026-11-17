@@ -244,6 +244,8 @@ describe("the gate (rows of the state table)", () => {
     ["signin", "poll_gone", "signin"],
     ["signin", "signed_out", "trying"],
     ["watch", "signed_out", "trying"],
+    ["signin", "cancel", "trying"],
+    ["watch", "cancel", "watch"],
   ];
   it.each(rows)("%s + %s -> %s", (g, e, n) => expect(nextGate(g, e)).toBe(n));
 
