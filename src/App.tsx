@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentProps, type FormEvent } from "react";
 import { stepZoom, wheelZoom } from "./camera";
 import { floorSummary } from "./building";
 import { createVitals, feedVitals, pageView, riskBySel, type HospitalVitals } from "./sim/hospital/vitals";
@@ -13,7 +13,7 @@ import { Operations } from "./insights/operations";
 import { OpenHospitalPanel, type CardState } from "./open-panels";
 import { fetchOpenCard, fetchOpenWard, FIRST_ASK_TIMEOUT_MS, firstAskWaitMs, nextGate, noDrawing, OPEN_WARD, screen, startOpenPoll, toLive, UNREACHABLE, type Gate, type OpenWard } from "./open-view";
 import { PanelSkeleton, WardSkeleton } from "./skeleton";
-import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, TopBar, VIEW_API, ViewNav, ZoomBar } from "./panels";
+import { BedTimeline, Brand, CurrentFloor, Directory, EventConsole, Inspector, PhoneNav, SelectList, SidePanel, selectTargets, StageTitle, stamp, RunBar, TopBar, VIEW_API, ViewNav } from "./panels";
 import { wardSnapshot } from "./bridge/snapshot";
 import { setRenderDark } from "./render/theme";
 import { useTheme } from "./settings";
@@ -761,24 +761,19 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
   };
 
   if (loading) return <WardSkeleton />;
-  return (
-    <div className="app hw-has-bottomnav">
-      <PhoneNav page={page} />
-      <div className="shell">
-      <div className="shellbrand"><Brand /></div>
-      <TopBar
-        s={world.s}
-        src={world.src}
-        notice={stageNote ?? viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)}
-        onSignIn={admin ? undefined : watch?.onLeave}
-        admin={admin}
-        serverHospital={!!VIEW_API && hosp}
-        onSignOut={VIEW_API && token !== null ? onSignedOut : undefined}
-        readClock={VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined}
-        onReset={VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()}
-        onSpeed={send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))}
-        onSkipAhead={send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))}
-        hospital={
+  const bar: ComponentProps<typeof TopBar> = {
+        s: (world.s),
+        src: (world.src),
+        notice: (stageNote ?? viewNotice ?? commandText ?? (syncRef.current?.stopped ? STOP_TEXT[syncRef.current.stopped] : null)),
+        onSignIn: (admin ? undefined : watch?.onLeave),
+        admin: (admin),
+        serverHospital: (!!VIEW_API && hosp),
+        onSignOut: (VIEW_API && token !== null ? onSignedOut : undefined),
+        readClock: (VIEW_API ? () => (viewClock.has() ? viewClock.read(performance.now()) : worldRef.current.s.clockS) : undefined),
+        onReset: (VIEW_API ? send && (() => void send({ kind: "reset", patient_id: null, speed: null })) : () => restart()),
+        onSpeed: (send && ((speed) => void send({ kind: "set_speed", patient_id: null, speed }))),
+        onSkipAhead: (send && ((minutes) => void send({ kind: "skip", patient_id: null, speed: null, minutes }))),
+        hospital: (
           world.s.hospital && !watch
             ? {
                 skipping, onSkip: skipDayChunked, scenario: pick.id, scenarios: NAMED,
@@ -787,8 +782,14 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
                 onShuffle: HOSPITAL ? () => { setView(null); restart({ id: pick.id, seed: drawSeed(() => crypto.getRandomValues(new Uint32Array(1))[0]) }); } : undefined,
               }
             : undefined
-        }
-      />
+        ),
+  };
+  return (
+    <div className="app hw-has-bottomnav">
+      <PhoneNav page={page} />
+      <div className="shell">
+      <div className="shellbrand"><Brand /></div>
+      <TopBar {...bar} />
       <aside className="wardside">
         <ViewNav page={page} brand={false} />
         {page !== "analytics" && <div className="floaters">
@@ -887,7 +888,7 @@ function Ward({ token, admin, onSignedOut, watch, stageNote }: { token: string |
             }}
           />
           <StageTitle title={hosp ? "BioSentry Hospital" : "Ward W4"} count={hosp ? floors.reduce((n, f) => n + f.census, 0) : world.s.patients.length} noun="patients" />
-          <ZoomBar pct={Math.round((rendererRef.current?.userZoom() ?? 1) * 100)} onZoom={zoomBy} disabled={hosp && view === null} />
+          <RunBar {...bar} zoom={{ pct: Math.round((rendererRef.current?.userZoom() ?? 1) * 100), onZoom: zoomBy, disabled: hosp && view === null }} />
           {!watch && selectList}
           {timeline && <BedTimeline s={world.s} src={world.src} onSelect={select} onClose={() => setTimeline(false)} />}
           </div>
