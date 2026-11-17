@@ -38,8 +38,8 @@ const STATES = { "20260903:0": "2a307f43", "20260903:1": "d2c3d2fd", "777:0": "1
 // 42b56d8): the same four values. The raw-float form of this pin (30eab6e0, 071ebad4, a73b6b2a, 34f40790 on macOS) was
 // captured on the untouched tree first and held after the change, on one machine.
 const WHOLE: Record<number, { sim: string; save: string }> = {
-  20260903: { sim: "b9ece37d", save: "7dd9a7a9" },
-  777: { sim: "2c9ee0da", save: "335577ef" },
+  20260903: { sim: "578ddb17", save: "7dd9a7a9" }, // sim moved 2026-11-17 with the rhythm row; save did not
+  777: { sim: "cb5353cf", save: "335577ef" }, // sim moved 2026-11-17 with the rhythm row; save did not
 };
 
 describe("fixture cohort draws as before", () => {

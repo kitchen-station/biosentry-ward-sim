@@ -79,7 +79,7 @@ describe("sync, with a fake fetch", () => {
         ["age", "bed", "bins", "context", "id", "md", "name", "observations", "rn", "sex", "signal_quality", "story", "trend"].sort(),
       );
       expect(p.observations.map((o: Obs) => o.code).sort()).toEqual(
-        ["blood_pressure", "consciousness", "heart_rate", "respiratory_rate", "spo2", "spo2_scale", "supplemental_o2", "temperature"],
+        ["blood_pressure", "consciousness", "heart_rate", "respiratory_rate", "rhythm", "spo2", "spo2_scale", "supplemental_o2", "temperature"],
       );
       expect(p.bins).toHaveLength(48);
       expect(Math.min(...p.bins.map((b: { minute: number }) => b.minute))).toBe(-165);
